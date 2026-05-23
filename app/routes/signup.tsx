@@ -1,5 +1,6 @@
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { Logo } from "../components/Logo";
+import { signInWithMicrosoft } from "../lib/firebase";
 import type { Route } from "./+types/signup";
 
 export function meta({}: Route.MetaArgs) {
@@ -7,6 +8,13 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export default function Signup() {
+  const navigate = useNavigate();
+
+  async function handleSignUp() {
+    await signInWithMicrosoft();
+    navigate("/terms");
+  }
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: "var(--ds-bg)" }}>
 
@@ -23,16 +31,15 @@ export default function Signup() {
           <p className="text-[12px] mt-1" style={{ color: "var(--text-muted)" }}>チームの意思決定を可視化しましょう</p>
         </div>
 
-        <Link to="/terms" className="block">
-          <button
-            type="button"
-            className="w-full flex items-center justify-center gap-2.5 rounded-[9px] py-[11px] text-[13px] font-medium transition hover:opacity-80 border"
-            style={{ background: "var(--input-bg)", borderColor: "var(--ds-border)", color: "var(--text-main)" }}
-          >
-            <TeamsIcon />
-            Microsoft Teams で登録
-          </button>
-        </Link>
+        <button
+          type="button"
+          onClick={handleSignUp}
+          className="w-full flex items-center justify-center gap-2.5 rounded-[9px] py-[11px] text-[13px] font-medium transition hover:opacity-80 border"
+          style={{ background: "var(--input-bg)", borderColor: "var(--ds-border)", color: "var(--text-main)" }}
+        >
+          <TeamsIcon />
+          Microsoft Teams で登録
+        </button>
       </div>
 
       <p className="mt-5 text-[12px]" style={{ color: "var(--text-sub)" }}>

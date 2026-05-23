@@ -1,5 +1,6 @@
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { Logo } from "../components/Logo";
+import { signInWithMicrosoft } from "../lib/firebase";
 import type { Route } from "./+types/login";
 
 export function meta({}: Route.MetaArgs) {
@@ -7,6 +8,13 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export default function Login() {
+  const navigate = useNavigate();
+
+  async function handleSignIn() {
+    await signInWithMicrosoft();
+    navigate("/");
+  }
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: "var(--ds-bg)" }}>
 
@@ -25,6 +33,7 @@ export default function Login() {
 
         <button
           type="button"
+          onClick={handleSignIn}
           className="w-full flex items-center justify-center gap-2.5 rounded-[9px] py-[11px] text-[13px] font-medium transition hover:opacity-80 border"
           style={{ background: "var(--input-bg)", borderColor: "var(--ds-border)", color: "var(--text-main)" }}
         >

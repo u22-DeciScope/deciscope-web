@@ -1,6 +1,9 @@
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
+import { useEffect, useState } from "react";
+import type { User } from "firebase/auth";
 import { Logo } from "../components/Logo";
 import { DsButton } from "../components/DsButton";
+import { onFirebaseUserChanged, signOutOfFirebase } from "../lib/firebase";
 import type { Route } from "./+types/home";
 
 export function meta({}: Route.MetaArgs) {
@@ -26,9 +29,29 @@ const navItems = [
 ];
 
 export default function Home() {
+  const navigate = useNavigate();
+  const [user, setUser] = useState<User | null>(null);
+
   const today = new Date().toLocaleDateString("ja-JP", {
     year: "numeric", month: "long", day: "numeric", weekday: "long",
   });
+
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    onFirebaseUserChanged((u) => setUser(u))
+      .then((cleanup) => { unsubscribe = cleanup; })
+      .catch(() => {});
+    return () => { unsubscribe?.(); };
+  }, []);
+
+  async function handleLogout() {
+    await signOutOfFirebase();
+    navigate("/login");
+  }
+
+  const displayName = user?.displayName ?? "ゲスト";
+  const displayEmail = user?.email ?? "";
+  const avatarLetter = displayName.charAt(0);
 
   return (
     <div className="h-screen flex overflow-hidden p-[9px] gap-[8px]" style={{ background: "var(--ds-bg)" }}>
@@ -62,16 +85,33 @@ export default function Home() {
         </nav>
 
         {/* ユーザー行 */}
-        <div className="relative z-10 flex items-center gap-2.5 px-4 py-3 border-t" style={{ borderColor: "var(--ds-border)" }}>
-          <div
-            className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0"
-            style={{ background: "var(--brand)" }}
-          >
-            山
-          </div>
-          <div className="min-w-0">
-            <p className="text-[12px] font-semibold truncate" style={{ color: "var(--text-main)" }}>山田 太郎</p>
-            <p className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>yukid@example.com</p>
+        <div className="relative z-10 border-t" style={{ borderColor: "var(--ds-border)" }}>
+          <div className="flex items-center gap-2.5 px-4 py-3">
+            {user?.photoURL ? (
+              <img src={user.photoURL} alt="" className="w-7 h-7 rounded-full shrink-0 object-cover" />
+            ) : (
+              <div
+                className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0"
+                style={{ background: "var(--brand)" }}
+              >
+                {avatarLetter}
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold truncate" style={{ color: "var(--text-main)" }}>{displayName}</p>
+              <p className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>{displayEmail}</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="shrink-0 p-1 rounded-[6px] transition hover:opacity-70"
+              title="ログアウト"
+              style={{ color: "var(--text-muted)" }}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+            </button>
           </div>
         </div>
       </div>
@@ -85,7 +125,9 @@ export default function Home() {
           style={{ boxShadow: "var(--ds-shadow)" }}
         >
           <div>
-            <p className="text-[15px] font-bold" style={{ color: "var(--text-main)" }}>おはようございます、山田さん</p>
+            <p className="text-[15px] font-bold" style={{ color: "var(--text-main)" }}>
+              おはようございます、{user?.displayName?.split(" ")[0] ?? "ゲスト"}さん
+            </p>
             <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>{today}</p>
           </div>
           <Link to="/meeting/new">
