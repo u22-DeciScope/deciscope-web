@@ -5,11 +5,61 @@
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
-html,
-body {
-  @apply bg-white dark:bg-gray-950;
+/* ============================================================
+   Global design tokens
+   ============================================================ */
+:root {
+  /* ---- Surfaces ---- */
+  --ds-bg:      #dff1fc;
+  --ds-surface: #ffffff;
+  --ds-shadow:  0px 2px 16px 0px rgba(26, 95, 138, 0.1);
+  --ds-border:  #e8f4fb;
 
-  @media (prefers-color-scheme: dark) {
-    color-scheme: dark;
-  }
+  /* ---- Brand ---- */
+  --brand:       #2a8fd4;
+  --brand-hover: #1f7cbd;
+  --brand-light: #e9f5ff;
+
+  /* ---- Typography ---- */
+  --text-main:  #1e2d3d;
+  --text-sub:   #5a7a96;
+  --text-muted: #9bb5c8;
+
+  /* ---- Form ---- */
+  --input-bg:     #f6fbff;
+  --input-border: #e8f4fb;
+
+  /* ---- Chat bubbles ---- */
+  --chat-other-bg:     #f6fbff;
+  --chat-other-border: #e8f4fb;
+  --chat-own-bg:       #2a8fd4;
+
+  /* ---- Discussion tree ---- */
+  --node-bg:           #f6fbff;
+  --node-border:       #e8f4fb;
+  --node-active-border:#2a8fd4;
+  --indent-line:       #e8f4fb;
+
+  /* ---- Discussion tree tags ---- */
+  --tag-topic-bg:   #eff6ff;   --tag-topic-fg:   #1d4ede;
+  --tag-idea-bg:    #ede9ff;   --tag-idea-fg:    #5b22b6;
+  --tag-concern-bg: #fffbeb;   --tag-concern-fg: #b45309;
+  --tag-counter-bg: #ede9ff;   --tag-counter-fg: #5b22b6;
+  --tag-policy-bg:  #dcfce7;   --tag-policy-fg:  #167d33;
+
+  /* ---- AI insight cards ---- */
+  --ai-risk-bg:      #fff2f2;  --ai-risk-border:  #fecaca;  --ai-risk-fg:   #b91c1c;
+  --ai-point-bg:     #fffbeb;  --ai-point-border: #fde78a;  --ai-point-fg:  #b45309;
+  --ai-quest-bg:     #eff6ff;  --ai-quest-border: #bfdbfe;  --ai-quest-fg:  #1d4ede;
+
+  /* ---- Status badge ---- */
+  --badge-decision-bg: #dcfce7; --badge-decision-fg: #167d33;
+  --badge-action-bg:   #fffbeb; --badge-action-fg:   #b45309;
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+html, body {
+  background: var(--ds-bg);
 }
