@@ -49,7 +49,7 @@ export async function fetchMe() {
   });
 }
 
-export async function createMeeting(title = "Google login demo meeting") {
+export async function createMeeting(title = "Microsoft login demo meeting") {
   return request<Meeting>("/v1/meetings", {
     method: "POST",
     body: JSON.stringify({ title, source: "fixture_replay" }),

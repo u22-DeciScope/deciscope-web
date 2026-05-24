@@ -30,3 +30,6 @@
 .env.*.local
 
 .claude
+
+# Firebase credentials
+/secrets/
