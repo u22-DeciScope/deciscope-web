@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router";
-import { Logo } from "../components/Logo";
-import { DsButton } from "../components/DsButton";
+import { Logo } from "~/components/Logo";
+import { DsButton } from "~/components/DsButton";
 import type { Route } from "./+types/terms";
 
 export function meta({}: Route.MetaArgs) {

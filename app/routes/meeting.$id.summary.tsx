@@ -1,6 +1,6 @@
 import { Link } from "react-router";
-import { Logo } from "../components/Logo";
-import { DsButton } from "../components/DsButton";
+import { Logo } from "~/components/Logo";
+import { DsButton } from "~/components/DsButton";
 import type { Route } from "./+types/meeting.$id.summary";
 
 export function meta({}: Route.MetaArgs) {

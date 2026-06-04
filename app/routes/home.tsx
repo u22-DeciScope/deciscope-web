@@ -1,9 +1,9 @@
 import { Link, useNavigate } from "react-router";
 import { useEffect, useState } from "react";
 import type { User } from "firebase/auth";
-import { Logo } from "../components/Logo";
-import { DsButton } from "../components/DsButton";
-import { onFirebaseUserChanged, signOutOfFirebase } from "../lib/firebase";
+import { Logo } from "~/components/Logo";
+import { DsButton } from "~/components/DsButton";
+import { onFirebaseUserChanged, signOutOfFirebase } from "~/lib/firebase";
 import type { Route } from "./+types/home";
 
 export function meta({}: Route.MetaArgs) {

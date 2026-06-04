@@ -1,8 +1,8 @@
 import { Link, useNavigate } from "react-router";
 import { useState } from "react";
-import { Logo } from "../components/Logo";
-import { syncFirebaseLogin } from "../lib/api";
-import { signInWithMicrosoft } from "../lib/firebase";
+import { Logo } from "~/components/Logo";
+import { syncAuthLogin } from "~/lib/backendClient";
+import { signInWithMicrosoft } from "~/lib/firebase";
 import type { Route } from "./+types/login";
 
 export function meta({}: Route.MetaArgs) {
@@ -20,7 +20,7 @@ export default function Login() {
     try {
       const user = await signInWithMicrosoft();
       const idToken = await user.getIdToken();
-      await syncFirebaseLogin(idToken);
+      await syncAuthLogin(idToken);
       navigate("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "ログインに失敗しました。");
