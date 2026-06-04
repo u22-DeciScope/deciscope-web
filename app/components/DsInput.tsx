@@ -7,7 +7,7 @@ interface DsInputProps extends InputHTMLAttributes<HTMLInputElement> {
 
 export function DsInput({ label, extra, className = "", ...props }: DsInputProps) {
   return (
-    <div className="flex flex-col gap-[6px]">
+    <div className="flex flex-col gap-1.5">
       {(label || extra) && (
         <div className="flex items-center justify-between">
           {label && (
@@ -19,7 +19,7 @@ export function DsInput({ label, extra, className = "", ...props }: DsInputProps
         </div>
       )}
       <input
-        className={`w-full rounded-[9px] px-3 py-[10px] text-[13px] outline-none transition ${className}`}
+        className={`w-full rounded-[9px] px-3 py-2.5 text-[13px] outline-none transition ${className}`}
         style={{
           background: "var(--input-bg)",
           border: "1px solid var(--input-border)",
