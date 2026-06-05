@@ -37,14 +37,14 @@ export function wsBaseUrl() {
 }
 
 export async function syncFirebaseLogin(idToken: string) {
-  return request<BackendLoginResult>("/login", {
+  return request<BackendLoginResult>("/v1/auth/login", {
     method: "POST",
     body: JSON.stringify({ idToken }),
   });
 }
 
 export async function fetchMe() {
-  return request<Record<string, unknown>>("/api/me", {
+  return request<Record<string, unknown>>("/v1/auth/me", {
     auth: true,
   });
 }
