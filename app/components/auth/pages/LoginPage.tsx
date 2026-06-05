@@ -1,5 +1,6 @@
 ﻿import { Link } from "react-router";
 import { Logo } from "~/components/Logo";
+import { MicrosoftIcon } from "~/components/shared/MicrosoftIcon";
 import { useMicrosoftAuthFlow } from "~/hooks/useMicrosoftAuthFlow";
 
 export default function Login() {
@@ -62,15 +63,6 @@ export default function Login() {
   );
 }
 
-function MicrosoftIcon() {
-  return (
-    <svg className="w-5 h-5 shrink-0" viewBox="0 0 21 21" fill="none">
-      <rect x="0" y="0" width="10" height="10" fill="#F25022" />
-      <rect x="11" y="0" width="10" height="10" fill="#7FBA00" />
-      <rect x="0" y="11" width="10" height="10" fill="#00A4EF" />
-      <rect x="11" y="11" width="10" height="10" fill="#FFB900" />
-    </svg>
-  );
-}
+
 
 
