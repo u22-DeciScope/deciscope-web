@@ -91,11 +91,11 @@ export type HealthResult = {
 };
 
 export function apiBaseUrl() {
-  return String(import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080");
+  return String(import.meta.env.VITE_API_BASE_URL ?? "http://localhost:9090");
 }
 
 export function wsBaseUrl() {
-  return String(import.meta.env.VITE_WS_BASE_URL ?? "ws://localhost:8080");
+  return String(import.meta.env.VITE_WS_BASE_URL ?? "ws://localhost:9090");
 }
 
 export async function syncAuthLogin(idToken: string) {
