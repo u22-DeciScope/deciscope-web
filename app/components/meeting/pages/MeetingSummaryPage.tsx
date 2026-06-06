@@ -1,4 +1,5 @@
-﻿import { Link } from "react-router";
+import { Link } from "react-router";
+import { HiArrowDownTray, HiChevronRight, HiLightBulb, HiShare } from "react-icons/hi2";
 import { Logo } from "~/components/Logo";
 import { DsButton } from "~/components/DsButton";
 
@@ -25,9 +26,9 @@ const participants = [
   { name: "高橋 健", role: "マーケティング", avatar: "高" },
 ];
 
-const priorityDot: Record<string, string> = { high: "#ef4444", medium: "#f59e0b", low: "#9bb5c8" };
+const priorityDot: Record<string, string> = { high: "var(--priority-high)", medium: "var(--priority-medium)", low: "var(--priority-low)" };
 const priorityLabel: Record<string, string> = { high: "高", medium: "中", low: "低" };
-const levelBar: Record<string, string> = { high: "#ef4444", medium: "#f59e0b", low: "var(--ds-border)" };
+const levelBar: Record<string, string> = { high: "var(--priority-high)", medium: "var(--priority-medium)", low: "var(--ds-border)" };
 
 export default function MeetingSummary() {
 
@@ -36,7 +37,7 @@ export default function MeetingSummary() {
 
       {/* ===== ヘッダーバー ===== */}
       <div
-        className="h-13 bg-white rounded-[14px] flex items-center px-5 gap-3 shrink-0"
+        className="h-13 ds-surface rounded-[14px] flex items-center px-5 gap-3 shrink-0"
         style={{ boxShadow: "var(--ds-shadow)" }}
       >
         <Logo size="sm" linkTo="/" />
@@ -44,22 +45,16 @@ export default function MeetingSummary() {
         <div className="w-px h-5 mx-1" style={{ background: "var(--ds-border)" }} />
 
         <Link to="/" className="text-[12px]" style={{ color: "var(--text-muted)" }}>ホーム</Link>
-        <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "var(--text-muted)" }}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
+        <HiChevronRight className="w-3 h-3 shrink-0" style={{ color: "var(--text-muted)" }} />
         <span className="text-[12px] font-medium truncate" style={{ color: "var(--text-main)" }}>Q2 製品ロードマップ検討</span>
 
         <div className="ml-auto flex items-center gap-2">
           <DsButton variant="secondary">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-            </svg>
+            <HiShare className="w-3.5 h-3.5" />
             共有
           </DsButton>
           <DsButton variant="secondary">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
+            <HiArrowDownTray className="w-3.5 h-3.5" />
             エクスポート
           </DsButton>
         </div>
@@ -72,7 +67,7 @@ export default function MeetingSummary() {
         <div className="flex-1 flex flex-col gap-2 min-w-0 overflow-y-auto">
 
           {/* 会議情報カード */}
-          <div className="bg-white rounded-[14px] px-6 py-5 shrink-0" style={{ boxShadow: "var(--ds-shadow)" }}>
+          <div className="ds-surface rounded-[14px] px-6 py-5 shrink-0" style={{ boxShadow: "var(--ds-shadow)" }}>
             <div className="flex items-start justify-between">
               <div>
                 <div className="flex items-center gap-2 mb-2">
@@ -105,9 +100,7 @@ export default function MeetingSummary() {
                 className="w-6 h-6 rounded-[7px] flex items-center justify-center"
                 style={{ background: "var(--brand)" }}
               >
-                <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                </svg>
+                <HiLightBulb className="w-3.5 h-3.5 text-white" />
               </div>
               <p className="text-[13px] font-semibold" style={{ color: "var(--ai-quest-fg)" }}>AI サマリー</p>
             </div>
@@ -117,7 +110,7 @@ export default function MeetingSummary() {
           </div>
 
           {/* 決定事項カード */}
-          <div className="bg-white rounded-[14px] overflow-hidden" style={{ boxShadow: "var(--ds-shadow)" }}>
+          <div className="ds-surface rounded-[14px] overflow-hidden" style={{ boxShadow: "var(--ds-shadow)" }}>
             <div className="flex items-center h-10 px-5 border-b" style={{ borderColor: "var(--ds-border)" }}>
               <span className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ background: "var(--brand)" }} />
               <span className="text-[13px] font-semibold" style={{ color: "var(--text-main)" }}>決定事項</span>
@@ -142,7 +135,7 @@ export default function MeetingSummary() {
           </div>
 
           {/* アクションアイテムカード */}
-          <div className="bg-white rounded-[14px] overflow-hidden" style={{ boxShadow: "var(--ds-shadow)" }}>
+          <div className="ds-surface rounded-[14px] overflow-hidden" style={{ boxShadow: "var(--ds-shadow)" }}>
             <div className="flex items-center h-10 px-5 border-b" style={{ borderColor: "var(--ds-border)" }}>
               <span className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ background: "var(--brand)" }} />
               <span className="text-[13px] font-semibold" style={{ color: "var(--text-main)" }}>アクションアイテム</span>
@@ -189,7 +182,7 @@ export default function MeetingSummary() {
         <div className="w-55 shrink-0 flex flex-col gap-2">
 
           {/* 参加者カード */}
-          <div className="bg-white rounded-[14px] overflow-hidden" style={{ boxShadow: "var(--ds-shadow)" }}>
+          <div className="ds-surface rounded-[14px] overflow-hidden" style={{ boxShadow: "var(--ds-shadow)" }}>
             <div className="flex items-center h-10 px-4 border-b" style={{ borderColor: "var(--ds-border)" }}>
               <span className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ background: "var(--brand)" }} />
               <span className="text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>参加者</span>
@@ -213,7 +206,7 @@ export default function MeetingSummary() {
           </div>
 
           {/* 統計カード */}
-          <div className="bg-white rounded-[14px] overflow-hidden" style={{ boxShadow: "var(--ds-shadow)" }}>
+          <div className="ds-surface rounded-[14px] overflow-hidden" style={{ boxShadow: "var(--ds-shadow)" }}>
             <div className="flex items-center h-10 px-4 border-b" style={{ borderColor: "var(--ds-border)" }}>
               <span className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ background: "var(--brand)" }} />
               <span className="text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>サマリー</span>
@@ -237,4 +230,5 @@ export default function MeetingSummary() {
     </div>
   );
 }
+
 

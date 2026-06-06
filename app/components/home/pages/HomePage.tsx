@@ -1,4 +1,13 @@
-﻿import { Link } from "react-router";
+import { Link } from "react-router";
+import {
+  HiArrowRightOnRectangle,
+  HiChartBarSquare,
+  HiChevronRight,
+  HiHome,
+  HiListBullet,
+  HiPlus,
+  HiUserGroup,
+} from "react-icons/hi2";
 import { Logo } from "~/components/Logo";
 import { DsButton } from "~/components/DsButton";
 import { useHomeSession } from "~/hooks/useHomeSession";
@@ -15,10 +24,10 @@ const recentMeetings = [
 ];
 
 const navItems = [
-  { label: "ホーム", active: true, icon: <IconHome /> },
-  { label: "会議一覧", active: false, icon: <IconList /> },
-  { label: "チーム", active: false, icon: <IconTeam /> },
-  { label: "レポート", active: false, icon: <IconReport /> },
+  { label: "ホーム", active: true, icon: <HiHome className="w-4 h-4" /> },
+  { label: "会議一覧", active: false, icon: <HiListBullet className="w-4 h-4" /> },
+  { label: "チーム", active: false, icon: <HiUserGroup className="w-4 h-4" /> },
+  { label: "レポート", active: false, icon: <HiChartBarSquare className="w-4 h-4" /> },
 ];
 
 export default function Home() {
@@ -29,7 +38,7 @@ export default function Home() {
 
       {/* ===== LEFT SIDEBAR ===== */}
       <div className="relative w-[220px] shrink-0 flex flex-col">
-        <div className="absolute inset-0 bg-white rounded-[14px]" style={{ boxShadow: "var(--ds-shadow)" }} />
+        <div className="absolute inset-0 ds-surface rounded-[14px]" style={{ boxShadow: "var(--ds-shadow)" }} />
 
         {/* ロゴ行 */}
         <div className="relative z-10 flex items-center h-[50px] px-4 shrink-0 border-b" style={{ borderColor: "var(--ds-border)" }}>
@@ -79,9 +88,7 @@ export default function Home() {
               title="ログアウト"
               style={{ color: "var(--text-muted)" }}
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
+              <HiArrowRightOnRectangle className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -92,7 +99,7 @@ export default function Home() {
 
         {/* トップバー */}
         <div
-          className="h-[52px] bg-white rounded-[14px] flex items-center justify-between px-6 shrink-0"
+          className="h-[52px] ds-surface rounded-[14px] flex items-center justify-between px-6 shrink-0"
           style={{ boxShadow: "var(--ds-shadow)" }}
         >
           <div>
@@ -103,9 +110,7 @@ export default function Home() {
           </div>
           <Link to="/meeting/new">
             <DsButton>
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
+              <HiPlus className="w-3.5 h-3.5" />
               会議を開始
             </DsButton>
           </Link>
@@ -118,12 +123,12 @@ export default function Home() {
           <div className="grid grid-cols-3 gap-[8px]">
             {[
               { label: "今日の会議", value: "2", unit: "件", color: "var(--brand)" },
-              { label: "今週の決定事項", value: "12", unit: "件", color: "#22c55e" },
-              { label: "未完了アクション", value: "5", unit: "件", color: "#f59e0b" },
+              { label: "今週の決定事項", value: "12", unit: "件", color: "var(--success)" },
+              { label: "未完了アクション", value: "5", unit: "件", color: "var(--warning)" },
             ].map((stat) => (
               <div
                 key={stat.label}
-                className="bg-white rounded-[14px] px-5 py-4"
+                className="ds-surface rounded-[14px] px-5 py-4"
                 style={{ boxShadow: "var(--ds-shadow)" }}
               >
                 <p className="text-[11px] mb-2" style={{ color: "var(--text-muted)" }}>{stat.label}</p>
@@ -136,7 +141,7 @@ export default function Home() {
           </div>
 
           {/* 今日の予定 */}
-          <div className="bg-white rounded-[14px] overflow-hidden" style={{ boxShadow: "var(--ds-shadow)" }}>
+          <div className="ds-surface rounded-[14px] overflow-hidden" style={{ boxShadow: "var(--ds-shadow)" }}>
             <div className="flex items-center h-[40px] px-5 border-b" style={{ borderColor: "var(--ds-border)" }}>
               <span className="w-[8px] h-[8px] rounded-full mr-2 shrink-0" style={{ background: "var(--brand)" }} />
               <span className="text-[13px] font-semibold" style={{ color: "var(--text-main)" }}>今日の予定</span>
@@ -170,7 +175,7 @@ export default function Home() {
           </div>
 
           {/* 最近の会議 */}
-          <div className="bg-white rounded-[14px] overflow-hidden" style={{ boxShadow: "var(--ds-shadow)" }}>
+          <div className="ds-surface rounded-[14px] overflow-hidden" style={{ boxShadow: "var(--ds-shadow)" }}>
             <div className="flex items-center justify-between h-[40px] px-5 border-b" style={{ borderColor: "var(--ds-border)" }}>
               <div className="flex items-center">
                 <span className="w-[8px] h-[8px] rounded-full mr-2 shrink-0" style={{ background: "var(--brand)" }} />
@@ -192,9 +197,7 @@ export default function Home() {
                     className="w-8 h-8 rounded-[9px] flex items-center justify-center shrink-0"
                     style={{ background: "var(--input-bg)" }}
                   >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} style={{ color: "var(--text-muted)" }}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
+                    <HiUserGroup className="w-4 h-4" style={{ color: "var(--text-muted)" }} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-medium truncate" style={{ color: "var(--text-main)" }}>{meeting.title}</p>
@@ -209,9 +212,7 @@ export default function Home() {
                       <p className="text-[13px] font-semibold" style={{ color: "var(--text-main)" }}>{meeting.actions}</p>
                       <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>アクション</p>
                     </div>
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "var(--text-muted)" }}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
+                    <HiChevronRight className="w-4 h-4" style={{ color: "var(--text-muted)" }} />
                   </div>
                 </Link>
               ))}
@@ -224,36 +225,6 @@ export default function Home() {
   );
 }
 
-function IconHome() {
-  return (
-    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-    </svg>
-  );
-}
 
-function IconList() {
-  return (
-    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-    </svg>
-  );
-}
-
-function IconTeam() {
-  return (
-    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-    </svg>
-  );
-}
-
-function IconReport() {
-  return (
-    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-    </svg>
-  );
-}
 
 

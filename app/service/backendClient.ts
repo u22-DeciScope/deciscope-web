@@ -1,4 +1,4 @@
-﻿import { getCurrentIdToken } from "~/lib/firebase";
+import { getCurrentIdToken } from "~/lib/firebase";
 
 export type BackendLoginResult = {
   status: string;

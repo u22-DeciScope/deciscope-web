@@ -1,4 +1,5 @@
-﻿import { Link } from "react-router";
+import { Link } from "react-router";
+import { HiCheck } from "react-icons/hi2";
 import { Logo } from "~/components/Logo";
 import { DsButton } from "~/components/DsButton";
 import { useTermsAgreement } from "~/hooks/useTermsAgreement";
@@ -16,7 +17,7 @@ export default function Terms() {
 
       {/* カード */}
       <div
-        className="w-full max-w-140 bg-white rounded-[14px] overflow-hidden"
+        className="w-full max-w-140 ds-surface rounded-[14px] overflow-hidden"
         style={{ boxShadow: "var(--ds-shadow)" }}
       >
         {/* ステッパー */}
@@ -25,9 +26,7 @@ export default function Terms() {
             {/* Step 1: 完了 */}
             <div className="flex items-center gap-2">
               <div className="w-5.5 h-5.5 rounded-full flex items-center justify-center" style={{ background: "var(--brand)" }}>
-                <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
+                <HiCheck className="w-3 h-3 text-white" />
               </div>
               <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>アカウント情報</span>
             </div>
@@ -140,6 +139,7 @@ export default function Terms() {
     </div>
   );
 }
+
 
 
 

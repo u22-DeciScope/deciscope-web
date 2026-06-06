@@ -7,7 +7,7 @@ interface DsCardProps {
 export function DsCard({ children, className = "", padding = false }: DsCardProps) {
   return (
     <div
-      className={`bg-white rounded-[14px] overflow-hidden ${padding ? "p-6" : ""} ${className}`}
+      className={`ds-surface rounded-[14px] overflow-hidden ${padding ? "p-6" : ""} ${className}`}
       style={{ boxShadow: "var(--ds-shadow)" }}
     >
       {children}
@@ -36,3 +36,4 @@ export function DsCardHeader({ children, dot = true }: DsCardHeaderProps) {
     </div>
   );
 }
+

@@ -1,4 +1,16 @@
-﻿import { Link, useParams } from "react-router";
+import { Link, useParams } from "react-router";
+
+import {
+  HiCheck,
+  HiEllipsisHorizontal,
+  HiExclamationTriangle,
+  HiLightBulb,
+  HiPlus,
+  HiQuestionMarkCircle,
+  HiSparkles,
+} from "react-icons/hi2";
+
+import { DiscussionTree, type DiscussionTreeNode } from "../parts/DiscussionTree";
 
 /* ------------------------------------------------------------------ */
 /* Data                                                                 */
@@ -17,17 +29,7 @@ const chat = [
   { id: 10, user: "🐻 田中", text: "デモ映えするし、AIの提案は絶対入れたい", own: false },
 ];
 
-type Tag = "話題" | "案" | "懸念" | "反論" | "方針";
-
-const tagStyle: Record<Tag, { bg: string; fg: string }> = {
-  話題: { bg: "var(--tag-topic-bg)",   fg: "var(--tag-topic-fg)"   },
-  案:   { bg: "var(--tag-idea-bg)",    fg: "var(--tag-idea-fg)"    },
-  懸念: { bg: "var(--tag-concern-bg)", fg: "var(--tag-concern-fg)" },
-  反論: { bg: "var(--tag-counter-bg)", fg: "var(--tag-counter-fg)" },
-  方針: { bg: "var(--tag-policy-bg)",  fg: "var(--tag-policy-fg)"  },
-};
-
-const tree: { id: number; tag: Tag; user: string; time: string; text: string; indent: number; active: boolean }[] = [
+const tree: DiscussionTreeNode[] = [
   { id: 1,  tag: "話題", user: "田中", time: "10:02", text: "今日の目標：プロダクトの方向性を決める",       indent: 0, active: false },
   { id: 2,  tag: "話題", user: "田中", time: "10:05", text: "ターゲットユーザーをどこにするか",              indent: 0, active: false },
   { id: 3,  tag: "案",   user: "田中", time: "10:05", text: "学生向け → 審査員に刺さりやすい",              indent: 1, active: false },
@@ -43,7 +45,7 @@ const tree: { id: number; tag: Tag; user: string; time: string; text: string; in
 const insights = [
   {
     id: 1, section: "いますぐ確認を",
-    badge: "⚠️ リスク", importance: "重要度 高",
+    kind: "risk" as const, badge: "リスク", importance: "重要度 高",
     impFg: "var(--ai-risk-fg)",
     bg: "var(--ai-risk-bg)", border: "var(--ai-risk-border)", fg: "var(--ai-risk-fg)",
     title: "MVP完成までの時間が未計算",
@@ -52,7 +54,7 @@ const insights = [
   },
   {
     id: 2, section: "話しておくといいかも",
-    badge: "💡 未検討論点", importance: "重要度 中",
+    kind: "point" as const, badge: "未検討論点", importance: "重要度 中",
     impFg: "var(--ai-point-fg)",
     bg: "var(--ai-point-bg)", border: "var(--ai-point-border)", fg: "var(--ai-point-fg)",
     title: "「学生」の定義がふわっとしてる",
@@ -61,7 +63,7 @@ const insights = [
   },
   {
     id: 3, section: "",
-    badge: "❓ 質問候補", importance: "重要度 中",
+    kind: "question" as const, badge: "質問候補", importance: "重要度 中",
     impFg: "var(--ai-point-fg)",
     bg: "var(--ai-quest-bg)", border: "var(--ai-quest-border)", fg: "var(--ai-quest-fg)",
     title: "競合との差別化ポイントを言語化できてる？",
@@ -69,6 +71,21 @@ const insights = [
     reactions: 2,
   },
 ];
+
+type InsightKind = "risk" | "point" | "question";
+
+const insightIcons = {
+  risk: HiExclamationTriangle,
+  point: HiLightBulb,
+  question: HiQuestionMarkCircle,
+} satisfies Record<InsightKind, typeof HiLightBulb>;
+
+const insightFilters = [
+  { label: "すべて" },
+  { label: "リスク", kind: "risk" },
+  { label: "論点", kind: "point" },
+  { label: "質問", kind: "question" },
+] satisfies { label: string; kind?: InsightKind }[];
 
 /* ------------------------------------------------------------------ */
 /* Component                                                            */
@@ -88,14 +105,11 @@ export default function Meeting() {
       <div className="relative w-73.5 shrink-0 flex flex-col">
 
         {/* SideNav 背景カード */}
-        <div className="absolute inset-0 bg-white rounded-[9px]" />
+        <div className="absolute inset-0 ds-surface rounded-[9px]" />
 
         {/* ── ロゴ行（上部 50px、カード全幅） ── */}
         <div className="relative z-10 flex items-center gap-2 h-12.5 pl-2.25 shrink-0">
-          {/* ✦ アイコン */}
-          <svg viewBox="0 0 24 24" fill="currentColor" className="w-5.5 h-5.5 text-slate-700 shrink-0">
-            <path d="M12 2l1.09 3.26L16.5 4.27l-2.18 2.73L16.5 9.73l-3.41-.99L12 12l-1.09-3.26L7.5 9.73l2.18-2.73L7.5 4.27l3.41.99L12 2z" />
-          </svg>
+          <HiSparkles className="w-5.5 h-5.5 shrink-0" style={{ color: "var(--text-main)" }} />
           <span className="text-[22px] font-bold" style={{ color: "var(--text-main)" }}>Desiscope</span>
         </div>
 
@@ -110,9 +124,7 @@ export default function Meeting() {
               className="w-6.5 h-6.5 rounded-full border-2 flex items-center justify-center transition hover:bg-slate-100"
               style={{ borderColor: "var(--node-border)" }}
             >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} style={{ color: "var(--text-sub)" }}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
+              <HiPlus className="w-3.5 h-3.5" style={{ color: "var(--text-sub)" }} />
             </button>
 
             {/* 縦書きラベル */}
@@ -126,7 +138,7 @@ export default function Meeting() {
             </div>
 
             {/* ユーザーアバター（下部） */}
-            <div className="w-7.5 h-7.5 rounded-full bg-[#d9d9d9]" />
+            <div className="w-7.5 h-7.5 rounded-full" style={{ background: "var(--avatar-placeholder)" }} />
           </div>
 
           {/* Chat カード（SideNav に重なる形で配置） */}
@@ -187,7 +199,7 @@ export default function Meeting() {
 
         {/* タイマーバー（SideNavと同じtop位置） */}
         <div
-          className="h-13 bg-white rounded-[9px] border-2 border-red-500 flex items-center px-6 shrink-0"
+          className="h-13 ds-surface rounded-[9px] border-2 border-red-500 flex items-center px-6 shrink-0"
         >
           <div className="flex-1" />
           {/* タイマー */}
@@ -199,7 +211,7 @@ export default function Meeting() {
             <div className="w-6.5 h-6.5 rounded-full border-2 border-red-500 flex items-center justify-center">
               <div className="w-3 h-3 rounded-full bg-red-500" />
             </div>
-            <span className="text-[16px] font-bold text-[#de0000]">会議中</span>
+            <span className="text-[16px] font-bold" style={{ color: "var(--status-live)" }}>会議中</span>
           </div>
           <Link
             to={`/meeting/${id}/summary`}
@@ -213,67 +225,7 @@ export default function Meeting() {
         {/* 議論ツリー ＋ AI アシスタント */}
         <div className="flex-1 flex gap-2 min-h-0">
 
-          {/* 議論ツリーカード */}
-          <div
-            className="flex-1 flex flex-col overflow-hidden rounded-[14px]"
-            style={{ background: "var(--ds-surface)", boxShadow: "var(--ds-shadow)" }}
-          >
-            <div
-              className="h-10 flex items-center px-4 shrink-0 border-b"
-              style={{ borderColor: "var(--node-border)" }}
-            >
-              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: "var(--brand)" }} />
-              <span className="ml-2 text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>議論ツリー</span>
-            </div>
-
-            <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1.5">
-              {tree.map((node) => {
-                const ts = tagStyle[node.tag];
-                return (
-                  <div
-                    key={node.id}
-                    className="relative flex items-start gap-1.5 rounded-[10px] overflow-hidden border"
-                    style={{
-                      marginLeft: node.indent * 20,
-                      background: node.active ? "#ffffff" : "var(--node-bg)",
-                      borderColor: node.active ? "var(--node-active-border)" : "var(--node-border)",
-                      borderWidth: node.active ? "1.5px" : "1px",
-                    }}
-                  >
-                    {/* インデントライン */}
-                    {node.indent > 0 && (
-                      <div
-                        className="absolute -left-5 top-0 bottom-0 w-0.5"
-                        style={{ background: "var(--indent-line)" }}
-                      />
-                    )}
-
-                    <div className="flex items-start gap-1.5 px-1.75 py-2 w-full">
-                      {/* タグバッジ */}
-                      <span
-                        className="shrink-0 text-[9px] font-semibold px-1.25 py-0.75 rounded-sm leading-none"
-                        style={{ background: ts.bg, color: ts.fg }}
-                      >
-                        {node.tag}
-                      </span>
-                      {/* ユーザー名 */}
-                      <span className="shrink-0 text-[10px] font-medium mt-px" style={{ color: "var(--text-sub)" }}>
-                        {node.user}
-                      </span>
-                      {/* 本文 */}
-                      <span className="flex-1 text-[12px] leading-normal mt-px" style={{ color: "var(--text-main)" }}>
-                        {node.text}
-                      </span>
-                      {/* 時刻 */}
-                      <span className="shrink-0 text-[10px] mt-px" style={{ color: "var(--text-muted)" }}>
-                        {node.time}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <DiscussionTree nodes={tree} />
 
           {/* AI アシスタントカード */}
           <div
@@ -289,7 +241,7 @@ export default function Meeting() {
                 className="w-5.5 h-5.5 rounded-md flex items-center justify-center text-white text-[12px] shrink-0"
                 style={{ background: "var(--brand)" }}
               >
-                ✦
+                <HiSparkles className="w-3.5 h-3.5" />
               </div>
               <span className="ml-2 text-[12px] font-semibold flex-1" style={{ color: "var(--text-main)" }}>
                 AIアシスタント
@@ -307,18 +259,22 @@ export default function Meeting() {
               className="h-8.5 flex items-center px-2 gap-1 shrink-0 border-b"
               style={{ borderColor: "var(--node-border)" }}
             >
-              {["すべて", "⚠️ リスク", "💡 論点", "❓ 質問"].map((label, i) => (
+              {insightFilters.map((filter, i) => (
                 <button
-                  key={label}
+                  key={filter.label}
                   type="button"
-                  className="text-[10px] px-1.25 py-1 rounded-md whitespace-nowrap transition"
+                  className="text-[10px] px-1.25 py-1 rounded-md whitespace-nowrap transition flex items-center gap-1"
                   style={
                     i === 0
                       ? { background: "var(--chat-other-bg)", color: "var(--brand)", fontWeight: 600, border: "1px solid var(--node-border)" }
                       : { color: "var(--text-muted)" }
                   }
                 >
-                  {label}
+                  {filter.kind && (() => {
+                    const Icon = insightIcons[filter.kind];
+                    return <Icon className="w-3 h-3" />;
+                  })()}
+                  {filter.label}
                 </button>
               ))}
             </div>
@@ -339,9 +295,13 @@ export default function Meeting() {
                     {/* バッジ行 */}
                     <div className="flex items-center justify-between mb-2">
                       <span
-                        className="text-[9px] font-semibold px-1.25 py-0.75 rounded-sm"
+                        className="text-[9px] font-semibold px-1.25 py-0.75 rounded-sm inline-flex items-center gap-1"
                         style={{ background: ins.bg, color: ins.fg }}
                       >
+                        {(() => {
+                          const Icon = insightIcons[ins.kind];
+                          return <Icon className="w-2.75 h-2.75" />;
+                        })()}
                         {ins.badge}
                       </span>
                       <span className="text-[10px] font-semibold" style={{ color: ins.impFg }}>
@@ -363,16 +323,16 @@ export default function Meeting() {
                         <button
                           type="button"
                           className="w-5.5 h-5 rounded-md flex items-center justify-center text-[11px] font-semibold"
-                          style={{ background: "rgba(255,255,255,0.65)", color: "#167d33" }}
+                          style={{ background: "var(--reaction-bg)", color: "var(--badge-decision-fg)" }}
                         >
-                          ✓
+                          <HiCheck className="w-3 h-3" />
                         </button>
                         <button
                           type="button"
                           className="w-5.5 h-5 rounded-md flex items-center justify-center text-[11px]"
-                          style={{ background: "rgba(255,255,255,0.65)", color: "var(--text-muted)" }}
+                          style={{ background: "var(--reaction-bg)", color: "var(--text-muted)" }}
                         >
-                          …
+                          <HiEllipsisHorizontal className="w-3 h-3" />
                         </button>
                       </div>
                     </div>
@@ -387,4 +347,5 @@ export default function Meeting() {
     </div>
   );
 }
+
 

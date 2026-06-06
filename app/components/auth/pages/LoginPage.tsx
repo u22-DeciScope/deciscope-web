@@ -1,4 +1,4 @@
-﻿import { Link } from "react-router";
+import { Link } from "react-router";
 import { Logo } from "~/components/Logo";
 import { MicrosoftIcon } from "~/components/shared/MicrosoftIcon";
 import { useMicrosoftAuthFlow } from "~/hooks/useMicrosoftAuthFlow";
@@ -12,7 +12,7 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "var(--ds-bg)" }}>
       <div
-        className="w-full max-w-110 bg-white rounded-[20px] px-10 py-10 flex flex-col gap-7"
+        className="w-full max-w-110 ds-surface rounded-[20px] px-10 py-10 flex flex-col gap-7"
         style={{ boxShadow: "var(--ds-shadow)" }}
       >
         <Logo size="sm" linkTo="/" />
@@ -30,7 +30,7 @@ export default function Login() {
           style={{
             borderColor: "var(--ds-border)",
             color: "var(--text-main)",
-            background: "white",
+            background: "var(--ds-surface)",
             opacity: isSigningIn ? 0.65 : 1,
           }}
         >
@@ -39,7 +39,7 @@ export default function Login() {
         </button>
 
         {error && (
-          <p className="text-[12px] leading-relaxed" style={{ color: "#dc2626" }}>
+          <p className="text-[12px] leading-relaxed" style={{ color: "var(--danger)" }}>
             {error}
           </p>
         )}
@@ -62,6 +62,7 @@ export default function Login() {
     </div>
   );
 }
+
 
 
 
