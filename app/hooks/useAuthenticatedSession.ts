@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import type { User } from "firebase/auth";
 import { onFirebaseUserChanged, signOutOfFirebase } from "~/lib/firebase";
 
-export function useHomeSession() {
+export function useAuthenticatedSession() {
   const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
 

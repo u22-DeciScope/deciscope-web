@@ -1,6 +1,5 @@
 import { Link } from "react-router";
 import { HiArrowDownTray, HiChevronRight, HiLightBulb, HiShare } from "react-icons/hi2";
-import { Logo } from "~/components/Logo";
 import { DsButton } from "~/components/DsButton";
 
 const decisions = [
@@ -33,17 +32,13 @@ const levelBar: Record<string, string> = { high: "var(--priority-high)", medium:
 export default function MeetingSummary() {
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden p-2.25 gap-2" style={{ background: "var(--ds-bg)" }}>
+    <div className="h-full flex flex-col overflow-hidden gap-2">
 
       {/* ===== ヘッダーバー ===== */}
       <div
         className="h-13 ds-surface rounded-[14px] flex items-center px-5 gap-3 shrink-0"
         style={{ boxShadow: "var(--ds-shadow)" }}
       >
-        <Logo size="sm" linkTo="/" />
-
-        <div className="w-px h-5 mx-1" style={{ background: "var(--ds-border)" }} />
-
         <Link to="/" className="text-[12px]" style={{ color: "var(--text-muted)" }}>ホーム</Link>
         <HiChevronRight className="w-3 h-3 shrink-0" style={{ color: "var(--text-muted)" }} />
         <span className="text-[12px] font-medium truncate" style={{ color: "var(--text-main)" }}>Q2 製品ロードマップ検討</span>

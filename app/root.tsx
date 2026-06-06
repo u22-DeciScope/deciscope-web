@@ -5,8 +5,13 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
 } from "react-router";
 
+import { AppSidebar } from "~/components/shared/navigation/AppSidebar";
+import type { AppNavigationItemId } from "~/components/shared/navigation/navigationItems";
+import { AuthenticatedLayoutProvider } from "~/context/AuthenticatedLayoutContext";
+import { useAuthenticatedSession } from "~/hooks/useAuthenticatedSession";
 import type { Route } from "./+types/root";
 import "~/app.css";
 
@@ -48,7 +53,52 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  return <Outlet />;
+  const { pathname } = useLocation();
+
+  if (isPublicPath(pathname)) {
+    return <Outlet />;
+  }
+
+  return <AuthenticatedLayout pathname={pathname} />;
+}
+
+function AuthenticatedLayout({ pathname }: { pathname: string }) {
+  const { avatarLetter, displayEmail, displayName, handleLogout, today, user } = useAuthenticatedSession();
+
+  return (
+    <AuthenticatedLayoutProvider today={today} user={user}>
+      <div className="h-screen flex overflow-hidden p-2.25 gap-2" style={{ background: "var(--ds-bg)" }}>
+        <AppSidebar
+          activeItem={activeNavigationItem(pathname)}
+          avatarLetter={avatarLetter}
+          displayEmail={displayEmail}
+          displayName={displayName}
+          photoUrl={user?.photoURL}
+          onLogout={handleLogout}
+        />
+        <main className="flex-1 min-w-0 overflow-hidden">
+          <Outlet />
+        </main>
+      </div>
+    </AuthenticatedLayoutProvider>
+  );
+}
+
+function isPublicPath(pathname: string) {
+  return pathname === "/login" || pathname === "/signup" || pathname === "/terms";
+}
+
+function activeNavigationItem(pathname: string): AppNavigationItemId {
+  if (pathname.startsWith("/meeting")) {
+    return "meetings";
+  }
+  if (pathname.startsWith("/team")) {
+    return "team";
+  }
+  if (pathname.startsWith("/reports")) {
+    return "reports";
+  }
+  return "home";
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {

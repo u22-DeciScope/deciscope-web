@@ -5,7 +5,6 @@ import {
   HiEllipsisHorizontal,
   HiExclamationTriangle,
   HiLightBulb,
-  HiPlus,
   HiQuestionMarkCircle,
   HiSparkles,
 } from "react-icons/hi2";
@@ -95,106 +94,51 @@ export default function Meeting() {
   const { id } = useParams();
 
   return (
-    <div
-      className="h-screen flex overflow-hidden p-2.25 gap-2"
-      style={{ background: "var(--ds-bg)" }}
-    >
-      {/* ============================================================
-          LEFT: SideNav カード（フルハイト白カード） + Chat カードが重なる
-          ============================================================ */}
-      <div className="relative w-73.5 shrink-0 flex flex-col">
-
-        {/* SideNav 背景カード */}
-        <div className="absolute inset-0 ds-surface rounded-[9px]" />
-
-        {/* ── ロゴ行（上部 50px、カード全幅） ── */}
-        <div className="relative z-10 flex items-center gap-2 h-12.5 pl-2.25 shrink-0">
-          <HiSparkles className="w-5.5 h-5.5 shrink-0" style={{ color: "var(--text-main)" }} />
-          <span className="text-[22px] font-bold" style={{ color: "var(--text-main)" }}>Desiscope</span>
+    <div className="h-full flex overflow-hidden gap-2">
+      <div
+        className="w-58 shrink-0 flex flex-col overflow-hidden rounded-[14px]"
+        style={{ background: "var(--ds-surface)", boxShadow: "var(--ds-shadow)" }}
+      >
+        <div
+          className="h-10 flex items-center px-3 shrink-0 border-b"
+          style={{ borderColor: "var(--node-border)" }}
+        >
+          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: "var(--brand)" }} />
+          <span className="ml-2 text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>会話</span>
         </div>
 
-        {/* ── ロゴ行より下: ナビストリップ（左56px）＋ Chat カード（右） ── */}
-        <div className="relative flex-1 flex">
-
-          {/* ナビストリップ */}
-          <div className="relative z-10 w-14 flex flex-col items-center pt-3 pb-4 gap-4 shrink-0">
-            {/* + ボタン */}
-            <button
-              type="button"
-              className="w-6.5 h-6.5 rounded-full border-2 flex items-center justify-center transition hover:bg-slate-100"
-              style={{ borderColor: "var(--node-border)" }}
-            >
-              <HiPlus className="w-3.5 h-3.5" style={{ color: "var(--text-sub)" }} />
-            </button>
-
-            {/* 縦書きラベル */}
-            <div className="flex-1 flex items-center justify-center">
-              <span
-                className="text-[11px] font-bold select-none"
-                style={{ writingMode: "vertical-rl", color: "var(--text-sub)" }}
-              >
-                アイコン並べる
-              </span>
-            </div>
-
-            {/* ユーザーアバター（下部） */}
-            <div className="w-7.5 h-7.5 rounded-full" style={{ background: "var(--avatar-placeholder)" }} />
-          </div>
-
-          {/* Chat カード（SideNav に重なる形で配置） */}
-          <div
-            className="absolute left-14 top-0 right-2.5 bottom-1.5 flex flex-col overflow-hidden rounded-[14px]"
-            style={{ background: "var(--ds-surface)", boxShadow: "var(--ds-shadow)" }}
-          >
-            {/* Chat ヘッダー */}
-            <div
-              className="h-10 flex items-center px-3 shrink-0 border-b"
-              style={{ borderColor: "var(--node-border)" }}
-            >
-              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: "var(--brand)" }} />
-              <span className="ml-2 text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>会話</span>
-            </div>
-
-            {/* メッセージ一覧 */}
-            <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1.5">
-              {chat.map((msg) =>
-                msg.own ? (
-                  /* 自分のメッセージ */
-                  <div key={msg.id} className="flex justify-end pr-1">
-                    <div
-                      className="text-white text-[11px] rounded-xl px-2.25 py-2 max-w-45 leading-4 whitespace-pre-line"
-                      style={{ background: "var(--chat-own-bg)" }}
-                    >
-                      {msg.text}
-                    </div>
-                  </div>
-                ) : (
-                  /* 相手のメッセージ */
-                  <div key={msg.id}>
-                    <p className="text-[10px] font-semibold pl-2 mb-1" style={{ color: "var(--text-sub)" }}>
-                      {msg.user}
-                    </p>
-                    <div
-                      className="text-[11px] rounded-xl px-2 py-1.75 w-45 leading-4 border"
-                      style={{
-                        background: "var(--chat-other-bg)",
-                        borderColor: "var(--chat-other-border)",
-                        color: "var(--text-main)",
-                      }}
-                    >
-                      {msg.text}
-                    </div>
-                  </div>
-                )
-              )}
-            </div>
-          </div>
+        <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1.5">
+          {chat.map((msg) =>
+            msg.own ? (
+              <div key={msg.id} className="flex justify-end pr-1">
+                <div
+                  className="text-white text-[11px] rounded-xl px-2.25 py-2 max-w-45 leading-4 whitespace-pre-line"
+                  style={{ background: "var(--chat-own-bg)" }}
+                >
+                  {msg.text}
+                </div>
+              </div>
+            ) : (
+              <div key={msg.id}>
+                <p className="text-[10px] font-semibold pl-2 mb-1" style={{ color: "var(--text-sub)" }}>
+                  {msg.user}
+                </p>
+                <div
+                  className="text-[11px] rounded-xl px-2 py-1.75 w-45 leading-4 border"
+                  style={{
+                    background: "var(--chat-other-bg)",
+                    borderColor: "var(--chat-other-border)",
+                    color: "var(--text-main)",
+                  }}
+                >
+                  {msg.text}
+                </div>
+              </div>
+            )
+          )}
         </div>
       </div>
 
-      {/* ============================================================
-          RIGHT: タイマーバー ＋ (議論ツリー ＋ AI アシスタント)
-          ============================================================ */}
       <div className="flex-1 flex flex-col gap-2 min-w-0">
 
         {/* タイマーバー（SideNavと同じtop位置） */}

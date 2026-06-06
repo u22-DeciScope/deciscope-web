@@ -1,16 +1,11 @@
 import { Link } from "react-router";
 import {
-  HiArrowRightOnRectangle,
-  HiChartBarSquare,
   HiChevronRight,
-  HiHome,
-  HiListBullet,
   HiPlus,
   HiUserGroup,
 } from "react-icons/hi2";
-import { Logo } from "~/components/Logo";
 import { DsButton } from "~/components/DsButton";
-import { useHomeSession } from "~/hooks/useHomeSession";
+import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 
 const upcomingMeetings = [
   { id: "1", title: "Q2 製品ロードマップ検討", time: "10:00", duration: "60分", participants: 5, tag: "製品" },
@@ -23,79 +18,11 @@ const recentMeetings = [
   { id: "5", title: "予算計画 FY2026", date: "5月19日", decisions: 6, actions: 12, participants: 3 },
 ];
 
-const navItems = [
-  { label: "ホーム", active: true, icon: <HiHome className="w-4 h-4" /> },
-  { label: "会議一覧", active: false, icon: <HiListBullet className="w-4 h-4" /> },
-  { label: "チーム", active: false, icon: <HiUserGroup className="w-4 h-4" /> },
-  { label: "レポート", active: false, icon: <HiChartBarSquare className="w-4 h-4" /> },
-];
-
 export default function Home() {
-  const { avatarLetter, displayEmail, displayName, handleLogout, today, user } = useHomeSession();
+  const { today, user } = useAuthenticatedLayout();
 
   return (
-    <div className="h-screen flex overflow-hidden p-[9px] gap-[8px]" style={{ background: "var(--ds-bg)" }}>
-
-      {/* ===== LEFT SIDEBAR ===== */}
-      <div className="relative w-[220px] shrink-0 flex flex-col">
-        <div className="absolute inset-0 ds-surface rounded-[14px]" style={{ boxShadow: "var(--ds-shadow)" }} />
-
-        {/* ロゴ行 */}
-        <div className="relative z-10 flex items-center h-[50px] px-4 shrink-0 border-b" style={{ borderColor: "var(--ds-border)" }}>
-          <Logo size="sm" linkTo="/" />
-        </div>
-
-        {/* ナビゲーション */}
-        <nav className="relative z-10 flex-1 px-3 py-4 flex flex-col gap-1 overflow-y-auto">
-          {navItems.map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              className="flex items-center gap-3 w-full px-3 py-[9px] rounded-[9px] text-[13px] font-medium text-left transition hover:opacity-80"
-              style={
-                item.active
-                  ? { background: "var(--brand-light)", color: "var(--brand)" }
-                  : { background: "transparent", color: "var(--text-sub)" }
-              }
-            >
-              <span className="shrink-0 w-4 h-4">{item.icon}</span>
-              {item.label}
-            </button>
-          ))}
-        </nav>
-
-        {/* ユーザー行 */}
-        <div className="relative z-10 border-t" style={{ borderColor: "var(--ds-border)" }}>
-          <div className="flex items-center gap-2.5 px-4 py-3">
-            {user?.photoURL ? (
-              <img src={user.photoURL} alt="" className="w-7 h-7 rounded-full shrink-0 object-cover" />
-            ) : (
-              <div
-                className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0"
-                style={{ background: "var(--brand)" }}
-              >
-                {avatarLetter}
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="text-[12px] font-semibold truncate" style={{ color: "var(--text-main)" }}>{displayName}</p>
-              <p className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>{displayEmail}</p>
-            </div>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="shrink-0 p-1 rounded-[6px] transition hover:opacity-70"
-              title="ログアウト"
-              style={{ color: "var(--text-muted)" }}
-            >
-              <HiArrowRightOnRectangle className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* ===== RIGHT CONTENT ===== */}
-      <div className="flex-1 flex flex-col gap-[8px] min-w-0">
+    <div className="h-full flex flex-col gap-2 min-w-0">
 
         {/* トップバー */}
         <div
@@ -220,7 +147,6 @@ export default function Home() {
           </div>
 
         </div>
-      </div>
     </div>
   );
 }
