@@ -2,6 +2,7 @@ import { HiArrowRightOnRectangle } from "react-icons/hi2";
 
 type AppUserMenuProps = {
   avatarLetter: string;
+  collapsed: boolean;
   displayEmail: string;
   displayName: string;
   photoUrl?: string | null;
@@ -10,6 +11,7 @@ type AppUserMenuProps = {
 
 export function AppUserMenu({
   avatarLetter,
+  collapsed,
   displayEmail,
   displayName,
   photoUrl,
@@ -17,7 +19,7 @@ export function AppUserMenu({
 }: AppUserMenuProps) {
   return (
     <div className="relative z-10 border-t" style={{ borderColor: "var(--ds-border)" }}>
-      <div className="flex items-center gap-2.5 px-4 py-3">
+      <div className={`flex items-center py-3 ${collapsed ? "justify-center px-2" : "gap-2.5 px-4"}`}>
         {photoUrl ? (
           <img src={photoUrl} alt="" className="w-7 h-7 rounded-full shrink-0 object-cover" />
         ) : (
@@ -28,7 +30,7 @@ export function AppUserMenu({
             {avatarLetter}
           </div>
         )}
-        <div className="min-w-0 flex-1">
+        <div className={collapsed ? "hidden" : "min-w-0 flex-1"}>
           <p className="text-[12px] font-semibold truncate" style={{ color: "var(--text-main)" }}>
             {displayName}
           </p>
@@ -39,7 +41,7 @@ export function AppUserMenu({
         <button
           type="button"
           onClick={onLogout}
-          className="shrink-0 p-1 rounded-[6px] transition hover:opacity-70"
+          className={`${collapsed ? "hidden" : ""} shrink-0 p-1 rounded-[6px] transition hover:opacity-70`}
           title="ログアウト"
           style={{ color: "var(--text-muted)" }}
         >

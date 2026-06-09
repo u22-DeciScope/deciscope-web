@@ -8,7 +8,7 @@ export default function Terms() {
   const { acceptTerms } = useTermsAgreement();
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: "var(--ds-bg)" }}>
+    <div className="min-h-svh flex flex-col items-center justify-center p-4" style={{ background: "var(--ds-bg)" }}>
 
       {/* ロゴ */}
       <div className="mb-6">

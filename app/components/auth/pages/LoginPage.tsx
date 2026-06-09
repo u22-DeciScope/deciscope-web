@@ -2,15 +2,16 @@ import { Link } from "react-router";
 import { Logo } from "~/components/Logo";
 import { MicrosoftIcon } from "~/components/shared/MicrosoftIcon";
 import { useMicrosoftAuthFlow } from "~/hooks/useMicrosoftAuthFlow";
+import { WORKSPACE_MEETINGS_PATH } from "~/lib/workspace";
 
 export default function Login() {
   const { error, isPending: isSigningIn, signIn } = useMicrosoftAuthFlow({
-    redirectTo: "/",
+    redirectTo: WORKSPACE_MEETINGS_PATH,
     fallbackMessage: "ログインに失敗しました。",
   });
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "var(--ds-bg)" }}>
+    <div className="min-h-svh flex items-center justify-center p-4" style={{ background: "var(--ds-bg)" }}>
       <div
         className="w-full max-w-110 ds-surface rounded-[20px] px-10 py-10 flex flex-col gap-7"
         style={{ boxShadow: "var(--ds-shadow)" }}

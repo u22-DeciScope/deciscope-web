@@ -7,8 +7,11 @@ import {
   ScrollRestoration,
   useLocation,
 } from "react-router";
+import { useState } from "react";
 
 import { AppSidebar } from "~/components/shared/navigation/AppSidebar";
+import { AppMobileHeader } from "~/components/shared/navigation/AppMobileHeader";
+import { AppMobileNavigation } from "~/components/shared/navigation/AppMobileNavigation";
 import type { AppNavigationItemId } from "~/components/shared/navigation/navigationItems";
 import { AuthenticatedLayoutProvider } from "~/context/AuthenticatedLayoutContext";
 import { useAuthenticatedSession } from "~/hooks/useAuthenticatedSession";
@@ -33,7 +36,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     <html lang="ja" data-theme="white">
       <head>
         <meta charSet="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <script
           dangerouslySetInnerHTML={{
             __html:
@@ -55,7 +58,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 export default function App() {
   const { pathname } = useLocation();
 
-  if (isPublicPath(pathname)) {
+  if (!isWorkspacePath(pathname)) {
     return <Outlet />;
   }
 
@@ -63,39 +66,46 @@ export default function App() {
 }
 
 function AuthenticatedLayout({ pathname }: { pathname: string }) {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { avatarLetter, displayEmail, displayName, handleLogout, today, user } = useAuthenticatedSession();
+  const activeItem = activeNavigationItem(pathname);
 
   return (
     <AuthenticatedLayoutProvider today={today} user={user}>
-      <div className="h-screen flex overflow-hidden p-2.25 gap-2" style={{ background: "var(--ds-bg)" }}>
+      <div className="min-h-svh md:flex md:h-dvh md:gap-2 md:overflow-hidden md:p-2.25" style={{ background: "var(--ds-bg)" }}>
         <AppSidebar
-          activeItem={activeNavigationItem(pathname)}
+          activeItem={activeItem}
           avatarLetter={avatarLetter}
+          className="hidden md:flex"
+          collapsed={sidebarCollapsed}
           displayEmail={displayEmail}
           displayName={displayName}
           photoUrl={user?.photoURL}
+          onCollapsedChange={setSidebarCollapsed}
           onLogout={handleLogout}
         />
-        <main className="flex-1 min-w-0 overflow-hidden">
+        <AppMobileHeader avatarLetter={avatarLetter} photoUrl={user?.photoURL} />
+        <main className="min-w-0 p-2 pb-24 md:flex-1 md:overflow-hidden md:p-0">
           <Outlet />
         </main>
+        <AppMobileNavigation activeItem={activeItem} />
       </div>
     </AuthenticatedLayoutProvider>
   );
 }
 
-function isPublicPath(pathname: string) {
-  return pathname === "/login" || pathname === "/signup" || pathname === "/terms";
+function isWorkspacePath(pathname: string) {
+  return pathname.startsWith("/w/");
 }
 
 function activeNavigationItem(pathname: string): AppNavigationItemId {
-  if (pathname.startsWith("/meeting")) {
+  if (pathname.includes("/meetings")) {
     return "meetings";
   }
-  if (pathname.startsWith("/team")) {
+  if (pathname.includes("/team")) {
     return "team";
   }
-  if (pathname.startsWith("/reports")) {
+  if (pathname.includes("/reports")) {
     return "reports";
   }
   return "home";

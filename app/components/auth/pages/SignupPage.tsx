@@ -10,7 +10,7 @@ export default function Signup() {
   });
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "var(--ds-bg)" }}>
+    <div className="min-h-svh flex items-center justify-center p-4" style={{ background: "var(--ds-bg)" }}>
       <div
         className="w-full max-w-110 ds-surface rounded-[20px] px-10 py-10 flex flex-col gap-7"
         style={{ boxShadow: "var(--ds-shadow)" }}

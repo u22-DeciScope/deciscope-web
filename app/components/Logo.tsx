@@ -4,6 +4,7 @@ import { HiSparkles } from "react-icons/hi2";
 interface LogoProps {
   size?: "sm" | "md" | "lg";
   linkTo?: string;
+  showText?: boolean;
 }
 
 const sizes = {
@@ -12,14 +13,16 @@ const sizes = {
   lg: { icon: "w-[28px] h-[28px]", text: "text-[28px]", gap: "gap-2.5" },
 };
 
-export function Logo({ size = "md", linkTo }: LogoProps) {
+export function Logo({ size = "md", linkTo, showText = true }: LogoProps) {
   const s = sizes[size];
   const inner = (
     <div className={`flex items-center ${s.gap}`}>
       <HiSparkles className={`${s.icon} shrink-0`} style={{ color: "var(--text-main)" }} />
-      <span className={`${s.text} font-bold`} style={{ color: "var(--text-main)" }}>
-        Desiscope
-      </span>
+      {showText && (
+        <span className={`${s.text} font-bold`} style={{ color: "var(--text-main)" }}>
+          Desiscope
+        </span>
+      )}
     </div>
   );
 

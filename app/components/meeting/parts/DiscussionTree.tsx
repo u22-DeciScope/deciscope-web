@@ -25,7 +25,7 @@ type DiscussionTreeProps = {
 export function DiscussionTree({ nodes }: DiscussionTreeProps) {
   return (
     <div
-      className="flex-1 flex flex-col overflow-hidden rounded-[14px]"
+      className="flex min-h-80 flex-1 flex-col overflow-hidden rounded-[14px] md:min-h-0"
       style={{ background: "var(--ds-surface)", boxShadow: "var(--ds-shadow)" }}
     >
       <div

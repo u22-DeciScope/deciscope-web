@@ -1,4 +1,5 @@
 import { Link, useParams } from "react-router";
+import { workspaceMeetingSummaryPath } from "~/lib/workspace";
 
 import {
   HiCheck,
@@ -94,9 +95,9 @@ export default function Meeting() {
   const { id } = useParams();
 
   return (
-    <div className="h-full flex overflow-hidden gap-2">
+    <div className="flex min-h-full flex-col gap-2 md:h-full md:flex-row md:overflow-hidden">
       <div
-        className="w-58 shrink-0 flex flex-col overflow-hidden rounded-[14px]"
+        className="flex max-h-80 w-full shrink-0 flex-col overflow-hidden rounded-[14px] md:max-h-none md:w-58"
         style={{ background: "var(--ds-surface)", boxShadow: "var(--ds-shadow)" }}
       >
         <div
@@ -139,15 +140,15 @@ export default function Meeting() {
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col gap-2 min-w-0">
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
 
         {/* タイマーバー（SideNavと同じtop位置） */}
         <div
-          className="h-13 ds-surface rounded-[9px] border-2 border-red-500 flex items-center px-6 shrink-0"
+          className="ds-surface flex min-h-13 shrink-0 flex-wrap items-center gap-2 rounded-[9px] border-2 border-red-500 px-4 py-2 md:h-13 md:px-6 md:py-0"
         >
           <div className="flex-1" />
           {/* タイマー */}
-          <span className="text-[16px] font-bold text-black font-mono tracking-widest mr-6">
+          <span className="text-[16px] font-bold text-black font-mono tracking-widest md:mr-6">
             xx：xx
           </span>
           {/* 会議中ステータス */}
@@ -158,7 +159,7 @@ export default function Meeting() {
             <span className="text-[16px] font-bold" style={{ color: "var(--status-live)" }}>会議中</span>
           </div>
           <Link
-            to={`/meeting/${id}/summary`}
+            to={workspaceMeetingSummaryPath(id ?? "")}
             className="ml-4 text-xs border rounded-lg px-2.5 py-1 transition hover:bg-slate-50"
             style={{ borderColor: "var(--node-border)", color: "var(--text-sub)" }}
           >
@@ -167,13 +168,13 @@ export default function Meeting() {
         </div>
 
         {/* 議論ツリー ＋ AI アシスタント */}
-        <div className="flex-1 flex gap-2 min-h-0">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 md:flex-row">
 
           <DiscussionTree nodes={tree} />
 
           {/* AI アシスタントカード */}
           <div
-            className="w-65 shrink-0 flex flex-col overflow-hidden rounded-[14px]"
+            className="flex w-full shrink-0 flex-col overflow-hidden rounded-[14px] md:w-65"
             style={{ background: "var(--ds-surface)", boxShadow: "var(--ds-shadow)" }}
           >
             {/* AIヘッダー */}

@@ -6,6 +6,11 @@ import {
 } from "react-icons/hi2";
 import { DsButton } from "~/components/DsButton";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
+import {
+  workspaceMeetingPath,
+  workspaceMeetingSummaryPath,
+  workspacePath,
+} from "~/lib/workspace";
 
 const upcomingMeetings = [
   { id: "1", title: "Q2 製品ロードマップ検討", time: "10:00", duration: "60分", participants: 5, tag: "製品" },
@@ -22,11 +27,11 @@ export default function Home() {
   const { today, user } = useAuthenticatedLayout();
 
   return (
-    <div className="h-full flex flex-col gap-2 min-w-0">
+    <div className="flex min-h-full min-w-0 flex-col gap-2 md:h-full">
 
         {/* トップバー */}
         <div
-          className="h-[52px] ds-surface rounded-[14px] flex items-center justify-between px-6 shrink-0"
+          className="ds-surface flex min-h-13 shrink-0 flex-wrap items-center justify-between gap-3 rounded-[14px] px-4 py-3 md:h-13 md:px-6 md:py-0"
           style={{ boxShadow: "var(--ds-shadow)" }}
         >
           <div>
@@ -35,7 +40,7 @@ export default function Home() {
             </p>
             <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>{today}</p>
           </div>
-          <Link to="/meeting/new">
+          <Link to={workspacePath("/meetings/new")}>
             <DsButton>
               <HiPlus className="w-3.5 h-3.5" />
               会議を開始
@@ -44,10 +49,10 @@ export default function Home() {
         </div>
 
         {/* スクロール可能なコンテンツ */}
-        <div className="flex-1 overflow-y-auto flex flex-col gap-[8px] min-h-0">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 md:overflow-y-auto">
 
           {/* サマリー統計 */}
-          <div className="grid grid-cols-3 gap-[8px]">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {[
               { label: "今日の会議", value: "2", unit: "件", color: "var(--brand)" },
               { label: "今週の決定事項", value: "12", unit: "件", color: "var(--success)" },
@@ -93,7 +98,7 @@ export default function Home() {
                     <p className="text-[13px] font-medium truncate" style={{ color: "var(--text-main)" }}>{meeting.title}</p>
                     <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>{meeting.participants}名参加予定</p>
                   </div>
-                  <Link to={`/meeting/${meeting.id}`}>
+                  <Link to={workspaceMeetingPath(meeting.id)}>
                     <DsButton variant="secondary">参加する</DsButton>
                   </Link>
                 </div>
@@ -116,7 +121,7 @@ export default function Home() {
               {recentMeetings.map((meeting, i) => (
                 <Link
                   key={meeting.id}
-                  to={`/meeting/${meeting.id}/summary`}
+                  to={workspaceMeetingSummaryPath(meeting.id)}
                   className="flex items-center gap-4 px-5 py-3 transition hover:opacity-80"
                   style={i < recentMeetings.length - 1 ? { borderBottom: "1px solid var(--ds-border)" } : {}}
                 >

@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { HiArrowDownTray, HiChevronRight, HiLightBulb, HiShare } from "react-icons/hi2";
 import { DsButton } from "~/components/DsButton";
+import { WORKSPACE_MEETINGS_PATH } from "~/lib/workspace";
 
 const decisions = [
   { id: 1, text: "Q2のOKRを達成済みと見なし、Q3の目標設定に移行する", votes: "全員合意", level: "high" },
@@ -32,14 +33,14 @@ const levelBar: Record<string, string> = { high: "var(--priority-high)", medium:
 export default function MeetingSummary() {
 
   return (
-    <div className="h-full flex flex-col overflow-hidden gap-2">
+    <div className="flex min-h-full flex-col gap-2 md:h-full md:overflow-hidden">
 
       {/* ===== ヘッダーバー ===== */}
       <div
-        className="h-13 ds-surface rounded-[14px] flex items-center px-5 gap-3 shrink-0"
+        className="ds-surface flex min-h-13 shrink-0 flex-wrap items-center gap-3 rounded-[14px] px-4 py-3 md:h-13 md:px-5 md:py-0"
         style={{ boxShadow: "var(--ds-shadow)" }}
       >
-        <Link to="/" className="text-[12px]" style={{ color: "var(--text-muted)" }}>ホーム</Link>
+        <Link to={WORKSPACE_MEETINGS_PATH} className="text-[12px]" style={{ color: "var(--text-muted)" }}>ホーム</Link>
         <HiChevronRight className="w-3 h-3 shrink-0" style={{ color: "var(--text-muted)" }} />
         <span className="text-[12px] font-medium truncate" style={{ color: "var(--text-main)" }}>Q2 製品ロードマップ検討</span>
 
@@ -56,10 +57,10 @@ export default function MeetingSummary() {
       </div>
 
       {/* ===== メインコンテンツ ===== */}
-      <div className="flex-1 flex gap-2 min-h-0">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 md:flex-row">
 
         {/* 左カラム（メイン） */}
-        <div className="flex-1 flex flex-col gap-2 min-w-0 overflow-y-auto">
+        <div className="flex min-w-0 flex-1 flex-col gap-2 md:overflow-y-auto">
 
           {/* 会議情報カード */}
           <div className="ds-surface rounded-[14px] px-6 py-5 shrink-0" style={{ boxShadow: "var(--ds-shadow)" }}>
@@ -164,7 +165,7 @@ export default function MeetingSummary() {
 
           {/* フッターボタン */}
           <div className="flex gap-3 pb-1 shrink-0">
-            <Link to="/" className="flex-1">
+            <Link to={WORKSPACE_MEETINGS_PATH} className="flex-1">
               <DsButton variant="secondary" fullWidth>ホームに戻る</DsButton>
             </Link>
             <div className="flex-1">
@@ -174,7 +175,7 @@ export default function MeetingSummary() {
         </div>
 
         {/* 右カラム（サイド情報） */}
-        <div className="w-55 shrink-0 flex flex-col gap-2">
+        <div className="flex w-full shrink-0 flex-col gap-2 md:w-55">
 
           {/* 参加者カード */}
           <div className="ds-surface rounded-[14px] overflow-hidden" style={{ boxShadow: "var(--ds-shadow)" }}>
