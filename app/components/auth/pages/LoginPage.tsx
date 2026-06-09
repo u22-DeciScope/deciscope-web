@@ -1,12 +1,17 @@
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 import { Logo } from "~/components/Logo";
 import { MicrosoftIcon } from "~/components/shared/MicrosoftIcon";
 import { useMicrosoftAuthFlow } from "~/hooks/useMicrosoftAuthFlow";
-import { WORKSPACE_MEETINGS_PATH } from "~/lib/workspace";
+import { demoWorkspacePath, workspaceIdFromPath } from "~/lib/workspace";
 
 export default function Login() {
+  const location = useLocation();
+  const requestedPath =
+    typeof location.state?.from === "string" && workspaceIdFromPath(location.state.from)
+      ? location.state.from
+      : null;
   const { error, isPending: isSigningIn, signIn } = useMicrosoftAuthFlow({
-    redirectTo: WORKSPACE_MEETINGS_PATH,
+    redirectTo: requestedPath ?? demoWorkspacePath("/meetings"),
     fallbackMessage: "ログインに失敗しました。",
   });
 
@@ -57,7 +62,7 @@ export default function Login() {
         <p className="text-center text-[12px]" style={{ color: "var(--text-muted)" }}>
           <Link to="/terms" className="hover:underline">利用規約</Link>
           <span className="mx-1">·</span>
-          <a href="#" className="hover:underline">プライバシーポリシー</a>
+          <span title="プライバシーポリシーは準備中です">プライバシーポリシー</span>
         </p>
       </div>
     </div>

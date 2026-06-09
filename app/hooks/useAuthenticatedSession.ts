@@ -3,9 +3,13 @@ import { useNavigate } from "react-router";
 import type { User } from "firebase/auth";
 import { onFirebaseUserChanged, signOutOfFirebase } from "~/lib/firebase";
 
+type AuthenticationStatus = "loading" | "authenticated" | "unauthenticated" | "error";
+
 export function useAuthenticatedSession() {
   const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
+  const [status, setStatus] = useState<AuthenticationStatus>("loading");
+  const [error, setError] = useState<Error | null>(null);
 
   const today = new Date().toLocaleDateString("ja-JP", {
     year: "numeric",
@@ -15,13 +19,31 @@ export function useAuthenticatedSession() {
   });
 
   useEffect(() => {
+    let active = true;
     let unsubscribe: (() => void) | undefined;
-    onFirebaseUserChanged((currentUser) => setUser(currentUser))
+    onFirebaseUserChanged((currentUser) => {
+      if (!active) {
+        return;
+      }
+      setUser(currentUser);
+      setStatus(currentUser ? "authenticated" : "unauthenticated");
+    })
       .then((cleanup) => {
-        unsubscribe = cleanup;
+        if (active) {
+          unsubscribe = cleanup;
+        } else {
+          cleanup();
+        }
       })
-      .catch(() => {});
+      .catch((cause: unknown) => {
+        if (!active) {
+          return;
+        }
+        setError(cause instanceof Error ? cause : new Error("認証状態を確認できませんでした。"));
+        setStatus("error");
+      });
     return () => {
+      active = false;
       unsubscribe?.();
     };
   }, []);
@@ -35,5 +57,5 @@ export function useAuthenticatedSession() {
   const displayEmail = user?.email ?? "";
   const avatarLetter = displayName.charAt(0);
 
-  return { avatarLetter, displayEmail, displayName, handleLogout, today, user };
+  return { avatarLetter, displayEmail, displayName, error, handleLogout, status, today, user };
 }

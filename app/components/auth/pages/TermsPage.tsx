@@ -1,10 +1,12 @@
 import { Link } from "react-router";
+import { useState } from "react";
 import { HiCheck } from "react-icons/hi2";
 import { Logo } from "~/components/Logo";
 import { DsButton } from "~/components/DsButton";
 import { useTermsAgreement } from "~/hooks/useTermsAgreement";
 
 export default function Terms() {
+  const [agreed, setAgreed] = useState(false);
   const { acceptTerms } = useTermsAgreement();
 
   return (
@@ -117,6 +119,8 @@ export default function Terms() {
             <input
               type="checkbox"
               id="agree"
+              checked={agreed}
+              onChange={(event) => setAgreed(event.target.checked)}
               className="w-4 h-4 mt-0.5 shrink-0 rounded accent-[#2a8fd4]"
             />
             <label htmlFor="agree" className="text-[12px] select-none leading-relaxed" style={{ color: "var(--text-sub)" }}>
@@ -129,7 +133,7 @@ export default function Terms() {
               <DsButton variant="secondary" fullWidth type="button">戻る</DsButton>
             </Link>
             <div className="flex-1">
-              <DsButton fullWidth type="button" onClick={acceptTerms}>
+              <DsButton fullWidth type="button" disabled={!agreed} onClick={acceptTerms}>
                 同意してはじめる
               </DsButton>
             </div>

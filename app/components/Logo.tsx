@@ -20,7 +20,7 @@ export function Logo({ size = "md", linkTo, showText = true }: LogoProps) {
       <HiSparkles className={`${s.icon} shrink-0`} style={{ color: "var(--text-main)" }} />
       {showText && (
         <span className={`${s.text} font-bold`} style={{ color: "var(--text-main)" }}>
-          Desiscope
+          Deciscope
         </span>
       )}
     </div>

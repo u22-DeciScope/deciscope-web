@@ -5,16 +5,8 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
-  useLocation,
 } from "react-router";
-import { useState } from "react";
 
-import { AppSidebar } from "~/components/shared/navigation/AppSidebar";
-import { AppMobileHeader } from "~/components/shared/navigation/AppMobileHeader";
-import { AppMobileNavigation } from "~/components/shared/navigation/AppMobileNavigation";
-import type { AppNavigationItemId } from "~/components/shared/navigation/navigationItems";
-import { AuthenticatedLayoutProvider } from "~/context/AuthenticatedLayoutContext";
-import { useAuthenticatedSession } from "~/hooks/useAuthenticatedSession";
 import type { Route } from "./+types/root";
 import "~/app.css";
 
@@ -56,59 +48,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  const { pathname } = useLocation();
-
-  if (!isWorkspacePath(pathname)) {
-    return <Outlet />;
-  }
-
-  return <AuthenticatedLayout pathname={pathname} />;
-}
-
-function AuthenticatedLayout({ pathname }: { pathname: string }) {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const { avatarLetter, displayEmail, displayName, handleLogout, today, user } = useAuthenticatedSession();
-  const activeItem = activeNavigationItem(pathname);
-
-  return (
-    <AuthenticatedLayoutProvider today={today} user={user}>
-      <div className="min-h-svh md:flex md:h-dvh md:gap-2 md:overflow-hidden md:p-2.25" style={{ background: "var(--ds-bg)" }}>
-        <AppSidebar
-          activeItem={activeItem}
-          avatarLetter={avatarLetter}
-          className="hidden md:flex"
-          collapsed={sidebarCollapsed}
-          displayEmail={displayEmail}
-          displayName={displayName}
-          photoUrl={user?.photoURL}
-          onCollapsedChange={setSidebarCollapsed}
-          onLogout={handleLogout}
-        />
-        <AppMobileHeader avatarLetter={avatarLetter} photoUrl={user?.photoURL} />
-        <main className="min-w-0 p-2 pb-24 md:flex-1 md:overflow-hidden md:p-0">
-          <Outlet />
-        </main>
-        <AppMobileNavigation activeItem={activeItem} />
-      </div>
-    </AuthenticatedLayoutProvider>
-  );
-}
-
-function isWorkspacePath(pathname: string) {
-  return pathname.startsWith("/w/");
-}
-
-function activeNavigationItem(pathname: string): AppNavigationItemId {
-  if (pathname.includes("/meetings")) {
-    return "meetings";
-  }
-  if (pathname.includes("/team")) {
-    return "team";
-  }
-  if (pathname.includes("/reports")) {
-    return "reports";
-  }
-  return "home";
+  return <Outlet />;
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {

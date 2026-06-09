@@ -9,7 +9,6 @@ import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import {
   workspaceMeetingPath,
   workspaceMeetingSummaryPath,
-  workspacePath,
 } from "~/lib/workspace";
 
 const upcomingMeetings = [
@@ -24,7 +23,7 @@ const recentMeetings = [
 ];
 
 export default function Home() {
-  const { today, user } = useAuthenticatedLayout();
+  const { today, user, workspaceId } = useAuthenticatedLayout();
 
   return (
     <div className="flex min-h-full min-w-0 flex-col gap-2 md:h-full">
@@ -40,12 +39,10 @@ export default function Home() {
             </p>
             <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>{today}</p>
           </div>
-          <Link to={workspacePath("/meetings/new")}>
-            <DsButton>
-              <HiPlus className="w-3.5 h-3.5" />
-              会議を開始
-            </DsButton>
-          </Link>
+          <DsButton disabled title="会議作成画面は準備中です">
+            <HiPlus className="w-3.5 h-3.5" />
+            会議を開始
+          </DsButton>
         </div>
 
         {/* スクロール可能なコンテンツ */}
@@ -98,7 +95,7 @@ export default function Home() {
                     <p className="text-[13px] font-medium truncate" style={{ color: "var(--text-main)" }}>{meeting.title}</p>
                     <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>{meeting.participants}名参加予定</p>
                   </div>
-                  <Link to={workspaceMeetingPath(meeting.id)}>
+                  <Link to={workspaceMeetingPath(workspaceId, meeting.id)}>
                     <DsButton variant="secondary">参加する</DsButton>
                   </Link>
                 </div>
@@ -121,7 +118,7 @@ export default function Home() {
               {recentMeetings.map((meeting, i) => (
                 <Link
                   key={meeting.id}
-                  to={workspaceMeetingSummaryPath(meeting.id)}
+                  to={workspaceMeetingSummaryPath(workspaceId, meeting.id)}
                   className="flex items-center gap-4 px-5 py-3 transition hover:opacity-80"
                   style={i < recentMeetings.length - 1 ? { borderBottom: "1px solid var(--ds-border)" } : {}}
                 >

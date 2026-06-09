@@ -5,8 +5,10 @@ export default [
   route("login", "routes/login.tsx"),
   route("signup", "routes/signup.tsx"),
   route("terms", "routes/terms.tsx"),
-  route("w/:workspaceId", "routes/workspace.tsx"),
-  route("w/:workspaceId/meetings", "routes/home.tsx"),
-  route("w/:workspaceId/meetings/:id", "routes/meeting.$id.tsx"),
-  route("w/:workspaceId/meetings/:id/summary", "routes/meeting.$id.summary.tsx"),
+  route("w/:workspaceId", "routes/workspace-layout.tsx", [
+    index("routes/workspace.tsx"),
+    route("meetings", "routes/home.tsx"),
+    route("meetings/:id", "routes/meeting.$id.tsx"),
+    route("meetings/:id/summary", "routes/meeting.$id.summary.tsx"),
+  ]),
 ] satisfies RouteConfig;

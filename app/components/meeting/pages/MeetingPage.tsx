@@ -1,4 +1,5 @@
 import { Link, useParams } from "react-router";
+import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspaceMeetingSummaryPath } from "~/lib/workspace";
 
 import {
@@ -93,6 +94,7 @@ const insightFilters = [
 
 export default function Meeting() {
   const { id } = useParams();
+  const { workspaceId } = useAuthenticatedLayout();
 
   return (
     <div className="flex min-h-full flex-col gap-2 md:h-full md:flex-row md:overflow-hidden">
@@ -159,7 +161,7 @@ export default function Meeting() {
             <span className="text-[16px] font-bold" style={{ color: "var(--status-live)" }}>会議中</span>
           </div>
           <Link
-            to={workspaceMeetingSummaryPath(id ?? "")}
+            to={workspaceMeetingSummaryPath(workspaceId, id ?? "")}
             className="ml-4 text-xs border rounded-lg px-2.5 py-1 transition hover:bg-slate-50"
             style={{ borderColor: "var(--node-border)", color: "var(--text-sub)" }}
           >

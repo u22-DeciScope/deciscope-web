@@ -3,13 +3,14 @@ import {
   appNavigationItems,
   type AppNavigationItemId,
 } from "~/components/shared/navigation/navigationItems";
-import { WORKSPACE_MEETINGS_PATH } from "~/lib/workspace";
+import { workspacePath } from "~/lib/workspace";
 
 type AppMobileNavigationProps = {
   activeItem: AppNavigationItemId;
+  workspaceId: string;
 };
 
-export function AppMobileNavigation({ activeItem }: AppMobileNavigationProps) {
+export function AppMobileNavigation({ activeItem, workspaceId }: AppMobileNavigationProps) {
   return (
     <nav
       className="fixed inset-x-2 z-30 grid grid-cols-4 overflow-hidden rounded-xl border md:hidden"
@@ -35,14 +36,21 @@ export function AppMobileNavigation({ activeItem }: AppMobileNavigationProps) {
         return item.path ? (
           <Link
             key={item.id}
-            to={item.path === "/" ? WORKSPACE_MEETINGS_PATH : item.path}
+            to={workspacePath(workspaceId, item.path)}
             className={className}
             style={style}
           >
             {content}
           </Link>
         ) : (
-          <button key={item.id} type="button" className={className} style={style}>
+          <button
+            key={item.id}
+            type="button"
+            disabled
+            title={`${item.label}は準備中です`}
+            className={`${className} cursor-not-allowed opacity-60`}
+            style={style}
+          >
             {content}
           </button>
         );

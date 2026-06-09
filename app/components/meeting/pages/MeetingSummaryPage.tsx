@@ -1,7 +1,8 @@
 import { Link } from "react-router";
 import { HiArrowDownTray, HiChevronRight, HiLightBulb, HiShare } from "react-icons/hi2";
 import { DsButton } from "~/components/DsButton";
-import { WORKSPACE_MEETINGS_PATH } from "~/lib/workspace";
+import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
+import { workspacePath } from "~/lib/workspace";
 
 const decisions = [
   { id: 1, text: "Q2のOKRを達成済みと見なし、Q3の目標設定に移行する", votes: "全員合意", level: "high" },
@@ -31,6 +32,8 @@ const priorityLabel: Record<string, string> = { high: "高", medium: "中", low:
 const levelBar: Record<string, string> = { high: "var(--priority-high)", medium: "var(--priority-medium)", low: "var(--ds-border)" };
 
 export default function MeetingSummary() {
+  const { workspaceId } = useAuthenticatedLayout();
+  const meetingsPath = workspacePath(workspaceId, "/meetings");
 
   return (
     <div className="flex min-h-full flex-col gap-2 md:h-full md:overflow-hidden">
@@ -40,7 +43,7 @@ export default function MeetingSummary() {
         className="ds-surface flex min-h-13 shrink-0 flex-wrap items-center gap-3 rounded-[14px] px-4 py-3 md:h-13 md:px-5 md:py-0"
         style={{ boxShadow: "var(--ds-shadow)" }}
       >
-        <Link to={WORKSPACE_MEETINGS_PATH} className="text-[12px]" style={{ color: "var(--text-muted)" }}>ホーム</Link>
+        <Link to={meetingsPath} className="text-[12px]" style={{ color: "var(--text-muted)" }}>ホーム</Link>
         <HiChevronRight className="w-3 h-3 shrink-0" style={{ color: "var(--text-muted)" }} />
         <span className="text-[12px] font-medium truncate" style={{ color: "var(--text-main)" }}>Q2 製品ロードマップ検討</span>
 
@@ -165,7 +168,7 @@ export default function MeetingSummary() {
 
           {/* フッターボタン */}
           <div className="flex gap-3 pb-1 shrink-0">
-            <Link to={WORKSPACE_MEETINGS_PATH} className="flex-1">
+            <Link to={meetingsPath} className="flex-1">
               <DsButton variant="secondary" fullWidth>ホームに戻る</DsButton>
             </Link>
             <div className="flex-1">

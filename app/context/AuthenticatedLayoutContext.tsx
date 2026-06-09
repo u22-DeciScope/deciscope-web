@@ -3,7 +3,8 @@ import type { User } from "firebase/auth";
 
 type AuthenticatedLayoutContextValue = {
   today: string;
-  user: User | null;
+  user: User;
+  workspaceId: string;
 };
 
 const AuthenticatedLayoutContext = createContext<AuthenticatedLayoutContextValue | null>(null);
@@ -16,9 +17,10 @@ export function AuthenticatedLayoutProvider({
   children,
   today,
   user,
+  workspaceId,
 }: AuthenticatedLayoutProviderProps) {
   return (
-    <AuthenticatedLayoutContext.Provider value={{ today, user }}>
+    <AuthenticatedLayoutContext.Provider value={{ today, user, workspaceId }}>
       {children}
     </AuthenticatedLayoutContext.Provider>
   );

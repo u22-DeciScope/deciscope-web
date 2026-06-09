@@ -3,14 +3,15 @@ import {
   type AppNavigationItemId,
 } from "~/components/shared/navigation/navigationItems";
 import { Link } from "react-router";
-import { WORKSPACE_MEETINGS_PATH } from "~/lib/workspace";
+import { workspacePath } from "~/lib/workspace";
 
 type AppNavigationProps = {
   activeItem: AppNavigationItemId;
   collapsed: boolean;
+  workspaceId: string;
 };
 
-export function AppNavigation({ activeItem, collapsed }: AppNavigationProps) {
+export function AppNavigation({ activeItem, collapsed, workspaceId }: AppNavigationProps) {
   return (
     <nav className={`relative z-10 flex flex-1 flex-col gap-1 overflow-y-auto py-4 ${collapsed ? "px-2" : "px-3"}`}>
       {appNavigationItems.map((item) => {
@@ -32,7 +33,7 @@ export function AppNavigation({ activeItem, collapsed }: AppNavigationProps) {
         return item.path ? (
           <Link
             key={item.id}
-            to={item.path === "/" ? WORKSPACE_MEETINGS_PATH : item.path}
+            to={workspacePath(workspaceId, item.path)}
             title={collapsed ? item.label : undefined}
             aria-label={collapsed ? item.label : undefined}
             className={className}
@@ -41,7 +42,14 @@ export function AppNavigation({ activeItem, collapsed }: AppNavigationProps) {
             {content}
           </Link>
         ) : (
-          <button key={item.id} type="button" className={className} style={style}>
+          <button
+            key={item.id}
+            type="button"
+            disabled
+            title={`${item.label}は準備中です`}
+            className={`${className} cursor-not-allowed opacity-60`}
+            style={style}
+          >
             {content}
           </button>
         );

@@ -3,7 +3,7 @@ import { AppNavigation } from "~/components/shared/navigation/AppNavigation";
 import { AppUserMenu } from "~/components/shared/navigation/AppUserMenu";
 import type { AppNavigationItemId } from "~/components/shared/navigation/navigationItems";
 import { HiChevronDoubleLeft, HiChevronDoubleRight } from "react-icons/hi2";
-import { WORKSPACE_MEETINGS_PATH } from "~/lib/workspace";
+import { workspacePath } from "~/lib/workspace";
 
 type AppSidebarProps = {
   activeItem: AppNavigationItemId;
@@ -13,6 +13,7 @@ type AppSidebarProps = {
   displayEmail: string;
   displayName: string;
   photoUrl?: string | null;
+  workspaceId: string;
   onCollapsedChange: (collapsed: boolean) => void;
   onLogout: () => void | Promise<void>;
 };
@@ -25,6 +26,7 @@ export function AppSidebar({
   displayEmail,
   displayName,
   photoUrl,
+  workspaceId,
   onCollapsedChange,
   onLogout,
 }: AppSidebarProps) {
@@ -45,7 +47,7 @@ export function AppSidebar({
         style={{ borderColor: "var(--ds-border)" }}
       >
         <div className={collapsed ? "transition-opacity group-hover:opacity-0 group-focus-within:opacity-0" : ""}>
-          <Logo size="sm" linkTo={WORKSPACE_MEETINGS_PATH} showText={!collapsed} />
+          <Logo size="sm" linkTo={workspacePath(workspaceId, "/meetings")} showText={!collapsed} />
         </div>
         <button
           type="button"
@@ -61,7 +63,7 @@ export function AppSidebar({
         </button>
       </div>
 
-      <AppNavigation activeItem={activeItem} collapsed={collapsed} />
+      <AppNavigation activeItem={activeItem} collapsed={collapsed} workspaceId={workspaceId} />
       <AppUserMenu
         avatarLetter={avatarLetter}
         collapsed={collapsed}

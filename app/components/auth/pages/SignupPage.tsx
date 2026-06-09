@@ -56,7 +56,7 @@ export default function Signup() {
         <p className="text-center text-[12px]" style={{ color: "var(--text-muted)" }}>
           <Link to="/terms" className="hover:underline">利用規約</Link>
           <span className="mx-1">·</span>
-          <a href="#" className="hover:underline">プライバシーポリシー</a>
+          <span title="プライバシーポリシーは準備中です">プライバシーポリシー</span>
         </p>
       </div>
     </div>
