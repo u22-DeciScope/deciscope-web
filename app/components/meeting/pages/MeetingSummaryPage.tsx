@@ -3,7 +3,7 @@ import { HiArrowDownTray, HiChevronRight, HiLightBulb, HiShare } from "react-ico
 import { DsButton } from "~/components/DsButton";
 import { WorkspacePageLayout } from "~/components/shared/layout/WorkspacePageLayout";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
-import { workspacePath } from "~/lib/workspace";
+import { workspacePath } from "~/routing/workspacePaths";
 
 const decisions = [
   { id: 1, text: "Q2のOKRを達成済みと見なし、Q3の目標設定に移行する", votes: "全員合意", level: "high" },

@@ -2,7 +2,8 @@ import { Link, useLocation } from "react-router";
 import { BrandLogo } from "~/components/BrandLogo";
 import { MicrosoftIcon } from "~/components/shared/MicrosoftIcon";
 import { useMicrosoftAuthFlow } from "~/hooks/useMicrosoftAuthFlow";
-import { demoWorkspacePath, workspaceIdFromPath } from "~/lib/workspace";
+import { demoWorkspacePath } from "~/routing/workspacePaths";
+import { workspaceIdFromPath } from "~/routing/workspaceRouteMatchers";
 
 export default function Login() {
   const location = useLocation();

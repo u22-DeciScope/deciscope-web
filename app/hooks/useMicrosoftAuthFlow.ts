@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { syncAuthLogin } from "~/api/auth/authApi";
-import { signInWithMicrosoft } from "~/lib/firebase";
+import { signInWithMicrosoft } from "~/api/firebase/firebaseAuthClient";
 
 interface UseMicrosoftAuthFlowOptions {
   redirectTo: string;

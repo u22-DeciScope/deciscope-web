@@ -4,7 +4,7 @@ import {
 import { Link } from "react-router";
 import { useActiveNavigationItem } from "~/components/shared/navigation/useActiveNavigationItem";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
-import { workspacePath } from "~/lib/workspace";
+import { workspacePath } from "~/routing/workspacePaths";
 
 type AppNavigationProps = {
   collapsed: boolean;

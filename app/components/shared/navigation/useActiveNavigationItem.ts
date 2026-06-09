@@ -2,7 +2,7 @@ import { useLocation } from "react-router";
 
 import type { AppNavigationItemId } from "~/components/shared/navigation/navigationItems";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
-import { workspacePath } from "~/lib/workspace";
+import { workspacePath } from "~/routing/workspacePaths";
 
 export function useActiveNavigationItem(): AppNavigationItemId {
   const { pathname } = useLocation();

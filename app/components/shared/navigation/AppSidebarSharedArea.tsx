@@ -20,18 +20,20 @@ type AppSidebarSharedAreaProps = {
   collapsed: boolean;
   onClose: () => void;
   onOpen: () => void;
+  width: number;
 };
 
 export function AppSidebarSharedArea({
   collapsed,
   onClose,
   onOpen,
+  width,
 }: AppSidebarSharedAreaProps) {
   if (collapsed) {
     return (
       <section
-        className="group relative z-10 flex min-w-0 flex-1 flex-col items-center border-l"
-        style={{ borderColor: "var(--ds-border)" }}
+        className="group relative z-10 flex shrink-0 flex-col items-center"
+        style={{ width }}
       >
         <button
           type="button"
@@ -50,8 +52,8 @@ export function AppSidebarSharedArea({
 
   return (
     <section
-      className="relative z-10 flex min-w-0 flex-1 flex-col overflow-hidden border-l"
-      style={{ borderColor: "var(--ds-border)" }}
+      className="relative z-10 flex min-w-0 shrink-0 flex-col overflow-hidden"
+      style={{ width }}
     >
       <header
         className="flex h-[50px] shrink-0 items-center border-b px-3"

@@ -31,7 +31,6 @@ export async function signInWithMicrosoft(): Promise<User> {
   return result.user;
 }
 
-
 export async function signOutOfFirebase() {
   const auth = await getFirebaseAuth();
   const { signOut } = await import("firebase/auth");

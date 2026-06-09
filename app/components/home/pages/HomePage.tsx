@@ -10,7 +10,7 @@ import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import {
   workspaceMeetingPath,
   workspaceMeetingSummaryPath,
-} from "~/lib/workspace";
+} from "~/routing/workspacePaths";
 
 const upcomingMeetings = [
   { id: "1", title: "Q2 製品ロードマップ検討", time: "10:00", duration: "60分", participants: 5, tag: "製品" },

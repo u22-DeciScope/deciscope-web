@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import type { User } from "firebase/auth";
-import { onFirebaseUserChanged, signOutOfFirebase } from "~/lib/firebase";
+import {
+  onFirebaseUserChanged,
+  signOutOfFirebase,
+} from "~/api/firebase/firebaseAuthClient";
 
 type AuthenticationStatus = "loading" | "authenticated" | "unauthenticated" | "error";
 

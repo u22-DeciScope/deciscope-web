@@ -1,6 +1,6 @@
 import { BrandLogo } from "~/components/BrandLogo";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
-import { workspacePath } from "~/lib/workspace";
+import { workspacePath } from "~/routing/workspacePaths";
 
 export function AppMobileHeader() {
   const { user, workspaceId } = useAuthenticatedLayout();

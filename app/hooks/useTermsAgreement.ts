@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router";
-import { demoWorkspacePath } from "~/lib/workspace";
+import { demoWorkspacePath } from "~/routing/workspacePaths";
 
 export function useTermsAgreement() {
   const navigate = useNavigate();

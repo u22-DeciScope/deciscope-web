@@ -1,4 +1,4 @@
-export const DEMO_WORKSPACE_ID = "dummy-workspace";
+import { DEMO_WORKSPACE_ID } from "~/config/demoWorkspace";
 
 export function workspacePath(workspaceId: string, path = "") {
   const normalizedPath = path === "" || path.startsWith("/") ? path : `/${path}`;
@@ -7,19 +7,6 @@ export function workspacePath(workspaceId: string, path = "") {
 
 export function demoWorkspacePath(path = "") {
   return workspacePath(DEMO_WORKSPACE_ID, path);
-}
-
-export function workspaceIdFromPath(pathname: string) {
-  const match = /^\/w\/([^/]+)(?:\/|$)/.exec(pathname);
-  if (!match) {
-    return null;
-  }
-
-  try {
-    return decodeURIComponent(match[1]);
-  } catch {
-    return match[1];
-  }
 }
 
 export function workspaceMeetingPath(workspaceId: string, meetingId: string) {

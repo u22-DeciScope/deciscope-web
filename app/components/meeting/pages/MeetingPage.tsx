@@ -2,7 +2,7 @@ import { Link, useParams } from "react-router";
 
 import { WorkspacePageLayout } from "~/components/shared/layout/WorkspacePageLayout";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
-import { workspaceMeetingSummaryPath } from "~/lib/workspace";
+import { workspaceMeetingSummaryPath } from "~/routing/workspacePaths";
 import { DiscussionTree, type DiscussionTreeNode } from "../parts/DiscussionTree";
 import { MeetingAssistantPanel } from "../parts/MeetingAssistantPanel";
 import { MeetingChatPanel } from "../parts/MeetingChatPanel";

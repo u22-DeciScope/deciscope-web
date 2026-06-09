@@ -1,4 +1,4 @@
-import { getCurrentIdToken } from "~/lib/firebase";
+import { getCurrentIdToken } from "~/api/firebase/firebaseAuthClient";
 import { apiBaseUrl } from "~/api/core/apiConfig";
 
 type ApiRequestOptions = RequestInit & {

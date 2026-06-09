@@ -5,7 +5,7 @@ import { AppSidebarSharedArea } from "~/components/shared/navigation/AppSidebarS
 import { AppUserMenu } from "~/components/shared/navigation/AppUserMenu";
 import { HiChevronDoubleLeft, HiChevronDoubleRight } from "react-icons/hi2";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
-import { workspacePath } from "~/lib/workspace";
+import { workspacePath } from "~/routing/workspacePaths";
 
 type AppSidebarProps = {
   className?: string;
@@ -19,6 +19,7 @@ type AppSidebarProps = {
   onSharedAreaClose: () => void;
   onSharedAreaOpen: () => void;
   sharedAreaCollapsed: boolean;
+  sharedAreaWidth: number;
 };
 
 export function AppSidebar({
@@ -33,6 +34,7 @@ export function AppSidebar({
   onSharedAreaClose,
   onSharedAreaOpen,
   sharedAreaCollapsed,
+  sharedAreaWidth,
 }: AppSidebarProps) {
   const { workspaceId } = useAuthenticatedLayout();
   const CollapseIcon = navigationCollapsed ? HiChevronDoubleRight : HiChevronDoubleLeft;
@@ -62,8 +64,8 @@ export function AppSidebar({
             className={`absolute flex h-7 w-7 items-center justify-center rounded-[7px] opacity-0 transition hover:opacity-70 focus-visible:opacity-100 group-hover:opacity-100 ${
               navigationCollapsed ? "inset-x-0 mx-auto" : "right-3"
             }`}
-            aria-label={navigationCollapsed ? "ナビゲーションを展開" : "ナビゲーションを折りたたむ"}
-            title={navigationCollapsed ? "ナビゲーションを展開" : "ナビゲーションを折りたたむ"}
+            aria-label={navigationCollapsed ? "メニューを展開" : "メニューを折りたたむ"}
+            title={navigationCollapsed ? "メニューを展開" : "メニューを折りたたむ"}
             style={{ color: "var(--text-muted)", background: "var(--ds-surface-muted)" }}
           >
             <CollapseIcon className="h-4 w-4" />
@@ -76,7 +78,7 @@ export function AppSidebar({
       </div>
 
       <ResizeHandle
-        ariaLabel="ナビゲーションの幅を変更"
+        ariaLabel="メニューの幅を変更"
         max={navigationWidthMax}
         min={navigationWidthMin}
         value={navigationWidth}
@@ -88,6 +90,7 @@ export function AppSidebar({
         collapsed={sharedAreaCollapsed}
         onClose={onSharedAreaClose}
         onOpen={onSharedAreaOpen}
+        width={sharedAreaWidth}
       />
     </aside>
   );
