@@ -7,7 +7,7 @@
 html, body {
   background: var(--ds-bg);
   color: var(--text-main);
-  font-family: var(--font-sans);
+  font-family: var(--font-sans), sans-serif;
 }
 
 .ds-surface {

@@ -1,5 +1,7 @@
+import type { ReactNode } from "react";
+
 interface DsCardProps {
-  children: React.ReactNode;
+  children: ReactNode;
   className?: string;
   padding?: boolean;
 }
@@ -16,7 +18,7 @@ export function DsCard({ children, className = "", padding = false }: DsCardProp
 }
 
 interface DsCardHeaderProps {
-  children: React.ReactNode;
+  children: ReactNode;
   dot?: boolean;
 }
 
