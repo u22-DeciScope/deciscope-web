@@ -13,7 +13,7 @@ const sizes = {
   lg: { text: "text-[28px]", gap: "gap-2.5" },
 };
 
-export function Logo({ size = "md", linkTo, showText = true }: LogoProps) {
+export function BrandLogo({ size = "md", linkTo, showText = true }: LogoProps) {
   const s = sizes[size];
   const inner = (
     <div className={`flex items-center ${s.gap}`}>

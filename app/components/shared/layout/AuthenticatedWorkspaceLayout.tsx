@@ -8,13 +8,19 @@ import { AppMobileHeader } from "../navigation/AppMobileHeader";
 import { AppMobileNavigation } from "../navigation/AppMobileNavigation";
 import { AppSidebar } from "../navigation/AppSidebar";
 
-const COLLAPSED_SIDEBAR_WIDTH = 68;
-const DEFAULT_SIDEBAR_WIDTH = 220;
+const COLLAPSED_NAVIGATION_WIDTH = 68;
+const DEFAULT_NAVIGATION_WIDTH = 220;
+const MAX_NAVIGATION_WIDTH = 220;
+const NAVIGATION_COLLAPSE_THRESHOLD = 100;
+const DEFAULT_SHARED_AREA_WIDTH = 220;
+const MAX_SHARED_AREA_WIDTH = 360;
+const COLLAPSED_SHARED_AREA_WIDTH = 68;
+const SHARED_AREA_COLLAPSE_THRESHOLD = 100;
 const RESIZE_HANDLE_WIDTH = 8;
-const COLLAPSED_THRESHOLD = 100;
 
 export function AuthenticatedWorkspaceLayout() {
-  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
+  const [navigationWidth, setNavigationWidth] = useState(COLLAPSED_NAVIGATION_WIDTH);
+  const [sharedAreaWidth, setSharedAreaWidth] = useState(DEFAULT_SHARED_AREA_WIDTH);
   const { pathname } = useLocation();
   const { workspaceId } = useParams();
   const session = useAuthenticatedSession();
@@ -39,7 +45,10 @@ export function AuthenticatedWorkspaceLayout() {
     return <WorkspaceStatus message="認証済みユーザーを取得できませんでした。" />;
   }
 
-  const sidebarCollapsed = sidebarWidth <= COLLAPSED_THRESHOLD;
+  const navigationCollapsed = navigationWidth <= NAVIGATION_COLLAPSE_THRESHOLD;
+  const sharedAreaCollapsed = sharedAreaWidth <= SHARED_AREA_COLLAPSE_THRESHOLD;
+  const sidebarWidth =
+    navigationWidth + RESIZE_HANDLE_WIDTH + sharedAreaWidth;
 
   return (
     <AuthenticatedLayoutProvider
@@ -54,22 +63,41 @@ export function AuthenticatedWorkspaceLayout() {
           style={{ width: sidebarWidth + RESIZE_HANDLE_WIDTH }}
         >
           <AppSidebar
-            collapsed={sidebarCollapsed}
-            className="flex"
-            onCollapsedChange={(collapsed) =>
-              setSidebarWidth(collapsed ? COLLAPSED_SIDEBAR_WIDTH : DEFAULT_SIDEBAR_WIDTH)
-            }
-          />
-          <ResizeHandle
-            max={DEFAULT_SIDEBAR_WIDTH}
-            min={COLLAPSED_SIDEBAR_WIDTH}
-            value={sidebarWidth}
-            onChange={(width) =>
-              setSidebarWidth(
-                width <= COLLAPSED_THRESHOLD ? COLLAPSED_SIDEBAR_WIDTH : width,
+            className="flex h-full"
+            navigationCollapsed={navigationCollapsed}
+            navigationWidth={navigationWidth}
+            navigationWidthMax={MAX_NAVIGATION_WIDTH}
+            navigationWidthMin={COLLAPSED_NAVIGATION_WIDTH}
+            onNavigationCollapsedChange={(collapsed) =>
+              setNavigationWidth(
+                collapsed ? COLLAPSED_NAVIGATION_WIDTH : DEFAULT_NAVIGATION_WIDTH,
               )
             }
-            onReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
+            onNavigationWidthChange={(width) =>
+              setNavigationWidth(
+                width <= NAVIGATION_COLLAPSE_THRESHOLD
+                  ? COLLAPSED_NAVIGATION_WIDTH
+                  : width,
+              )
+            }
+            onNavigationWidthReset={() => setNavigationWidth(DEFAULT_NAVIGATION_WIDTH)}
+            onSharedAreaClose={() => setSharedAreaWidth(COLLAPSED_SHARED_AREA_WIDTH)}
+            onSharedAreaOpen={() => setSharedAreaWidth(DEFAULT_SHARED_AREA_WIDTH)}
+            sharedAreaCollapsed={sharedAreaCollapsed}
+          />
+          <ResizeHandle
+            ariaLabel="共有エリアの幅を変更"
+            max={MAX_SHARED_AREA_WIDTH}
+            min={COLLAPSED_SHARED_AREA_WIDTH}
+            value={sharedAreaWidth}
+            onChange={(width) =>
+              setSharedAreaWidth(
+                width <= SHARED_AREA_COLLAPSE_THRESHOLD
+                  ? COLLAPSED_SHARED_AREA_WIDTH
+                  : width,
+              )
+            }
+            onReset={() => setSharedAreaWidth(DEFAULT_SHARED_AREA_WIDTH)}
           />
         </section>
 

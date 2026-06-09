@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { Logo } from "~/components/Logo";
+import { BrandLogo } from "~/components/BrandLogo";
 import { MicrosoftIcon } from "~/components/shared/MicrosoftIcon";
 import { useMicrosoftAuthFlow } from "~/hooks/useMicrosoftAuthFlow";
 
@@ -15,7 +15,7 @@ export default function Signup() {
         className="w-full max-w-110 ds-surface rounded-[20px] px-10 py-10 flex flex-col gap-7"
         style={{ boxShadow: "var(--ds-shadow)" }}
       >
-        <Logo size="sm" linkTo="/" />
+        <BrandLogo size="sm" linkTo="/" />
 
         <div>
           <h1 className="text-[30px] font-bold leading-tight" style={{ color: "var(--text-main)" }}>新規登録</h1>

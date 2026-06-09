@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { syncAuthLogin } from "~/service/backendClient";
+import { syncAuthLogin } from "~/api/auth/authApi";
 import { signInWithMicrosoft } from "~/lib/firebase";
 
 interface UseMicrosoftAuthFlowOptions {

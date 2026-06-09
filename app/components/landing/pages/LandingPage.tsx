@@ -1,13 +1,13 @@
 import { Link } from "react-router";
 
-import { Logo } from "~/components/Logo";
+import { BrandLogo } from "~/components/BrandLogo";
 
 export default function LandingPage() {
   return (
     <main className="min-h-svh px-6 py-8" style={{ background: "var(--ds-bg)" }}>
       <div className="mx-auto flex min-h-[calc(100svh-4rem)] max-w-5xl flex-col">
         <header className="flex items-center justify-between">
-          <Logo size="md" />
+          <BrandLogo size="md" />
           <Link
             to="/login"
             className="rounded-[9px] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-80"

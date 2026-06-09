@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { useState } from "react";
 import { HiCheck } from "react-icons/hi2";
-import { Logo } from "~/components/Logo";
+import { BrandLogo } from "~/components/BrandLogo";
 import { DsButton } from "~/components/DsButton";
 import { useTermsAgreement } from "~/hooks/useTermsAgreement";
 
@@ -14,7 +14,7 @@ export default function Terms() {
 
       {/* ロゴ */}
       <div className="mb-6">
-        <Logo size="lg" linkTo="/" />
+        <BrandLogo size="lg" linkTo="/" />
       </div>
 
       {/* カード */}

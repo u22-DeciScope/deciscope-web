@@ -1,6 +1,7 @@
 import { useRef, type KeyboardEvent, type PointerEvent } from "react";
 
 type ResizeHandleProps = {
+  ariaLabel?: string;
   max: number;
   min: number;
   onChange: (value: number) => void;
@@ -14,6 +15,7 @@ type DragStart = {
 };
 
 export function ResizeHandle({
+  ariaLabel = "サイドバーの幅を変更",
   max,
   min,
   onChange,
@@ -65,12 +67,12 @@ export function ResizeHandle({
     <div
       role="separator"
       tabIndex={0}
-      aria-label="サイドバーの幅を変更"
+      aria-label={ariaLabel}
       aria-orientation="vertical"
       aria-valuemax={max}
       aria-valuemin={min}
       aria-valuenow={value}
-      className="group relative w-2 shrink-0 cursor-col-resize touch-none outline-none"
+      className="group relative z-10 w-2 shrink-0 cursor-col-resize touch-none outline-none"
       onDoubleClick={onReset}
       onKeyDown={handleKeyDown}
       onPointerCancel={handlePointerEnd}
