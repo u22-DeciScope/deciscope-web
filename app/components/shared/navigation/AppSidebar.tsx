@@ -2,24 +2,26 @@ import { Logo } from "~/components/Logo";
 import { AppNavigation } from "~/components/shared/navigation/AppNavigation";
 import { AppUserMenu } from "~/components/shared/navigation/AppUserMenu";
 import { HiChevronDoubleLeft, HiChevronDoubleRight } from "react-icons/hi2";
-import { useState } from "react";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/lib/workspace";
 
 type AppSidebarProps = {
+  collapsed: boolean;
   className?: string;
+  onCollapsedChange: (collapsed: boolean) => void;
 };
 
-export function AppSidebar({ className = "" }: AppSidebarProps) {
-  const [collapsed, setCollapsed] = useState(false);
+export function AppSidebar({
+  collapsed,
+  className = "",
+  onCollapsedChange,
+}: AppSidebarProps) {
   const { workspaceId } = useAuthenticatedLayout();
   const CollapseIcon = collapsed ? HiChevronDoubleRight : HiChevronDoubleLeft;
 
   return (
     <aside
-      className={`relative shrink-0 flex-col transition-[width] duration-200 ease-out ${
-        collapsed ? "w-[68px]" : "w-[220px]"
-      } ${className}`}
+      className={`relative min-w-0 flex-1 flex-col ${className}`}
     >
       <div className="absolute inset-0 ds-surface rounded-[14px]" style={{ boxShadow: "var(--ds-shadow)" }} />
 
@@ -34,7 +36,7 @@ export function AppSidebar({ className = "" }: AppSidebarProps) {
         </div>
         <button
           type="button"
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={() => onCollapsedChange(!collapsed)}
           className={`absolute flex h-7 w-7 items-center justify-center rounded-[7px] opacity-0 transition hover:opacity-70 focus-visible:opacity-100 group-hover:opacity-100 ${
             collapsed ? "inset-x-0 mx-auto" : "right-3"
           }`}
