@@ -2,6 +2,7 @@ import { createContext, useContext, type ReactNode } from "react";
 import type { User } from "firebase/auth";
 
 type AuthenticatedLayoutContextValue = {
+  logout: () => void | Promise<void>;
   today: string;
   user: User;
   workspaceId: string;
@@ -15,12 +16,13 @@ type AuthenticatedLayoutProviderProps = AuthenticatedLayoutContextValue & {
 
 export function AuthenticatedLayoutProvider({
   children,
+  logout,
   today,
   user,
   workspaceId,
 }: AuthenticatedLayoutProviderProps) {
   return (
-    <AuthenticatedLayoutContext.Provider value={{ today, user, workspaceId }}>
+    <AuthenticatedLayoutContext.Provider value={{ logout, today, user, workspaceId }}>
       {children}
     </AuthenticatedLayoutContext.Provider>
   );

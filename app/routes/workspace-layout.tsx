@@ -1,16 +1,12 @@
-import { useState } from "react";
 import { Navigate, Outlet, useLocation, useParams } from "react-router";
 
 import { AppMobileHeader } from "~/components/shared/navigation/AppMobileHeader";
 import { AppMobileNavigation } from "~/components/shared/navigation/AppMobileNavigation";
 import { AppSidebar } from "~/components/shared/navigation/AppSidebar";
-import type { AppNavigationItemId } from "~/components/shared/navigation/navigationItems";
 import { AuthenticatedLayoutProvider } from "~/context/AuthenticatedLayoutContext";
 import { useAuthenticatedSession } from "~/hooks/useAuthenticatedSession";
-import { workspacePath } from "~/lib/workspace";
 
 export default function WorkspaceLayout() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { pathname } = useLocation();
   const { workspaceId } = useParams();
   const session = useAuthenticatedSession();
@@ -35,32 +31,20 @@ export default function WorkspaceLayout() {
     return <WorkspaceStatus message="認証済みユーザーを取得できませんでした。" />;
   }
 
-  const activeItem = activeNavigationItem(pathname, workspaceId);
-
   return (
-    <AuthenticatedLayoutProvider today={session.today} user={session.user} workspaceId={workspaceId}>
-      <section className="min-h-[50vh] bg-(--ds-bg) md:flex md:h-dvh md:gap-2 md:overflow-hidden md:p-2.25">
-        <AppSidebar
-          activeItem={activeItem}
-          avatarLetter={session.avatarLetter}
-          className="hidden md:flex"
-          collapsed={sidebarCollapsed}
-          displayEmail={session.displayEmail}
-          displayName={session.displayName}
-          photoUrl={session.user.photoURL}
-          workspaceId={workspaceId}
-          onCollapsedChange={setSidebarCollapsed}
-          onLogout={session.handleLogout}
-        />
-        <AppMobileHeader
-          avatarLetter={session.avatarLetter}
-          photoUrl={session.user.photoURL}
-          workspaceId={workspaceId}
-        />
+    <AuthenticatedLayoutProvider
+      logout={session.handleLogout}
+      today={session.today}
+      user={session.user}
+      workspaceId={workspaceId}
+    >
+      <section className="min-h-120 bg-(--ds-bg) md:flex md:h-[max(100dvh,480px)] md:gap-2 md:overflow-hidden md:p-2.25">
+        <AppSidebar className="hidden md:flex" />
+        <AppMobileHeader />
         <main className="min-w-0 p-2 pb-24 md:flex-1 md:overflow-hidden md:p-0">
           <Outlet />
         </main>
-        <AppMobileNavigation activeItem={activeItem} workspaceId={workspaceId} />
+        <AppMobileNavigation />
       </section>
     </AuthenticatedLayoutProvider>
   );
@@ -72,19 +56,4 @@ function WorkspaceStatus({ message }: { message: string }) {
       {message}
     </main>
   );
-}
-
-function activeNavigationItem(pathname: string, workspaceId: string): AppNavigationItemId {
-  const meetingsPath = workspacePath(workspaceId, "/meetings");
-
-  if (pathname.startsWith(`${meetingsPath}/`)) {
-    return "meetings";
-  }
-  if (pathname.startsWith(workspacePath(workspaceId, "/team"))) {
-    return "team";
-  }
-  if (pathname.startsWith(workspacePath(workspaceId, "/reports"))) {
-    return "reports";
-  }
-  return "home";
 }

@@ -91,11 +91,18 @@ export type HealthResult = {
 };
 
 export function apiBaseUrl() {
-  return String(import.meta.env.VITE_API_BASE_URL ?? "http://localhost:9090");
+  return String(import.meta.env.VITE_API_BASE_URL ?? "/api");
 }
 
 export function wsBaseUrl() {
-  return String(import.meta.env.VITE_WS_BASE_URL ?? "ws://localhost:9090");
+  const configured = String(import.meta.env.VITE_WS_BASE_URL ?? "/ws");
+  if (/^wss?:\/\//.test(configured) || typeof window === "undefined") {
+    return configured;
+  }
+
+  const url = new URL(configured, window.location.origin);
+  url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString().replace(/\/$/, "");
 }
 
 export async function syncAuthLogin(idToken: string) {
@@ -238,11 +245,9 @@ async function requestJson<T>(
 ): Promise<T> {
   const response = await requestRaw(path, options);
   const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
+  const payload = parseJson(text);
   if (!response.ok) {
-    const message =
-      payload?.error?.message ?? payload?.message ?? response.statusText;
-    throw new Error(message);
+    throw new Error(responseErrorMessage(response, text, payload));
   }
   return payload as T;
 }
@@ -254,16 +259,38 @@ async function requestText(
   const response = await requestRaw(path, options);
   const text = await response.text();
   if (!response.ok) {
-    let message = response.statusText;
-    try {
-      const payload = text ? JSON.parse(text) : null;
-      message = payload?.error?.message ?? payload?.message ?? message;
-    } catch {
-      message = text || message;
-    }
-    throw new Error(message);
+    throw new Error(responseErrorMessage(response, text, parseJson(text)));
   }
   return text;
+}
+
+function parseJson(text: string): unknown {
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function responseErrorMessage(response: Response, text: string, payload: unknown) {
+  if (payload && typeof payload === "object") {
+    const body = payload as {
+      error?: { message?: unknown };
+      message?: unknown;
+    };
+    if (typeof body.error?.message === "string") {
+      return body.error.message;
+    }
+    if (typeof body.message === "string") {
+      return body.message;
+    }
+  }
+
+  return text.trim() || `${response.status} ${response.statusText}`.trim();
 }
 
 async function requestRaw(
@@ -284,9 +311,22 @@ async function requestRaw(
     }
   }
 
-  return fetch(`${apiBaseUrl()}${path}`, {
-    ...options,
-    headers,
-  });
+  const requestUrl = `${apiBaseUrl()}${path}`;
+
+  try {
+    return await fetch(requestUrl, {
+      ...options,
+      headers,
+    });
+  } catch (error) {
+    const resolvedUrl =
+      typeof window === "undefined"
+        ? requestUrl
+        : new URL(requestUrl, window.location.origin).toString();
+    throw new Error(
+      `バックエンドに接続できませんでした。接続先: ${resolvedUrl}。開発サーバーとAPIサーバーが起動しているか確認してください。`,
+      { cause: error },
+    );
+  }
 }
 

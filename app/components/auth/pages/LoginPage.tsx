@@ -45,9 +45,18 @@ export default function Login() {
         </button>
 
         {error && (
-          <p className="text-[12px] leading-relaxed" style={{ color: "var(--danger)" }}>
-            {error}
-          </p>
+          <div
+            role="alert"
+            className="rounded-[9px] border px-4 py-3"
+            style={{
+              background: "var(--ai-risk-bg)",
+              borderColor: "var(--ai-risk-border)",
+              color: "var(--ai-risk-fg)",
+            }}
+          >
+            <p className="text-[13px] font-semibold">ログインできませんでした</p>
+            <p className="mt-1 text-[12px] leading-relaxed">{error}</p>
+          </div>
         )}
 
         <p className="text-center text-[12px]" style={{ color: "var(--text-sub)" }}>

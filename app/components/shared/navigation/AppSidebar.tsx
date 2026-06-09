@@ -1,35 +1,18 @@
 import { Logo } from "~/components/Logo";
 import { AppNavigation } from "~/components/shared/navigation/AppNavigation";
 import { AppUserMenu } from "~/components/shared/navigation/AppUserMenu";
-import type { AppNavigationItemId } from "~/components/shared/navigation/navigationItems";
 import { HiChevronDoubleLeft, HiChevronDoubleRight } from "react-icons/hi2";
+import { useState } from "react";
+import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/lib/workspace";
 
 type AppSidebarProps = {
-  activeItem: AppNavigationItemId;
-  avatarLetter: string;
   className?: string;
-  collapsed: boolean;
-  displayEmail: string;
-  displayName: string;
-  photoUrl?: string | null;
-  workspaceId: string;
-  onCollapsedChange: (collapsed: boolean) => void;
-  onLogout: () => void | Promise<void>;
 };
 
-export function AppSidebar({
-  activeItem,
-  avatarLetter,
-  className = "",
-  collapsed,
-  displayEmail,
-  displayName,
-  photoUrl,
-  workspaceId,
-  onCollapsedChange,
-  onLogout,
-}: AppSidebarProps) {
+export function AppSidebar({ className = "" }: AppSidebarProps) {
+  const [collapsed, setCollapsed] = useState(false);
+  const { workspaceId } = useAuthenticatedLayout();
   const CollapseIcon = collapsed ? HiChevronDoubleRight : HiChevronDoubleLeft;
 
   return (
@@ -51,7 +34,7 @@ export function AppSidebar({
         </div>
         <button
           type="button"
-          onClick={() => onCollapsedChange(!collapsed)}
+          onClick={() => setCollapsed(!collapsed)}
           className={`absolute flex h-7 w-7 items-center justify-center rounded-[7px] opacity-0 transition hover:opacity-70 focus-visible:opacity-100 group-hover:opacity-100 ${
             collapsed ? "inset-x-0 mx-auto" : "right-3"
           }`}
@@ -63,15 +46,8 @@ export function AppSidebar({
         </button>
       </div>
 
-      <AppNavigation activeItem={activeItem} collapsed={collapsed} workspaceId={workspaceId} />
-      <AppUserMenu
-        avatarLetter={avatarLetter}
-        collapsed={collapsed}
-        displayEmail={displayEmail}
-        displayName={displayName}
-        photoUrl={photoUrl}
-        onLogout={onLogout}
-      />
+      <AppNavigation collapsed={collapsed} />
+      <AppUserMenu collapsed={collapsed} />
     </aside>
   );
 }

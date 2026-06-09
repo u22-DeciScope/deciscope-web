@@ -38,6 +38,7 @@ export function Layout({children}: { children: ReactNode }) {
     return (
         <html lang="ja" data-theme="white">
         <head>
+            <title></title>
             <meta charSet="utf-8"/>
             <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
             <script

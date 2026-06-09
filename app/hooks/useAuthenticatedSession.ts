@@ -53,9 +53,5 @@ export function useAuthenticatedSession() {
     navigate("/login");
   }
 
-  const displayName = user?.displayName ?? "ゲスト";
-  const displayEmail = user?.email ?? "";
-  const avatarLetter = displayName.charAt(0);
-
-  return { avatarLetter, displayEmail, displayName, error, handleLogout, status, today, user };
+  return { error, handleLogout, status, today, user };
 }

@@ -5,6 +5,7 @@
    Base
    ============================================================ */
 html, body {
+  min-height: 480px;
   background: var(--ds-bg);
   color: var(--text-main);
   font-family: var(--font-sans), sans-serif;

@@ -1,16 +1,15 @@
 import { Link } from "react-router";
 import {
   appNavigationItems,
-  type AppNavigationItemId,
 } from "~/components/shared/navigation/navigationItems";
+import { useActiveNavigationItem } from "~/components/shared/navigation/useActiveNavigationItem";
+import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/lib/workspace";
 
-type AppMobileNavigationProps = {
-  activeItem: AppNavigationItemId;
-  workspaceId: string;
-};
+export function AppMobileNavigation() {
+  const activeItem = useActiveNavigationItem();
+  const { workspaceId } = useAuthenticatedLayout();
 
-export function AppMobileNavigation({ activeItem, workspaceId }: AppMobileNavigationProps) {
   return (
     <nav
       className="fixed inset-x-2 z-30 grid grid-cols-4 overflow-hidden rounded-xl border md:hidden"

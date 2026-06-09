@@ -1,22 +1,17 @@
 import { HiArrowRightOnRectangle } from "react-icons/hi2";
+import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 
 type AppUserMenuProps = {
-  avatarLetter: string;
   collapsed: boolean;
-  displayEmail: string;
-  displayName: string;
-  photoUrl?: string | null;
-  onLogout: () => void | Promise<void>;
 };
 
-export function AppUserMenu({
-  avatarLetter,
-  collapsed,
-  displayEmail,
-  displayName,
-  photoUrl,
-  onLogout,
-}: AppUserMenuProps) {
+export function AppUserMenu({ collapsed }: AppUserMenuProps) {
+  const { logout, user } = useAuthenticatedLayout();
+  const displayName = user.displayName ?? "ゲスト";
+  const displayEmail = user.email ?? "";
+  const avatarLetter = displayName.charAt(0);
+  const photoUrl = user.photoURL;
+
   return (
     <div className="relative z-10 border-t" style={{ borderColor: "var(--ds-border)" }}>
       <div className={`flex items-center py-3 ${collapsed ? "justify-center px-2" : "gap-2.5 px-4"}`}>
@@ -40,7 +35,7 @@ export function AppUserMenu({
         </div>
         <button
           type="button"
-          onClick={onLogout}
+          onClick={logout}
           className={`${collapsed ? "hidden" : ""} shrink-0 p-1 rounded-[6px] transition hover:opacity-70`}
           title="ログアウト"
           style={{ color: "var(--text-muted)" }}

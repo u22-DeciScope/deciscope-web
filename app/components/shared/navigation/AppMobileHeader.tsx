@@ -1,13 +1,12 @@
 import { Logo } from "~/components/Logo";
+import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/lib/workspace";
 
-type AppMobileHeaderProps = {
-  avatarLetter: string;
-  photoUrl?: string | null;
-  workspaceId: string;
-};
+export function AppMobileHeader() {
+  const { user, workspaceId } = useAuthenticatedLayout();
+  const avatarLetter = (user.displayName ?? "ゲスト").charAt(0);
+  const photoUrl = user.photoURL;
 
-export function AppMobileHeader({ avatarLetter, photoUrl, workspaceId }: AppMobileHeaderProps) {
   return (
     <header
       className="sticky top-0 z-20 flex items-center justify-between border-b px-4 py-3 backdrop-blur md:hidden"

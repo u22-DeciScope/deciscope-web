@@ -1,17 +1,19 @@
 import {
   appNavigationItems,
-  type AppNavigationItemId,
 } from "~/components/shared/navigation/navigationItems";
 import { Link } from "react-router";
+import { useActiveNavigationItem } from "~/components/shared/navigation/useActiveNavigationItem";
+import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/lib/workspace";
 
 type AppNavigationProps = {
-  activeItem: AppNavigationItemId;
   collapsed: boolean;
-  workspaceId: string;
 };
 
-export function AppNavigation({ activeItem, collapsed, workspaceId }: AppNavigationProps) {
+export function AppNavigation({ collapsed }: AppNavigationProps) {
+  const activeItem = useActiveNavigationItem();
+  const { workspaceId } = useAuthenticatedLayout();
+
   return (
     <nav className={`relative z-10 flex flex-1 flex-col gap-1 overflow-y-auto py-4 ${collapsed ? "px-2" : "px-3"}`}>
       {appNavigationItems.map((item) => {
