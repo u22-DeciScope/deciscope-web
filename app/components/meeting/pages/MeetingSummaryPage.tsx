@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { HiArrowDownTray, HiChevronRight, HiLightBulb, HiShare } from "react-icons/hi2";
 import { DsButton } from "~/components/DsButton";
+import { WorkspacePageLayout } from "~/components/shared/layout/WorkspacePageLayout";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/lib/workspace";
 
@@ -36,11 +37,10 @@ export default function MeetingSummary() {
   const meetingsPath = workspacePath(workspaceId, "/meetings");
 
   return (
-    <div className="flex min-h-full flex-col gap-2 md:h-full md:overflow-hidden">
-
-      {/* ===== ヘッダーバー ===== */}
+    <WorkspacePageLayout
+      header={
       <div
-        className="ds-surface flex min-h-13 shrink-0 flex-wrap items-center gap-3 rounded-[14px] px-4 py-3 md:h-13 md:px-5 md:py-0"
+        className="ds-surface flex min-h-13 flex-wrap items-center gap-3 rounded-[14px] px-4 py-3 md:h-13 md:px-5 md:py-0"
         style={{ boxShadow: "var(--ds-shadow)" }}
       >
         <Link to={meetingsPath} className="text-[12px]" style={{ color: "var(--text-muted)" }}>ホーム</Link>
@@ -58,12 +58,58 @@ export default function MeetingSummary() {
           </DsButton>
         </div>
       </div>
+      }
+      rightSidebar={
+        <div className="flex w-full flex-col gap-2 overflow-y-auto">
+          {/* 参加者カード */}
+          <div className="ds-surface overflow-hidden rounded-[14px]" style={{ boxShadow: "var(--ds-shadow)" }}>
+            <div className="flex h-10 items-center border-b px-4" style={{ borderColor: "var(--ds-border)" }}>
+              <span className="mr-2 h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--brand)" }} />
+              <span className="text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>参加者</span>
+            </div>
+            <div className="flex flex-col gap-3 px-4 py-3">
+              {participants.map((p) => (
+                <div key={p.name} className="flex items-center gap-2.5">
+                  <div
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white"
+                    style={{ background: "var(--brand)" }}
+                  >
+                    {p.avatar}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-[12px] font-medium" style={{ color: "var(--text-main)" }}>{p.name}</p>
+                    <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>{p.role}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
 
-      {/* ===== メインコンテンツ ===== */}
-      <div className="flex min-h-0 flex-1 flex-col gap-2 md:flex-row">
-
-        {/* 左カラム（メイン） */}
-        <div className="flex min-w-0 flex-1 flex-col gap-2 md:overflow-y-auto">
+          {/* 統計カード */}
+          <div className="ds-surface overflow-hidden rounded-[14px]" style={{ boxShadow: "var(--ds-shadow)" }}>
+            <div className="flex h-10 items-center border-b px-4" style={{ borderColor: "var(--ds-border)" }}>
+              <span className="mr-2 h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--brand)" }} />
+              <span className="text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>サマリー</span>
+            </div>
+            <div className="flex flex-col gap-3 px-4 py-3">
+              {[
+                { label: "会議時間", value: "65分" },
+                { label: "決定事項", value: `${decisions.length}件` },
+                { label: "アクション", value: `${actions.length}件` },
+                { label: "参加者", value: `${participants.length}名` },
+              ].map((stat) => (
+                <div key={stat.label} className="flex items-center justify-between">
+                  <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>{stat.label}</span>
+                  <span className="text-[13px] font-semibold" style={{ color: "var(--text-main)" }}>{stat.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      }
+      rightSidebarClassName="w-55"
+    >
+        <div className="flex h-full min-w-0 flex-col gap-2 md:overflow-y-auto">
 
           {/* 会議情報カード */}
           <div className="ds-surface rounded-[14px] px-6 py-5 shrink-0" style={{ boxShadow: "var(--ds-shadow)" }}>
@@ -176,57 +222,7 @@ export default function MeetingSummary() {
             </div>
           </div>
         </div>
-
-        {/* 右カラム（サイド情報） */}
-        <div className="flex w-full shrink-0 flex-col gap-2 md:w-55">
-
-          {/* 参加者カード */}
-          <div className="ds-surface rounded-[14px] overflow-hidden" style={{ boxShadow: "var(--ds-shadow)" }}>
-            <div className="flex items-center h-10 px-4 border-b" style={{ borderColor: "var(--ds-border)" }}>
-              <span className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ background: "var(--brand)" }} />
-              <span className="text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>参加者</span>
-            </div>
-            <div className="px-4 py-3 flex flex-col gap-3">
-              {participants.map((p) => (
-                <div key={p.name} className="flex items-center gap-2.5">
-                  <div
-                    className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0"
-                    style={{ background: "var(--brand)" }}
-                  >
-                    {p.avatar}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-[12px] font-medium truncate" style={{ color: "var(--text-main)" }}>{p.name}</p>
-                    <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>{p.role}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* 統計カード */}
-          <div className="ds-surface rounded-[14px] overflow-hidden" style={{ boxShadow: "var(--ds-shadow)" }}>
-            <div className="flex items-center h-10 px-4 border-b" style={{ borderColor: "var(--ds-border)" }}>
-              <span className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ background: "var(--brand)" }} />
-              <span className="text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>サマリー</span>
-            </div>
-            <div className="px-4 py-3 flex flex-col gap-3">
-              {[
-                { label: "会議時間", value: "65分" },
-                { label: "決定事項", value: `${decisions.length}件` },
-                { label: "アクション", value: `${actions.length}件` },
-                { label: "参加者", value: `${participants.length}名` },
-              ].map((stat) => (
-                <div key={stat.label} className="flex items-center justify-between">
-                  <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>{stat.label}</span>
-                  <span className="text-[13px] font-semibold" style={{ color: "var(--text-main)" }}>{stat.value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    </WorkspacePageLayout>
   );
 }
 

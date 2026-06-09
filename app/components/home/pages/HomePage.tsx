@@ -5,6 +5,7 @@ import {
   HiUserGroup,
 } from "react-icons/hi2";
 import { DsButton } from "~/components/DsButton";
+import { WorkspacePageLayout } from "~/components/shared/layout/WorkspacePageLayout";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import {
   workspaceMeetingPath,
@@ -26,11 +27,10 @@ export default function Home() {
   const { today, user, workspaceId } = useAuthenticatedLayout();
 
   return (
-    <div className="flex min-h-full min-w-0 flex-col gap-2 md:h-full">
-
-        {/* トップバー */}
+    <WorkspacePageLayout
+      header={
         <div
-          className="ds-surface flex min-h-13 shrink-0 flex-wrap items-center justify-between gap-3 rounded-[14px] px-4 py-3 md:h-13 md:px-6 md:py-0"
+          className="ds-surface flex min-h-13 flex-wrap items-center justify-between gap-3 rounded-[14px] px-4 py-3 md:h-13 md:px-6 md:py-0"
           style={{ boxShadow: "var(--ds-shadow)" }}
         >
           <div>
@@ -44,9 +44,9 @@ export default function Home() {
             会議を開始
           </DsButton>
         </div>
-
-        {/* スクロール可能なコンテンツ */}
-        <div className="flex min-h-0 flex-1 flex-col gap-2 md:overflow-y-auto">
+      }
+    >
+        <div className="flex h-full min-h-0 flex-col gap-2 md:overflow-y-auto">
 
           {/* サマリー統計 */}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -149,7 +149,7 @@ export default function Home() {
           </div>
 
         </div>
-    </div>
+    </WorkspacePageLayout>
   );
 }
 

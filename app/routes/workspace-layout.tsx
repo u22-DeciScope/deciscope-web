@@ -11,7 +11,6 @@ import { useAuthenticatedSession } from "~/hooks/useAuthenticatedSession";
 const COLLAPSED_SIDEBAR_WIDTH = 68;
 const DEFAULT_SIDEBAR_WIDTH = 220;
 const RESIZE_HANDLE_WIDTH = 8;
-const MAX_SIDEBAR_WIDTH = 360;
 const COLLAPSED_THRESHOLD = 100;
 
 export default function WorkspaceLayout() {
@@ -49,7 +48,7 @@ export default function WorkspaceLayout() {
       user={session.user}
       workspaceId={workspaceId}
     >
-      <main className="min-h-120 bg-(--ds-bg) md:flex md:h-[max(100dvh,480px)] md:overflow-hidden md:p-2.25">
+      <div className="min-h-120 bg-(--ds-bg) md:flex md:h-[max(100dvh,480px)] md:overflow-hidden md:p-2.25">
         <section
           className="hidden md:flex md:shrink-0"
           style={{ width: sidebarWidth + RESIZE_HANDLE_WIDTH }}
@@ -62,10 +61,14 @@ export default function WorkspaceLayout() {
             }
           />
           <ResizeHandle
-            max={MAX_SIDEBAR_WIDTH}
+            max={DEFAULT_SIDEBAR_WIDTH}
             min={COLLAPSED_SIDEBAR_WIDTH}
             value={sidebarWidth}
-            onChange={setSidebarWidth}
+            onChange={(width) =>
+              setSidebarWidth(
+                width <= COLLAPSED_THRESHOLD ? COLLAPSED_SIDEBAR_WIDTH : width,
+              )
+            }
             onReset={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
           />
         </section>
@@ -77,7 +80,7 @@ export default function WorkspaceLayout() {
           </div>
           <AppMobileNavigation />
         </section>
-      </main>
+      </div>
     </AuthenticatedLayoutProvider>
   );
 }
