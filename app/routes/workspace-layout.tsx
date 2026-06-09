@@ -39,7 +39,7 @@ export default function WorkspaceLayout() {
 
   return (
     <AuthenticatedLayoutProvider today={session.today} user={session.user} workspaceId={workspaceId}>
-      <div className="min-h-svh bg-[var(--ds-bg)] md:flex md:h-dvh md:gap-2 md:overflow-hidden md:p-2.25">
+      <section className="min-h-[50vh] bg-(--ds-bg) md:flex md:h-dvh md:gap-2 md:overflow-hidden md:p-2.25">
         <AppSidebar
           activeItem={activeItem}
           avatarLetter={session.avatarLetter}
@@ -61,14 +61,14 @@ export default function WorkspaceLayout() {
           <Outlet />
         </main>
         <AppMobileNavigation activeItem={activeItem} workspaceId={workspaceId} />
-      </div>
+      </section>
     </AuthenticatedLayoutProvider>
   );
 }
 
 function WorkspaceStatus({ message }: { message: string }) {
   return (
-    <main className="flex min-h-svh items-center justify-center bg-[var(--ds-bg)] p-4 text-sm text-[var(--text-muted)]">
+    <main className="flex min-h-svh items-center justify-center bg-(--ds-bg) p-4 text-sm text-(--text-muted)">
       {message}
     </main>
   );

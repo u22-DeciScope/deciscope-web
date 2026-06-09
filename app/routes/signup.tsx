@@ -1,8 +1,9 @@
 import SignupPage from "~/components/auth/pages/SignupPage";
+import { createPageTitle } from "~/root";
 import type { Route } from "./+types/signup";
 
 export function meta({}: Route.MetaArgs) {
-  return [{ title: "新規登録 | Deciscope" }];
+  return [{ title: createPageTitle("新規登録") }];
 }
 
 export default function Signup() {

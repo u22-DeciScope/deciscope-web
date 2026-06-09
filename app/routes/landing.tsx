@@ -1,10 +1,6 @@
 import { Link } from "react-router";
 import { Logo } from "~/components/Logo";
 
-export function meta() {
-  return [{ title: "Deciscope" }];
-}
-
 export default function Landing() {
   return (
     <main className="min-h-svh px-6 py-8" style={{ background: "var(--ds-bg)" }}>
