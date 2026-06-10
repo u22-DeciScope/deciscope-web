@@ -1,234 +1,215 @@
-import { Link } from "react-router";
-import { HiArrowDownTray, HiChevronRight, HiLightBulb, HiShare } from "react-icons/hi2";
-import { Logo } from "~/components/Logo";
+import { useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router";
+import { HiArrowDownTray, HiShare } from "react-icons/hi2";
+
+import { getMeetingReport, getMeetingReportMarkdown } from "~/api/meetings/meetingReportsApi";
+import { createMeetingJoinToken, getMeeting, type MeetingDto } from "~/api/meetings/meetingsApi";
+import type { MeetingReportDto } from "~/api/meetings/meetingReportsApi";
 import { DsButton } from "~/components/DsButton";
-
-const decisions = [
-  { id: 1, text: "Q2のOKRを達成済みと見なし、Q3の目標設定に移行する", votes: "全員合意", level: "high" },
-  { id: 2, text: "クラッシュ率を0.1%以下に修正後、新機能リリースを1週間後に実施する", votes: "4対1で可決", level: "high" },
-  { id: 3, text: "インフラコスト削減のため、スケールアップの判断を来月まで保留", votes: "全員合意", level: "medium" },
-  { id: 4, text: "週次スプリントレビューをバイウィークリーに変更する", votes: "3対2で可決", level: "low" },
-];
-
-const actions = [
-  { id: 1, text: "クラッシュバグ #4821 を修正する", owner: "鈴木 一郎", due: "5月26日", done: false, priority: "high" },
-  { id: 2, text: "Q3 OKR ドラフトを作成して共有する", owner: "山田 太郎", due: "5月28日", done: false, priority: "high" },
-  { id: 3, text: "本番リリース告知メールを準備する", owner: "高橋 健", due: "5月30日", done: false, priority: "medium" },
-  { id: 4, text: "オンボーディングフローの最終確認", owner: "佐藤 美咲", due: "5月25日", done: false, priority: "medium" },
-  { id: 5, text: "ユーザーインタビューのスケジュール調整", owner: "田中 花子", due: "6月2日", done: false, priority: "low" },
-];
-
-const participants = [
-  { name: "山田 太郎", role: "ファシリテーター", avatar: "山" },
-  { name: "田中 花子", role: "プロダクト", avatar: "田" },
-  { name: "鈴木 一郎", role: "エンジニア", avatar: "鈴" },
-  { name: "佐藤 美咲", role: "デザイン", avatar: "佐" },
-  { name: "高橋 健", role: "マーケティング", avatar: "高" },
-];
-
-const priorityDot: Record<string, string> = { high: "var(--priority-high)", medium: "var(--priority-medium)", low: "var(--priority-low)" };
-const priorityLabel: Record<string, string> = { high: "高", medium: "中", low: "低" };
-const levelBar: Record<string, string> = { high: "var(--priority-high)", medium: "var(--priority-medium)", low: "var(--ds-border)" };
+import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
+import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
+import { workspacePath } from "~/routing/workspacePaths";
+import { MeetingSummaryMain } from "~/components/meeting/summary/MeetingSummaryMain";
+import { MeetingSummarySidebar } from "~/components/meeting/summary/MeetingSummarySidebar";
+import type { MeetingSummaryViewModel } from "~/components/meeting/summary/meetingSummaryTypes";
 
 export default function MeetingSummary() {
+  const { id } = useParams();
+  const { workspaceId } = useAuthenticatedLayout();
+  const meetingsPath = workspacePath(workspaceId, "/meetings");
+  const [meeting, setMeeting] = useState<MeetingDto | null>(null);
+  const [report, setReport] = useState<MeetingReportDto | null>(null);
+  const [markdown, setMarkdown] = useState("");
+  const [shareToken, setShareToken] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!id) {
+      return;
+    }
+    let active = true;
+    Promise.all([getMeeting(id), getMeetingReport(id), getMeetingReportMarkdown(id)])
+      .then(([meetingResult, reportResult, markdownResult]) => {
+        if (!active) {
+          return;
+        }
+        setMeeting(meetingResult);
+        setReport(reportResult);
+        setMarkdown(markdownResult);
+      })
+      .catch((cause: unknown) => {
+        if (active) {
+          setError(cause instanceof Error ? cause.message : "レポートを取得できませんでした。");
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [id]);
+
+  const summary = useMemo(
+    () => summaryFromReport(meeting, report),
+    [meeting, report],
+  );
+
+  async function shareReport() {
+    if (!id) {
+      return;
+    }
+    const token = await createMeetingJoinToken(id);
+    setShareToken(token.token);
+  }
+
+  async function exportMarkdown() {
+    const content = markdown || report?.content || "";
+    if (!content) {
+      return;
+    }
+    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${meeting?.title ?? "meeting-report"}.md`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const chrome = useMemo(
+    () => ({
+      header: {
+        title: meeting?.title ?? "会議サマリー",
+        breadcrumbs: [
+          { label: "ホーム", to: meetingsPath },
+          { label: meeting?.title ?? "会議サマリー" },
+        ],
+        actions: (
+          <>
+            <DsButton variant="secondary" onClick={shareReport}>
+              <HiShare className="h-3.5 w-3.5" />
+              共有
+            </DsButton>
+            <DsButton variant="secondary" onClick={exportMarkdown}>
+              <HiArrowDownTray className="h-3.5 w-3.5" />
+              エクスポート
+            </DsButton>
+          </>
+        ),
+      },
+      rightSidebar: <MeetingSummarySidebar summary={summary} />,
+      rightSidebarClassName: "w-55",
+    }),
+    [meeting?.title, meetingsPath, summary],
+  );
+  useWorkspaceChrome(chrome);
+
+  if (error) {
+    return <StatusPanel message={error} />;
+  }
+
+  if (!report) {
+    return <StatusPanel message="レポートを読み込んでいます..." />;
+  }
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden p-2.25 gap-2" style={{ background: "var(--ds-bg)" }}>
-
-      {/* ===== ヘッダーバー ===== */}
-      <div
-        className="h-13 ds-surface rounded-[14px] flex items-center px-5 gap-3 shrink-0"
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      {shareToken && (
+        <div
+          className="rounded-(--ds-radius-control) border px-3 py-2 text-[11px]"
+          style={{ borderColor: "var(--ds-border)", color: "var(--text-sub)" }}
+        >
+          共有トークン: <span className="font-mono">{shareToken}</span>
+        </div>
+      )}
+      <MeetingSummaryMain meetingsPath={meetingsPath} summary={summary} />
+      <section
+        className="ds-surface min-h-60 overflow-auto rounded-(--ds-radius-panel) p-4"
         style={{ boxShadow: "var(--ds-shadow)" }}
       >
-        <Logo size="sm" linkTo="/" />
-
-        <div className="w-px h-5 mx-1" style={{ background: "var(--ds-border)" }} />
-
-        <Link to="/" className="text-[12px]" style={{ color: "var(--text-muted)" }}>ホーム</Link>
-        <HiChevronRight className="w-3 h-3 shrink-0" style={{ color: "var(--text-muted)" }} />
-        <span className="text-[12px] font-medium truncate" style={{ color: "var(--text-main)" }}>Q2 製品ロードマップ検討</span>
-
-        <div className="ml-auto flex items-center gap-2">
-          <DsButton variant="secondary">
-            <HiShare className="w-3.5 h-3.5" />
-            共有
-          </DsButton>
-          <DsButton variant="secondary">
-            <HiArrowDownTray className="w-3.5 h-3.5" />
-            エクスポート
-          </DsButton>
-        </div>
-      </div>
-
-      {/* ===== メインコンテンツ ===== */}
-      <div className="flex-1 flex gap-2 min-h-0">
-
-        {/* 左カラム（メイン） */}
-        <div className="flex-1 flex flex-col gap-2 min-w-0 overflow-y-auto">
-
-          {/* 会議情報カード */}
-          <div className="ds-surface rounded-[14px] px-6 py-5 shrink-0" style={{ boxShadow: "var(--ds-shadow)" }}>
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <span
-                    className="text-[11px] font-medium px-2.5 py-0.5 rounded-full"
-                    style={{ background: "var(--badge-decision-bg)", color: "var(--badge-decision-fg)" }}
-                  >
-                    完了
-                  </span>
-                  <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-                    2026年5月23日 10:00 〜 11:05
-                  </span>
-                </div>
-                <h1 className="text-[18px] font-bold" style={{ color: "var(--text-main)" }}>Q2 製品ロードマップ検討</h1>
-              </div>
-              <div className="text-right">
-                <p className="text-[22px] font-bold" style={{ color: "var(--brand)" }}>65分</p>
-                <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>会議時間</p>
-              </div>
-            </div>
-          </div>
-
-          {/* AIサマリーカード */}
-          <div
-            className="rounded-[14px] px-6 py-5 shrink-0"
-            style={{ background: "var(--ai-quest-bg)", border: "1px solid var(--ai-quest-border)", boxShadow: "var(--ds-shadow)" }}
-          >
-            <div className="flex items-center gap-2 mb-3">
-              <div
-                className="w-6 h-6 rounded-[7px] flex items-center justify-center"
-                style={{ background: "var(--brand)" }}
-              >
-                <HiLightBulb className="w-3.5 h-3.5 text-white" />
-              </div>
-              <p className="text-[13px] font-semibold" style={{ color: "var(--ai-quest-fg)" }}>AI サマリー</p>
-            </div>
-            <p className="text-[12px] leading-relaxed" style={{ color: "var(--ai-quest-fg)" }}>
-              本会議では、Q2 OKRの達成確認と新機能リリースの判断が主要な議題でした。クラッシュ率の問題は技術的に解決可能と判断され、修正後1週間でのリリースが決定されました。また、Q3の目標設定に向けた準備とインフラコスト管理の方針も合意されました。合計4件の決定事項と5件のアクションアイテムが確定しています。
-            </p>
-          </div>
-
-          {/* 決定事項カード */}
-          <div className="ds-surface rounded-[14px] overflow-hidden" style={{ boxShadow: "var(--ds-shadow)" }}>
-            <div className="flex items-center h-10 px-5 border-b" style={{ borderColor: "var(--ds-border)" }}>
-              <span className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ background: "var(--brand)" }} />
-              <span className="text-[13px] font-semibold" style={{ color: "var(--text-main)" }}>決定事項</span>
-              <span
-                className="ml-2 text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center"
-                style={{ background: "var(--badge-decision-bg)", color: "var(--badge-decision-fg)" }}
-              >
-                {decisions.length}
-              </span>
-            </div>
-            <div className="divide-y" style={{ borderColor: "var(--ds-border)" }}>
-              {decisions.map((d) => (
-                <div key={d.id} className="flex items-start gap-3 px-5 py-4">
-                  <div className="w-1 self-stretch rounded-full mt-1 shrink-0" style={{ background: levelBar[d.level] }} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-medium leading-relaxed" style={{ color: "var(--text-main)" }}>{d.text}</p>
-                    <p className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>{d.votes}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* アクションアイテムカード */}
-          <div className="ds-surface rounded-[14px] overflow-hidden" style={{ boxShadow: "var(--ds-shadow)" }}>
-            <div className="flex items-center h-10 px-5 border-b" style={{ borderColor: "var(--ds-border)" }}>
-              <span className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ background: "var(--brand)" }} />
-              <span className="text-[13px] font-semibold" style={{ color: "var(--text-main)" }}>アクションアイテム</span>
-              <span
-                className="ml-2 text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center"
-                style={{ background: "var(--badge-action-bg)", color: "var(--badge-action-fg)" }}
-              >
-                {actions.length}
-              </span>
-            </div>
-            <div className="divide-y" style={{ borderColor: "var(--ds-border)" }}>
-              {actions.map((action) => (
-                <div key={action.id} className="flex items-center gap-3 px-5 py-3">
-                  <input type="checkbox" checked={action.done} readOnly className="w-4 h-4 shrink-0 rounded accent-[#2a8fd4]" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px]" style={{ color: "var(--text-main)" }}>{action.text}</p>
-                    <div className="flex items-center gap-3 mt-0.5">
-                      <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>{action.owner}</span>
-                      <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>期限: {action.due}</span>
-                    </div>
-                  </div>
-                  <div
-                    className="w-2 h-2 rounded-full shrink-0"
-                    style={{ background: priorityDot[action.priority] }}
-                    title={priorityLabel[action.priority]}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* フッターボタン */}
-          <div className="flex gap-3 pb-1 shrink-0">
-            <Link to="/" className="flex-1">
-              <DsButton variant="secondary" fullWidth>ホームに戻る</DsButton>
-            </Link>
-            <div className="flex-1">
-              <DsButton fullWidth>フォローアップ会議を設定</DsButton>
-            </div>
-          </div>
-        </div>
-
-        {/* 右カラム（サイド情報） */}
-        <div className="w-55 shrink-0 flex flex-col gap-2">
-
-          {/* 参加者カード */}
-          <div className="ds-surface rounded-[14px] overflow-hidden" style={{ boxShadow: "var(--ds-shadow)" }}>
-            <div className="flex items-center h-10 px-4 border-b" style={{ borderColor: "var(--ds-border)" }}>
-              <span className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ background: "var(--brand)" }} />
-              <span className="text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>参加者</span>
-            </div>
-            <div className="px-4 py-3 flex flex-col gap-3">
-              {participants.map((p) => (
-                <div key={p.name} className="flex items-center gap-2.5">
-                  <div
-                    className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0"
-                    style={{ background: "var(--brand)" }}
-                  >
-                    {p.avatar}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-[12px] font-medium truncate" style={{ color: "var(--text-main)" }}>{p.name}</p>
-                    <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>{p.role}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* 統計カード */}
-          <div className="ds-surface rounded-[14px] overflow-hidden" style={{ boxShadow: "var(--ds-shadow)" }}>
-            <div className="flex items-center h-10 px-4 border-b" style={{ borderColor: "var(--ds-border)" }}>
-              <span className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ background: "var(--brand)" }} />
-              <span className="text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>サマリー</span>
-            </div>
-            <div className="px-4 py-3 flex flex-col gap-3">
-              {[
-                { label: "会議時間", value: "65分" },
-                { label: "決定事項", value: `${decisions.length}件` },
-                { label: "アクション", value: `${actions.length}件` },
-                { label: "参加者", value: `${participants.length}名` },
-              ].map((stat) => (
-                <div key={stat.label} className="flex items-center justify-between">
-                  <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>{stat.label}</span>
-                  <span className="text-[13px] font-semibold" style={{ color: "var(--text-main)" }}>{stat.value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
+        <h2 className="mb-3 text-[14px] font-semibold" style={{ color: "var(--text-main)" }}>
+          Markdown レポート
+        </h2>
+        <pre
+          className="whitespace-pre-wrap text-[12px] leading-5"
+          style={{ color: "var(--text-sub)" }}
+        >
+          {markdown || report.content}
+        </pre>
+      </section>
     </div>
   );
 }
 
+function StatusPanel({ message }: { message: string }) {
+  return (
+    <div
+      className="ds-surface rounded-(--ds-radius-panel) p-5 text-[13px]"
+      style={{ boxShadow: "var(--ds-shadow)", color: "var(--text-sub)" }}
+    >
+      {message}
+    </div>
+  );
+}
 
+function summaryFromReport(
+  meeting: MeetingDto | null,
+  report: MeetingReportDto | null,
+): MeetingSummaryViewModel {
+  return {
+    title: meeting?.title ?? "会議サマリー",
+    statusLabel: formatStatus(meeting?.status ?? "loading"),
+    dateRange: formatRange(meeting),
+    duration: "MVP0 再生",
+    aiSummary: firstParagraph(report?.content) || "バックエンドイベントからレポートを生成しています。",
+    decisions: [],
+    actions: [],
+    participants: [],
+  };
+}
+
+function firstParagraph(content = "") {
+  return content
+    .split(/\n{2,}/)
+    .map((part) => part.trim())
+    .find((part) => part && !part.startsWith("#") && !part.startsWith("-"))
+    ?.replace(/\n/g, " ");
+}
+
+function formatRange(meeting: MeetingDto | null) {
+  if (!meeting) {
+    return "";
+  }
+  const start = formatDate(meeting.created_at);
+  const end = formatDate(meeting.ended_at || meeting.updated_at);
+  return `${start} - ${end}`;
+}
+
+function formatDate(value: string) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString("ja-JP", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatStatus(status: string) {
+  switch (status) {
+    case "loading":
+      return "読み込み中";
+    case "created":
+      return "作成済み";
+    case "started":
+      return "進行中";
+    case "ended":
+      return "終了";
+    default:
+      return status;
+  }
+}

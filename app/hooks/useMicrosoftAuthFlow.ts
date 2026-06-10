@@ -1,17 +1,14 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { syncAuthLogin } from "~/service/backendClient";
-import { signInWithMicrosoft } from "~/lib/firebase";
+import { syncAuthLogin } from "~/api/auth/authApi";
+import { signInWithMicrosoft } from "~/api/firebase/firebaseAuthClient";
 
 interface UseMicrosoftAuthFlowOptions {
   redirectTo: string;
   fallbackMessage: string;
 }
 
-export function useMicrosoftAuthFlow({
-  redirectTo,
-  fallbackMessage,
-}: UseMicrosoftAuthFlowOptions) {
+export function useMicrosoftAuthFlow({ redirectTo, fallbackMessage }: UseMicrosoftAuthFlowOptions) {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);

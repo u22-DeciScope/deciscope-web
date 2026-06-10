@@ -1,22 +1,21 @@
+import type { ReactNode } from "react";
+
 interface DsCardProps {
-  children: React.ReactNode;
+  children: ReactNode;
   className?: string;
   padding?: boolean;
 }
 
 export function DsCard({ children, className = "", padding = false }: DsCardProps) {
   return (
-    <div
-      className={`ds-surface rounded-[14px] overflow-hidden ${padding ? "p-6" : ""} ${className}`}
-      style={{ boxShadow: "var(--ds-shadow)" }}
-    >
+    <div className={`ds-surface-elevated overflow-hidden ${padding ? "p-6" : ""} ${className}`}>
       {children}
     </div>
   );
 }
 
 interface DsCardHeaderProps {
-  children: React.ReactNode;
+  children: ReactNode;
   dot?: boolean;
 }
 
@@ -36,4 +35,3 @@ export function DsCardHeader({ children, dot = true }: DsCardHeaderProps) {
     </div>
   );
 }
-

@@ -31,7 +31,6 @@ export async function signInWithMicrosoft(): Promise<User> {
   return result.user;
 }
 
-
 export async function signOutOfFirebase() {
   const auth = await getFirebaseAuth();
   const { signOut } = await import("firebase/auth");
@@ -46,9 +45,7 @@ export async function getCurrentIdToken(): Promise<string | null> {
   return auth.currentUser.getIdToken();
 }
 
-export async function onFirebaseUserChanged(
-  onChange: (user: User | null) => void,
-) {
+export async function onFirebaseUserChanged(onChange: (user: User | null) => void) {
   const auth = await getFirebaseAuth();
   const { onAuthStateChanged } = await import("firebase/auth");
   return onAuthStateChanged(auth, onChange);

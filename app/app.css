@@ -4,14 +4,22 @@
 /* ============================================================
    Base
    ============================================================ */
-html, body {
+html,
+body {
+  min-height: 480px;
   background: var(--ds-bg);
   color: var(--text-main);
-  font-family: var(--font-sans);
+  font-family: var(--font-sans), sans-serif;
 }
 
 .ds-surface {
   background: var(--ds-surface);
+}
+
+.ds-surface-elevated {
+  background: var(--ds-surface);
+  border-radius: var(--ds-radius-panel);
+  box-shadow: var(--ds-shadow);
 }
 
 .ds-surface-muted {

@@ -5,30 +5,34 @@
 :root[data-theme="white"] {
   color-scheme: light;
 
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif,
-    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-sans:
+    "Inter", ui-sans-serif, system-ui, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+    "Noto Color Emoji";
 
   /* ---- Surfaces ---- */
-  --ds-bg:      #dff1fc;
+  --ds-bg: #dff1fc;
   --ds-surface: #ffffff;
   --ds-surface-muted: #f6fbff;
   --ds-surface-raised: #ffffff;
-  --ds-shadow:  0px 2px 16px 0px rgba(26, 95, 138, 0.1);
-  --ds-border:  #e8f4fb;
+  --ds-shadow: 0px 2px 16px 0px rgba(26, 95, 138, 0.1);
+  --ds-border: #e8f4fb;
+  --ds-radius-control: 9px;
+  --ds-radius-panel: 14px;
+  --ds-radius-dialog: 20px;
 
   /* ---- Brand ---- */
-  --brand:       #2a8fd4;
+  --brand: #2a8fd4;
   --brand-hover: #1f7cbd;
   --brand-light: #e9f5ff;
   --text-on-brand: #ffffff;
 
   /* ---- Typography ---- */
-  --text-main:  #1e2d3d;
-  --text-sub:   #5a7a96;
+  --text-main: #1e2d3d;
+  --text-sub: #5a7a96;
   --text-muted: #9bb5c8;
 
   /* ---- Form ---- */
-  --input-bg:     #f6fbff;
+  --input-bg: #f6fbff;
   --input-border: #e8f4fb;
 
   /* ---- Feedback ---- */
@@ -43,54 +47,67 @@
   --reaction-bg: rgba(255, 255, 255, 0.65);
 
   /* ---- Chat bubbles ---- */
-  --chat-other-bg:     #f6fbff;
+  --chat-other-bg: #f6fbff;
   --chat-other-border: #e8f4fb;
-  --chat-own-bg:       #2a8fd4;
+  --chat-own-bg: #2a8fd4;
 
   /* ---- Discussion tree ---- */
-  --node-bg:            #f6fbff;
-  --node-border:        #e8f4fb;
-  --node-active-bg:     #ffffff;
+  --node-bg: #f6fbff;
+  --node-border: #e8f4fb;
+  --node-active-bg: #ffffff;
   --node-active-border: #2a8fd4;
-  --indent-line:        #e8f4fb;
+  --indent-line: #e8f4fb;
 
   /* ---- Discussion tree tags ---- */
-  --tag-topic-bg:   #eff6ff;   --tag-topic-fg:   #1d4ede;
-  --tag-idea-bg:    #ede9ff;   --tag-idea-fg:    #5b22b6;
-  --tag-concern-bg: #fffbeb;   --tag-concern-fg: #b45309;
-  --tag-counter-bg: #ede9ff;   --tag-counter-fg: #5b22b6;
-  --tag-policy-bg:  #dcfce7;   --tag-policy-fg:  #167d33;
+  --tag-topic-bg: #eff6ff;
+  --tag-topic-fg: #1d4ede;
+  --tag-idea-bg: #ede9ff;
+  --tag-idea-fg: #5b22b6;
+  --tag-concern-bg: #fffbeb;
+  --tag-concern-fg: #b45309;
+  --tag-counter-bg: #ede9ff;
+  --tag-counter-fg: #5b22b6;
+  --tag-policy-bg: #dcfce7;
+  --tag-policy-fg: #167d33;
 
   /* ---- AI insight cards ---- */
-  --ai-risk-bg:      #fff2f2;  --ai-risk-border:  #fecaca;  --ai-risk-fg:   #b91c1c;
-  --ai-point-bg:     #fffbeb;  --ai-point-border: #fde78a;  --ai-point-fg:  #b45309;
-  --ai-quest-bg:     #eff6ff;  --ai-quest-border: #bfdbfe;  --ai-quest-fg:  #1d4ede;
+  --ai-risk-bg: #fff2f2;
+  --ai-risk-border: #fecaca;
+  --ai-risk-fg: #b91c1c;
+  --ai-point-bg: #fffbeb;
+  --ai-point-border: #fde78a;
+  --ai-point-fg: #b45309;
+  --ai-quest-bg: #eff6ff;
+  --ai-quest-border: #bfdbfe;
+  --ai-quest-fg: #1d4ede;
 
   /* ---- Status badge ---- */
-  --badge-decision-bg: #dcfce7; --badge-decision-fg: #167d33;
-  --badge-action-bg:   #fffbeb; --badge-action-fg:   #b45309;
+  --badge-decision-bg: #dcfce7;
+  --badge-decision-fg: #167d33;
+  --badge-action-bg: #fffbeb;
+  --badge-action-fg: #b45309;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --ds-bg:      #111827;
+  --ds-bg: #111827;
   --ds-surface: #1f2937;
   --ds-surface-muted: #182231;
   --ds-surface-raised: #263244;
-  --ds-shadow:  0px 2px 18px 0px rgba(0, 0, 0, 0.35);
-  --ds-border:  #344156;
+  --ds-shadow: 0px 2px 18px 0px rgba(0, 0, 0, 0.35);
+  --ds-border: #344156;
 
-  --brand:       #5bb7f0;
+  --brand: #5bb7f0;
   --brand-hover: #8ed0ff;
   --brand-light: #173247;
   --text-on-brand: #07111d;
 
-  --text-main:  #eef6fb;
-  --text-sub:   #b6cad8;
+  --text-main: #eef6fb;
+  --text-sub: #b6cad8;
   --text-muted: #7f95a8;
 
-  --input-bg:     #182231;
+  --input-bg: #182231;
   --input-border: #344156;
 
   --danger: #f87171;
@@ -103,26 +120,39 @@
   --avatar-placeholder: #455468;
   --reaction-bg: rgba(255, 255, 255, 0.08);
 
-  --chat-other-bg:     #182231;
+  --chat-other-bg: #182231;
   --chat-other-border: #344156;
-  --chat-own-bg:       #2a8fd4;
+  --chat-own-bg: #2a8fd4;
 
-  --node-bg:            #182231;
-  --node-border:        #344156;
-  --node-active-bg:     #263244;
+  --node-bg: #182231;
+  --node-border: #344156;
+  --node-active-bg: #263244;
   --node-active-border: #5bb7f0;
-  --indent-line:        #344156;
+  --indent-line: #344156;
 
-  --tag-topic-bg:   #172a44; --tag-topic-fg:   #93c5fd;
-  --tag-idea-bg:    #281f45; --tag-idea-fg:    #c4b5fd;
-  --tag-concern-bg: #392914; --tag-concern-fg: #fcd34d;
-  --tag-counter-bg: #281f45; --tag-counter-fg: #c4b5fd;
-  --tag-policy-bg:  #173522; --tag-policy-fg:  #86efac;
+  --tag-topic-bg: #172a44;
+  --tag-topic-fg: #93c5fd;
+  --tag-idea-bg: #281f45;
+  --tag-idea-fg: #c4b5fd;
+  --tag-concern-bg: #392914;
+  --tag-concern-fg: #fcd34d;
+  --tag-counter-bg: #281f45;
+  --tag-counter-fg: #c4b5fd;
+  --tag-policy-bg: #173522;
+  --tag-policy-fg: #86efac;
 
-  --ai-risk-bg:      #3a1d22; --ai-risk-border:  #7f3039; --ai-risk-fg:   #fca5a5;
-  --ai-point-bg:     #392914; --ai-point-border: #7c5a1c; --ai-point-fg:  #fcd34d;
-  --ai-quest-bg:     #172a44; --ai-quest-border: #315b89; --ai-quest-fg:  #93c5fd;
+  --ai-risk-bg: #3a1d22;
+  --ai-risk-border: #7f3039;
+  --ai-risk-fg: #fca5a5;
+  --ai-point-bg: #392914;
+  --ai-point-border: #7c5a1c;
+  --ai-point-fg: #fcd34d;
+  --ai-quest-bg: #172a44;
+  --ai-quest-border: #315b89;
+  --ai-quest-fg: #93c5fd;
 
-  --badge-decision-bg: #173522; --badge-decision-fg: #86efac;
-  --badge-action-bg:   #392914; --badge-action-fg:   #fcd34d;
+  --badge-decision-bg: #173522;
+  --badge-decision-fg: #86efac;
+  --badge-action-bg: #392914;
+  --badge-action-fg: #fcd34d;
 }
