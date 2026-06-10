@@ -3,9 +3,9 @@ import { Link, useParams } from "react-router";
 import { WorkspacePageLayout } from "~/components/shared/layout/WorkspacePageLayout";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspaceMeetingSummaryPath } from "~/routing/workspacePaths";
-import { DiscussionTree, type DiscussionTreeNode } from "../parts/DiscussionTree";
-import { MeetingAssistantPanel } from "../parts/MeetingAssistantPanel";
-import { MeetingChatPanel } from "../parts/MeetingChatPanel";
+import { DiscussionTree, type DiscussionTreeNode } from "~/components/meeting/parts/DiscussionTree";
+import { MeetingAssistantPanel } from "~/components/meeting/parts/MeetingAssistantPanel";
+import { MeetingChatPanel } from "~/components/meeting/parts/MeetingChatPanel";
 
 const discussionNodes: DiscussionTreeNode[] = [
   {

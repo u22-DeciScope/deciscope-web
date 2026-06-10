@@ -6,7 +6,7 @@ import type {
   MeetingDecisionSummary,
   MeetingPriority,
   MeetingSummaryViewModel,
-} from "./meetingSummaryTypes";
+} from "~/components/meeting/summary/meetingSummaryTypes";
 
 const priorityDot: Record<MeetingPriority, string> = {
   high: "var(--priority-high)",

@@ -1,10 +1,10 @@
 import { WorkspacePageLayout } from "~/components/shared/layout/WorkspacePageLayout";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/routing/workspacePaths";
-import { meetingSummaryDemo } from "../summary/meetingSummaryDemoData";
-import { MeetingSummaryHeader } from "../summary/MeetingSummaryHeader";
-import { MeetingSummaryMain } from "../summary/MeetingSummaryMain";
-import { MeetingSummarySidebar } from "../summary/MeetingSummarySidebar";
+import { meetingSummaryDemo } from "~/components/meeting/summary/meetingSummaryDemoData";
+import { MeetingSummaryHeader } from "~/components/meeting/summary/MeetingSummaryHeader";
+import { MeetingSummaryMain } from "~/components/meeting/summary/MeetingSummaryMain";
+import { MeetingSummarySidebar } from "~/components/meeting/summary/MeetingSummarySidebar";
 
 export default function MeetingSummary() {
   const { workspaceId } = useAuthenticatedLayout();

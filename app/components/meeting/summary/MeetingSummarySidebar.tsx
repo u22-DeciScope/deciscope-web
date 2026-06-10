@@ -1,4 +1,4 @@
-import type { MeetingSummaryViewModel } from "./meetingSummaryTypes";
+import type { MeetingSummaryViewModel } from "~/components/meeting/summary/meetingSummaryTypes";
 
 type MeetingSummarySidebarProps = {
   summary: MeetingSummaryViewModel;

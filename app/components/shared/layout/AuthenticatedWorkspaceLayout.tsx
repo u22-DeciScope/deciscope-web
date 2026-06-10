@@ -3,11 +3,11 @@ import { Navigate, Outlet, useLocation, useParams } from "react-router";
 
 import { AuthenticatedLayoutProvider } from "~/context/AuthenticatedLayoutContext";
 import { useAuthenticatedSession } from "~/hooks/useAuthenticatedSession";
-import { ResizeHandle } from "./ResizeHandle";
-import { WorkspaceStatus } from "./WorkspaceStatus";
-import { AppMobileHeader } from "../navigation/AppMobileHeader";
-import { AppMobileNavigation } from "../navigation/AppMobileNavigation";
-import { APP_SIDEBAR_SIZES, AppSidebar } from "../navigation/AppSidebar";
+import { ResizeHandle } from "~/components/shared/layout/ResizeHandle";
+import { WorkspaceStatus } from "~/components/shared/layout/WorkspaceStatus";
+import { AppMobileHeader } from "~/components/shared/navigation/AppMobileHeader";
+import { AppMobileNavigation } from "~/components/shared/navigation/AppMobileNavigation";
+import { APP_SIDEBAR_SIZES, AppSidebar } from "~/components/shared/navigation/AppSidebar";
 
 const {
   collapsedPaneWidth,

@@ -1,4 +1,4 @@
-import type { MeetingSummaryViewModel } from "./meetingSummaryTypes";
+import type { MeetingSummaryViewModel } from "~/components/meeting/summary/meetingSummaryTypes";
 
 export const meetingSummaryDemo: MeetingSummaryViewModel = {
   title: "Q2 製品ロードマップ検討",
