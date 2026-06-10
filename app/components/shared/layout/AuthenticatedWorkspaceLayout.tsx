@@ -7,7 +7,6 @@ import { ResizeHandle } from "~/components/shared/layout/ResizeHandle";
 import { WorkspaceChromeProvider } from "~/components/shared/layout/WorkspaceChromeContext";
 import { WorkspacePageLayout } from "~/components/shared/layout/WorkspacePageLayout";
 import { WorkspaceStatus } from "~/components/shared/layout/WorkspaceStatus";
-import { AppMobileNavigation } from "~/components/shared/navigation/AppMobileNavigation";
 import { APP_SIDEBAR_SIZES, AppSidebar } from "~/components/shared/navigation/AppSidebar";
 
 const {
@@ -94,14 +93,13 @@ export function AuthenticatedWorkspaceLayout() {
         </section>
 
         <section className="min-w-0 flex-1 md:overflow-hidden">
-          <div className="p-2 pb-24 md:h-full md:overflow-hidden md:p-0">
+          <div className="p-2 md:h-full md:overflow-hidden md:p-0">
             <WorkspaceChromeProvider>
               <WorkspacePageLayout>
                 <Outlet />
               </WorkspacePageLayout>
             </WorkspaceChromeProvider>
           </div>
-          <AppMobileNavigation />
         </section>
       </div>
     </AuthenticatedLayoutProvider>

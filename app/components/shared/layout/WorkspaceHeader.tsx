@@ -33,7 +33,7 @@ export function WorkspaceHeader({
 
   return (
     <header
-      className="ds-surface sticky top-0 z-20 shrink-0 overflow-hidden rounded-(--ds-radius-panel) md:static"
+      className="ds-surface sticky top-2 z-20 shrink-0 overflow-hidden rounded-(--ds-radius-panel) md:static"
       style={{ boxShadow: "var(--ds-shadow)" }}
     >
       <div
