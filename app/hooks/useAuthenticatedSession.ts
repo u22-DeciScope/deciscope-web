@@ -50,7 +50,7 @@ export function useAuthenticatedSession() {
 
   async function handleLogout() {
     await signOutOfFirebase();
-    navigate("/login");
+    navigate("/");
   }
 
   return { error, handleLogout, status, today, user };

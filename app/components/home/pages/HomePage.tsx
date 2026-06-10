@@ -1,76 +1,76 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { HiChevronRight, HiPlus, HiUserGroup } from "react-icons/hi2";
 
+import { listMeetings, type MeetingDto } from "~/api/meetings/meetingsApi";
 import { DsButton } from "~/components/DsButton";
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
-import { workspaceMeetingPath, workspaceMeetingSummaryPath } from "~/routing/workspacePaths";
-
-const upcomingMeetings = [
-  {
-    id: "1",
-    title: "Q2 製品ロードマップ検討",
-    time: "10:00",
-    duration: "60分",
-    participants: 5,
-    tag: "製品",
-  },
-  {
-    id: "2",
-    title: "週次スプリントレビュー",
-    time: "14:00",
-    duration: "30分",
-    participants: 8,
-    tag: "開発",
-  },
-];
-
-const recentMeetings = [
-  {
-    id: "3",
-    title: "デザインシステム方針決定",
-    date: "昨日",
-    decisions: 4,
-    actions: 7,
-    participants: 4,
-  },
-  {
-    id: "4",
-    title: "採用戦略ブレインストーミング",
-    date: "5月21日",
-    decisions: 2,
-    actions: 3,
-    participants: 6,
-  },
-  {
-    id: "5",
-    title: "予算計画 FY2026",
-    date: "5月19日",
-    decisions: 6,
-    actions: 12,
-    participants: 3,
-  },
-];
+import {
+  workspaceMeetingPath,
+  workspaceMeetingSummaryPath,
+  workspacePath,
+} from "~/routing/workspacePaths";
 
 export default function Home() {
   const { today, user, workspaceId } = useAuthenticatedLayout();
   const displayName = user.displayName?.split(" ")[0] ?? "ゲスト";
+  const [meetings, setMeetings] = useState<MeetingDto[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const newMeetingPath = workspacePath(workspaceId, "/meetings/new");
+
+  useEffect(() => {
+    let active = true;
+    setIsLoading(true);
+    listMeetings()
+      .then((result) => {
+        if (!active) {
+          return;
+        }
+        setMeetings(result.meetings);
+        setError(null);
+      })
+      .catch((cause: unknown) => {
+        if (active) {
+          setError(cause instanceof Error ? cause.message : "会議一覧を取得できませんでした。");
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setIsLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const activeMeetings = useMemo(
+    () => meetings.filter((meeting) => meeting.status !== "ended").slice(0, 3),
+    [meetings],
+  );
+  const recentMeetings = useMemo(
+    () => meetings.filter((meeting) => meeting.status === "ended").slice(0, 5),
+    [meetings],
+  );
 
   const chrome = useMemo(
     () => ({
       header: {
-        title: `おはようございます、${displayName}さん`,
+        title: `こんにちは、${displayName}さん`,
         subtitle: today,
         actions: (
-          <DsButton disabled title="会議作成画面は準備中です">
-            <HiPlus className="h-3.5 w-3.5" />
-            会議を開始
-          </DsButton>
+          <Link to={newMeetingPath}>
+            <DsButton>
+              <HiPlus className="h-3.5 w-3.5" />
+              会議を開始
+            </DsButton>
+          </Link>
         ),
       },
     }),
-    [displayName, today],
+    [displayName, newMeetingPath, today],
   );
   useWorkspaceChrome(chrome);
 
@@ -78,9 +78,9 @@ export default function Home() {
     <div className="flex h-full min-h-0 flex-col gap-2 md:overflow-y-auto">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {[
-          { label: "今日の会議", value: "2", unit: "件", color: "var(--brand)" },
-          { label: "今週の決定事項", value: "12", unit: "件", color: "var(--success)" },
-          { label: "未完了アクション", value: "5", unit: "件", color: "var(--warning)" },
+          { label: "進行中の会議", value: String(activeMeetings.length), color: "var(--brand)" },
+          { label: "完了済みレポート", value: String(recentMeetings.length), color: "var(--success)" },
+          { label: "会議数", value: String(meetings.length), color: "var(--warning)" },
         ].map((stat) => (
           <div
             key={stat.label}
@@ -90,89 +90,46 @@ export default function Home() {
             <p className="mb-2 text-[11px]" style={{ color: "var(--text-muted)" }}>
               {stat.label}
             </p>
-            <div className="flex items-end gap-1">
-              <span className="text-[26px] font-bold leading-none" style={{ color: stat.color }}>
-                {stat.value}
-              </span>
-              <span className="mb-0.5 text-[12px]" style={{ color: "var(--text-sub)" }}>
-                {stat.unit}
-              </span>
-            </div>
+            <span className="text-[26px] font-bold leading-none" style={{ color: stat.color }}>
+              {stat.value}
+            </span>
           </div>
         ))}
       </div>
 
-      <div
+      <section
         className="ds-surface overflow-hidden rounded-(--ds-radius-panel)"
         style={{ boxShadow: "var(--ds-shadow)" }}
       >
-        <div
-          className="flex h-10 items-center border-b px-5"
-          style={{ borderColor: "var(--ds-border)" }}
-        >
-          <span className="mr-2 h-2 w-2 shrink-0 rounded-full bg-(--brand)" />
-          <span className="text-[13px] font-semibold" style={{ color: "var(--text-main)" }}>
-            今日の予定
-          </span>
-        </div>
+        <SectionHeader title="進行中の会議" />
         <div className="divide-y" style={{ borderColor: "var(--ds-border)" }}>
-          {upcomingMeetings.map((meeting) => (
-            <div key={meeting.id} className="flex items-center gap-4 px-5 py-3">
-              <div className="min-w-12 text-center">
-                <p className="text-[14px] font-bold" style={{ color: "var(--text-main)" }}>
-                  {meeting.time}
-                </p>
-                <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                  {meeting.duration}
-                </p>
-              </div>
-              <div className="h-8 w-px" style={{ background: "var(--ds-border)" }} />
-              <div className="min-w-0 flex-1">
-                <div className="mb-0.5 flex items-center gap-2">
-                  <span
-                    className="rounded-full px-2 py-0.5 text-[10px] font-medium"
-                    style={{ background: "var(--tag-topic-bg)", color: "var(--tag-topic-fg)" }}
-                  >
-                    {meeting.tag}
-                  </span>
-                </div>
-                <p
-                  className="truncate text-[13px] font-medium"
-                  style={{ color: "var(--text-main)" }}
-                >
-                  {meeting.title}
-                </p>
-                <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-                  {meeting.participants}名参加予定
-                </p>
-              </div>
-              <Link to={workspaceMeetingPath(workspaceId, meeting.id)}>
-                <DsButton variant="secondary">参加する</DsButton>
-              </Link>
-            </div>
-          ))}
+          {isLoading && <EmptyRow label="会議を読み込んでいます..." />}
+          {!isLoading && error && <EmptyRow label={error} />}
+          {!isLoading && !error && activeMeetings.length === 0 && (
+            <EmptyRow label="進行中の会議はまだありません。会議を作成するとテストデータ再生を開始できます。" />
+          )}
+          {!isLoading &&
+            !error &&
+            activeMeetings.map((meeting) => (
+              <MeetingRow
+                key={meeting.id}
+                meeting={meeting}
+                to={workspaceMeetingPath(workspaceId, meeting.id)}
+                actionLabel="開く"
+              />
+            ))}
         </div>
-      </div>
+      </section>
 
-      <div
+      <section
         className="ds-surface overflow-hidden rounded-(--ds-radius-panel)"
         style={{ boxShadow: "var(--ds-shadow)" }}
       >
-        <div
-          className="flex h-10 items-center justify-between border-b px-5"
-          style={{ borderColor: "var(--ds-border)" }}
-        >
-          <div className="flex items-center">
-            <span className="mr-2 h-2 w-2 shrink-0 rounded-full bg-(--brand)" />
-            <span className="text-[13px] font-semibold" style={{ color: "var(--text-main)" }}>
-              最近の会議
-            </span>
-          </div>
-          <button type="button" className="text-[11px] font-medium text-(--brand)">
-            すべて見る
-          </button>
-        </div>
+        <SectionHeader title="最近のレポート" actionLabel="すべて" />
         <div>
+          {!isLoading && !error && recentMeetings.length === 0 && (
+            <EmptyRow label="完了済みの会議レポートはまだありません。" />
+          )}
           {recentMeetings.map((meeting, index) => (
             <Link
               key={meeting.id}
@@ -198,32 +155,127 @@ export default function Home() {
                   {meeting.title}
                 </p>
                 <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-                  {meeting.date} · {meeting.participants}名
+                  {formatShortDate(meeting.ended_at || meeting.updated_at)}
                 </p>
               </div>
-              <div className="flex shrink-0 items-center gap-4">
-                <div className="text-center">
-                  <p className="text-[13px] font-semibold" style={{ color: "var(--text-main)" }}>
-                    {meeting.decisions}
-                  </p>
-                  <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                    決定
-                  </p>
-                </div>
-                <div className="text-center">
-                  <p className="text-[13px] font-semibold" style={{ color: "var(--text-main)" }}>
-                    {meeting.actions}
-                  </p>
-                  <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                    アクション
-                  </p>
-                </div>
+              <div className="flex shrink-0 items-center gap-3">
+                <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                  {formatStatus(meeting.status)}
+                </span>
                 <HiChevronRight className="h-4 w-4" style={{ color: "var(--text-muted)" }} />
               </div>
             </Link>
           ))}
         </div>
-      </div>
+      </section>
     </div>
   );
+}
+
+function MeetingRow({
+  actionLabel,
+  meeting,
+  to,
+}: {
+  actionLabel: string;
+  meeting: MeetingDto;
+  to: string;
+}) {
+  return (
+    <div className="flex items-center gap-4 px-5 py-3">
+      <div className="min-w-20">
+        <p className="text-[13px] font-bold" style={{ color: "var(--text-main)" }}>
+          {meeting.status}
+        </p>
+        <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+          {formatShortDate(meeting.created_at)}
+        </p>
+      </div>
+      <div className="h-8 w-px" style={{ background: "var(--ds-border)" }} />
+      <div className="min-w-0 flex-1">
+        <span
+          className="mb-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium"
+          style={{ background: "var(--tag-topic-bg)", color: "var(--tag-topic-fg)" }}
+        >
+          {formatSource(meeting.source)}
+        </span>
+        <p className="truncate text-[13px] font-medium" style={{ color: "var(--text-main)" }}>
+          {meeting.title}
+        </p>
+        <p className="truncate text-[11px]" style={{ color: "var(--text-muted)" }}>
+          {meeting.id}
+        </p>
+      </div>
+      <Link to={to}>
+        <DsButton variant="secondary">{actionLabel}</DsButton>
+      </Link>
+    </div>
+  );
+}
+
+function SectionHeader({ actionLabel, title }: { actionLabel?: string; title: string }) {
+  return (
+    <div
+      className="flex h-10 items-center justify-between border-b px-5"
+      style={{ borderColor: "var(--ds-border)" }}
+    >
+      <div className="flex items-center">
+        <span className="mr-2 h-2 w-2 shrink-0 rounded-full bg-(--brand)" />
+        <span className="text-[13px] font-semibold" style={{ color: "var(--text-main)" }}>
+          {title}
+        </span>
+      </div>
+      {actionLabel && (
+        <button type="button" className="text-[11px] font-medium text-(--brand)">
+          {actionLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function EmptyRow({ label }: { label: string }) {
+  return (
+    <div className="px-5 py-4 text-[12px]" style={{ color: "var(--text-muted)" }}>
+      {label}
+    </div>
+  );
+}
+
+function formatShortDate(value: string) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString("ja-JP", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatStatus(status: string) {
+  switch (status) {
+    case "created":
+      return "作成済み";
+    case "started":
+      return "進行中";
+    case "ended":
+      return "終了";
+    default:
+      return status;
+  }
+}
+
+function formatSource(source: string) {
+  switch (source) {
+    case "fixture_replay":
+      return "テストデータ";
+    default:
+      return source;
+  }
 }

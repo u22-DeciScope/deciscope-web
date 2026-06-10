@@ -1,15 +1,15 @@
-const messages = [
-  { id: 1, user: "田中", text: "今日はプロダクトの方向性を決めたい。", own: false },
-  { id: 2, user: "佐藤", text: "アイデアは多いけど、まだ絞れていません。", own: false },
-  { id: 3, user: "", text: "ターゲットから先に決めませんか？", own: true },
-  { id: 4, user: "田中", text: "学生向けはどうでしょう。", own: false },
-  { id: 5, user: "", text: "利用場面をもう少し具体化したいです。", own: true },
-];
+import type { MeetingSegmentDto } from "~/api/meetings/meetingEventsApi";
+import type { RuntimePartial } from "~/api/meetings/meetingRuntimeTypes";
 
-export function MeetingChatPanel() {
+type MeetingChatPanelProps = {
+  partials: RuntimePartial[];
+  segments: MeetingSegmentDto[];
+};
+
+export function MeetingChatPanel({ partials, segments }: MeetingChatPanelProps) {
   return (
     <section
-      className="flex max-h-72 w-full shrink-0 flex-col overflow-hidden rounded-(--ds-radius-panel) xl:max-h-none xl:w-58"
+      className="flex max-h-72 w-full shrink-0 flex-col overflow-hidden rounded-(--ds-radius-panel) xl:max-h-none xl:w-66"
       style={{ background: "var(--ds-surface)", boxShadow: "var(--ds-shadow)" }}
     >
       <header
@@ -21,43 +21,77 @@ export function MeetingChatPanel() {
           style={{ background: "var(--brand)" }}
         />
         <span className="ml-2 text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>
-          会話
+          文字起こし
         </span>
       </header>
 
       <div className="flex-1 space-y-2 overflow-y-auto px-2 py-2">
-        {messages.map((message) =>
-          message.own ? (
-            <div key={message.id} className="flex justify-end">
-              <p
-                className="max-w-45 rounded-(--ds-radius-panel) px-2.5 py-2 text-[11px] leading-4 text-white"
-                style={{ background: "var(--chat-own-bg)" }}
-              >
-                {message.text}
-              </p>
-            </div>
-          ) : (
-            <div key={message.id}>
-              <p
-                className="mb-1 pl-2 text-[10px] font-semibold"
-                style={{ color: "var(--text-sub)" }}
-              >
-                {message.user}
-              </p>
-              <p
-                className="max-w-45 rounded-(--ds-radius-panel) border px-2.5 py-2 text-[11px] leading-4"
-                style={{
-                  background: "var(--chat-other-bg)",
-                  borderColor: "var(--chat-other-border)",
-                  color: "var(--text-main)",
-                }}
-              >
-                {message.text}
-              </p>
-            </div>
-          ),
+        {segments.length === 0 && partials.length === 0 && (
+          <p className="px-2 py-3 text-[11px]" style={{ color: "var(--text-muted)" }}>
+            テストデータ再生を開始すると文字起こしが流れます。
+          </p>
         )}
+        {segments.map((segment) => (
+          <TranscriptBubble
+            key={segment.segment_id}
+            speaker={segment.speaker_label}
+            text={segment.text}
+            time={formatDuration(segment.start_ms)}
+          />
+        ))}
+        {partials.map((partial) => (
+          <TranscriptBubble
+            key={partial.partial_id}
+            partial
+            speaker={partial.speaker_label ?? "Speaker"}
+            text={partial.text ?? ""}
+            time={formatDuration(partial.start_ms ?? 0)}
+          />
+        ))}
       </div>
     </section>
   );
+}
+
+function TranscriptBubble({
+  partial = false,
+  speaker,
+  text,
+  time,
+}: {
+  partial?: boolean;
+  speaker: string;
+  text: string;
+  time: string;
+}) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between gap-2 px-2">
+        <p className="truncate text-[10px] font-semibold" style={{ color: "var(--text-sub)" }}>
+          {speaker}
+        </p>
+        <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+          {time}
+        </p>
+      </div>
+      <p
+        className="rounded-(--ds-radius-panel) border px-2.5 py-2 text-[11px] leading-4"
+        style={{
+          background: partial ? "var(--input-bg)" : "var(--chat-other-bg)",
+          borderColor: partial ? "var(--brand)" : "var(--chat-other-border)",
+          color: "var(--text-main)",
+          opacity: partial ? 0.78 : 1,
+        }}
+      >
+        {text || "..."}
+      </p>
+    </div>
+  );
+}
+
+function formatDuration(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }

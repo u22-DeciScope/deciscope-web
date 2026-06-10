@@ -8,7 +8,9 @@ export default [
   route("w/:workspaceId", "routes/workspace-layout.tsx", [
     index("routes/workspace.tsx"),
     route("meetings", "routes/home.tsx"),
+    route("meetings/new", "routes/meeting.new.tsx"),
     route("meetings/:id", "routes/meeting.$id.tsx"),
     route("meetings/:id/summary", "routes/meeting.$id.summary.tsx"),
+    route("uploads", "routes/uploads.tsx"),
   ]),
 ] satisfies RouteConfig;

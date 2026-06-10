@@ -1,7 +1,7 @@
-import { HiChartBarSquare, HiHome, HiListBullet, HiUserGroup } from "react-icons/hi2";
+import { HiArrowUpTray, HiHome, HiPlusCircle } from "react-icons/hi2";
 import type { IconType } from "react-icons";
 
-export type AppNavigationItemId = "home" | "meetings" | "team" | "reports";
+export type AppNavigationItemId = "home" | "new" | "uploads";
 
 export type AppNavigationItem = {
   id: AppNavigationItemId;
@@ -12,7 +12,6 @@ export type AppNavigationItem = {
 
 export const appNavigationItems: AppNavigationItem[] = [
   { id: "home", label: "ホーム", icon: HiHome, path: "/meetings" },
-  { id: "meetings", label: "会議一覧", icon: HiListBullet, path: "/" },
-  { id: "team", label: "チーム", icon: HiUserGroup, path: "/" },
-  { id: "reports", label: "レポート", icon: HiChartBarSquare, path: "/" },
+  { id: "new", label: "会議作成", icon: HiPlusCircle, path: "/meetings/new" },
+  { id: "uploads", label: "ファイル処理", icon: HiArrowUpTray, path: "/uploads" },
 ];

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+
+import { ConfirmDialog } from "~/components/shared/modal/ConfirmDialog";
 import { AppSettingsModal } from "~/components/shared/settings/AppSettingsModal";
 import { UserMenuButton } from "~/components/shared/navigation/UserMenuButton";
 import { UserMenuPopover } from "~/components/shared/navigation/UserMenuPopover";
@@ -12,6 +14,7 @@ export function AppUserMenu({ collapsed }: AppUserMenuProps) {
   const { logout, user } = useAuthenticatedLayout();
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const menuRoot = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -39,8 +42,13 @@ export function AppUserMenu({ collapsed }: AppUserMenuProps) {
     };
   }, [open]);
 
-  async function handleLogout() {
+  function handleRequestLogout() {
     setOpen(false);
+    setLogoutConfirmOpen(true);
+  }
+
+  async function handleConfirmLogout() {
+    setLogoutConfirmOpen(false);
     await logout();
   }
 
@@ -59,7 +67,7 @@ export function AppUserMenu({ collapsed }: AppUserMenuProps) {
         {open && (
           <UserMenuPopover
             collapsed={collapsed}
-            onLogout={handleLogout}
+            onLogout={handleRequestLogout}
             onOpenSettings={handleOpenSettings}
             user={user}
           />
@@ -73,6 +81,15 @@ export function AppUserMenu({ collapsed }: AppUserMenuProps) {
         />
       </div>
       {settingsOpen && <AppSettingsModal onClose={() => setSettingsOpen(false)} />}
+      {logoutConfirmOpen && (
+        <ConfirmDialog
+          title="ログアウトしますか？"
+          confirmLabel="OK"
+          cancelLabel="キャンセル"
+          onCancel={() => setLogoutConfirmOpen(false)}
+          onConfirm={handleConfirmLogout}
+        />
+      )}
     </>
   );
 }

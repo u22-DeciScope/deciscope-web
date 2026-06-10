@@ -7,46 +7,22 @@ import {
   HiSparkles,
 } from "react-icons/hi2";
 
-const insights = [
-  {
-    id: 1,
-    kind: "risk" as const,
-    label: "リスク",
-    title: "MVP完成までの時間が未計算",
-    description: "AI提案機能を含めた場合の工数を確認する必要があります。",
-    background: "var(--ai-risk-bg)",
-    border: "var(--ai-risk-border)",
-    color: "var(--ai-risk-fg)",
-  },
-  {
-    id: 2,
-    kind: "point" as const,
-    label: "未検討論点",
-    title: "対象ユーザーの定義が曖昧",
-    description: "利用場面を具体化すると設計方針を決めやすくなります。",
-    background: "var(--ai-point-bg)",
-    border: "var(--ai-point-border)",
-    color: "var(--ai-point-fg)",
-  },
-  {
-    id: 3,
-    kind: "question" as const,
-    label: "質問候補",
-    title: "競合との差別化を説明できますか？",
-    description: "Deciscopeを選ぶ理由を短く言語化してみましょう。",
-    background: "var(--ai-quest-bg)",
-    border: "var(--ai-quest-border)",
-    color: "var(--ai-quest-fg)",
-  },
-];
+import type { AnalysisItem, RuntimeSpeakerSummary } from "~/api/meetings/meetingRuntimeTypes";
 
-const insightIcons = {
-  risk: HiExclamationTriangle,
-  point: HiLightBulb,
-  question: HiQuestionMarkCircle,
+type MeetingAssistantPanelProps = {
+  insights: AnalysisItem[];
+  speakerSummaries: RuntimeSpeakerSummary[];
 };
 
-export function MeetingAssistantPanel() {
+const insightIcons = {
+  issue: HiLightBulb,
+  question: HiQuestionMarkCircle,
+  risk: HiExclamationTriangle,
+};
+
+export function MeetingAssistantPanel({ insights, speakerSummaries }: MeetingAssistantPanelProps) {
+  const visibleInsights = insights.filter((insight) => insight.status !== "dismissed");
+
   return (
     <div
       className="flex min-h-0 w-full flex-col overflow-hidden rounded-(--ds-radius-panel)"
@@ -66,13 +42,13 @@ export function MeetingAssistantPanel() {
           className="ml-2 flex-1 text-[12px] font-semibold"
           style={{ color: "var(--text-main)" }}
         >
-          AIアシスタント
+          AI アシスタント
         </span>
         <span
           className="flex h-4.5 w-4.5 items-center justify-center rounded-full text-[10px] font-bold text-white"
           style={{ background: "var(--brand)" }}
         >
-          {insights.length}
+          {visibleInsights.length}
         </span>
       </header>
 
@@ -97,40 +73,71 @@ export function MeetingAssistantPanel() {
       </div>
 
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
-        {insights.map((insight) => {
-          const Icon = insightIcons[insight.kind];
+        {speakerSummaries.length > 0 && (
+          <section className="rounded-(--ds-radius-control) border p-3" style={{ borderColor: "var(--ds-border)" }}>
+            <h2 className="mb-2 text-[11px] font-semibold" style={{ color: "var(--text-main)" }}>
+              話者ごとの要約
+            </h2>
+            <div className="space-y-2">
+              {speakerSummaries.map((summary) => (
+                <div key={summary.speaker_label}>
+                  <p className="text-[10px] font-semibold" style={{ color: "var(--text-sub)" }}>
+                    {summary.speaker_label}
+                  </p>
+                  <p className="text-[10px] leading-4" style={{ color: "var(--text-muted)" }}>
+                    {[...summary.claims, ...summary.questions, ...summary.todos].join(" / ") ||
+                      "要約はまだありません。"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+        {visibleInsights.length === 0 && (
+          <p className="px-2 py-3 text-[11px]" style={{ color: "var(--text-muted)" }}>
+            テストデータ再生の進行に合わせて分析カードが表示されます。
+          </p>
+        )}
+        {visibleInsights.map((insight) => {
+          const Icon = insightIcons[insight.kind as keyof typeof insightIcons] ?? HiLightBulb;
+          const style = insightStyle(insight.kind);
           return (
             <article
               key={insight.id}
               className="rounded-(--ds-radius-control) border p-3"
-              style={{ background: insight.background, borderColor: insight.border }}
+              style={{ background: style.background, borderColor: style.border }}
             >
               <div
                 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold"
-                style={{ color: insight.color }}
+                style={{ color: style.color }}
               >
                 <Icon className="h-3.5 w-3.5" />
-                {insight.label}
+                {insight.kind} / {insight.severity}
               </div>
               <h2 className="text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>
                 {insight.title}
               </h2>
               <p className="mt-2 text-[11px] leading-4" style={{ color: "var(--text-sub)" }}>
-                {insight.description}
+                {insight.body}
               </p>
-              <div className="mt-3 flex justify-end gap-1">
-                <button
-                  type="button"
-                  className="flex h-6 w-6 items-center justify-center rounded-md bg-(--reaction-bg)"
-                >
-                  <HiCheck className="h-3 w-3" />
-                </button>
-                <button
-                  type="button"
-                  className="flex h-6 w-6 items-center justify-center rounded-md bg-(--reaction-bg)"
-                >
-                  <HiEllipsisHorizontal className="h-3 w-3" />
-                </button>
+              <div className="mt-3 flex items-center justify-between gap-1">
+                <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                  {insight.status}
+                </span>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    className="flex h-6 w-6 items-center justify-center rounded-md bg-(--reaction-bg)"
+                  >
+                    <HiCheck className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    className="flex h-6 w-6 items-center justify-center rounded-md bg-(--reaction-bg)"
+                  >
+                    <HiEllipsisHorizontal className="h-3 w-3" />
+                  </button>
+                </div>
               </div>
             </article>
           );
@@ -138,4 +145,26 @@ export function MeetingAssistantPanel() {
       </div>
     </div>
   );
+}
+
+function insightStyle(kind: string) {
+  if (kind === "risk") {
+    return {
+      background: "var(--ai-risk-bg)",
+      border: "var(--ai-risk-border)",
+      color: "var(--ai-risk-fg)",
+    };
+  }
+  if (kind === "question") {
+    return {
+      background: "var(--ai-quest-bg)",
+      border: "var(--ai-quest-border)",
+      color: "var(--ai-quest-fg)",
+    };
+  }
+  return {
+    background: "var(--ai-point-bg)",
+    border: "var(--ai-point-border)",
+    color: "var(--ai-point-fg)",
+  };
 }
