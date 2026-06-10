@@ -4,8 +4,9 @@ import { Navigate, Outlet, useLocation, useParams } from "react-router";
 import { AuthenticatedLayoutProvider } from "~/context/AuthenticatedLayoutContext";
 import { useAuthenticatedSession } from "~/hooks/useAuthenticatedSession";
 import { ResizeHandle } from "~/components/shared/layout/ResizeHandle";
+import { WorkspaceChromeProvider } from "~/components/shared/layout/WorkspaceChromeContext";
+import { WorkspacePageLayout } from "~/components/shared/layout/WorkspacePageLayout";
 import { WorkspaceStatus } from "~/components/shared/layout/WorkspaceStatus";
-import { AppMobileHeader } from "~/components/shared/navigation/AppMobileHeader";
 import { AppMobileNavigation } from "~/components/shared/navigation/AppMobileNavigation";
 import { APP_SIDEBAR_SIZES, AppSidebar } from "~/components/shared/navigation/AppSidebar";
 
@@ -93,9 +94,12 @@ export function AuthenticatedWorkspaceLayout() {
         </section>
 
         <section className="min-w-0 flex-1 md:overflow-hidden">
-          <AppMobileHeader />
           <div className="p-2 pb-24 md:h-full md:overflow-hidden md:p-0">
-            <Outlet />
+            <WorkspaceChromeProvider>
+              <WorkspacePageLayout>
+                <Outlet />
+              </WorkspacePageLayout>
+            </WorkspaceChromeProvider>
           </div>
           <AppMobileNavigation />
         </section>
