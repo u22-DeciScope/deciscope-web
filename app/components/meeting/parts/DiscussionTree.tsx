@@ -11,11 +11,11 @@ export type DiscussionTreeNode = {
 };
 
 const tagStyle: Record<DiscussionTag, { bg: string; fg: string }> = {
-  "話題": { bg: "var(--tag-topic-bg)", fg: "var(--tag-topic-fg)" },
-  "案": { bg: "var(--tag-idea-bg)", fg: "var(--tag-idea-fg)" },
-  "懸念": { bg: "var(--tag-concern-bg)", fg: "var(--tag-concern-fg)" },
-  "反論": { bg: "var(--tag-counter-bg)", fg: "var(--tag-counter-fg)" },
-  "方針": { bg: "var(--tag-policy-bg)", fg: "var(--tag-policy-fg)" },
+  話題: { bg: "var(--tag-topic-bg)", fg: "var(--tag-topic-fg)" },
+  案: { bg: "var(--tag-idea-bg)", fg: "var(--tag-idea-fg)" },
+  懸念: { bg: "var(--tag-concern-bg)", fg: "var(--tag-concern-fg)" },
+  反論: { bg: "var(--tag-counter-bg)", fg: "var(--tag-counter-fg)" },
+  方針: { bg: "var(--tag-policy-bg)", fg: "var(--tag-policy-fg)" },
 };
 
 type DiscussionTreeProps = {
@@ -32,7 +32,10 @@ export function DiscussionTree({ nodes }: DiscussionTreeProps) {
         className="h-10 flex items-center px-4 shrink-0 border-b"
         style={{ borderColor: "var(--node-border)" }}
       >
-        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: "var(--brand)" }} />
+        <span
+          className="w-2.5 h-2.5 rounded-full shrink-0"
+          style={{ background: "var(--brand)" }}
+        />
         <span className="ml-2 text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>
           議論ツリー
         </span>
@@ -67,10 +70,16 @@ export function DiscussionTree({ nodes }: DiscussionTreeProps) {
                 >
                   {node.tag}
                 </span>
-                <span className="shrink-0 text-[10px] font-medium mt-px" style={{ color: "var(--text-sub)" }}>
+                <span
+                  className="shrink-0 text-[10px] font-medium mt-px"
+                  style={{ color: "var(--text-sub)" }}
+                >
                   {node.user}
                 </span>
-                <span className="flex-1 text-[12px] leading-normal mt-px" style={{ color: "var(--text-main)" }}>
+                <span
+                  className="flex-1 text-[12px] leading-normal mt-px"
+                  style={{ color: "var(--text-main)" }}
+                >
                   {node.text}
                 </span>
                 <span className="shrink-0 text-[10px] mt-px" style={{ color: "var(--text-muted)" }}>

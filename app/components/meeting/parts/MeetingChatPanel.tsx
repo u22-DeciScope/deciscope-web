@@ -16,7 +16,10 @@ export function MeetingChatPanel() {
         className="flex h-10 shrink-0 items-center border-b px-3"
         style={{ borderColor: "var(--node-border)" }}
       >
-        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: "var(--brand)" }} />
+        <span
+          className="h-2.5 w-2.5 shrink-0 rounded-full"
+          style={{ background: "var(--brand)" }}
+        />
         <span className="ml-2 text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>
           会話
         </span>
@@ -35,7 +38,10 @@ export function MeetingChatPanel() {
             </div>
           ) : (
             <div key={message.id}>
-              <p className="mb-1 pl-2 text-[10px] font-semibold" style={{ color: "var(--text-sub)" }}>
+              <p
+                className="mb-1 pl-2 text-[10px] font-semibold"
+                style={{ color: "var(--text-sub)" }}
+              >
                 {message.user}
               </p>
               <p

@@ -1,9 +1,4 @@
-import {
-  HiChartBarSquare,
-  HiHome,
-  HiListBullet,
-  HiUserGroup,
-} from "react-icons/hi2";
+import { HiChartBarSquare, HiHome, HiListBullet, HiUserGroup } from "react-icons/hi2";
 import type { IconType } from "react-icons";
 
 export type AppNavigationItemId = "home" | "meetings" | "team" | "reports";

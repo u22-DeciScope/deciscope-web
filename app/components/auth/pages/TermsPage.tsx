@@ -10,8 +10,10 @@ export default function Terms() {
   const { acceptTerms } = useTermsAgreement();
 
   return (
-    <div className="min-h-svh flex flex-col items-center justify-center p-4" style={{ background: "var(--ds-bg)" }}>
-
+    <div
+      className="min-h-svh flex flex-col items-center justify-center p-4"
+      style={{ background: "var(--ds-bg)" }}
+    >
       {/* ロゴ */}
       <div className="mb-6">
         <BrandLogo size="lg" linkTo="/" />
@@ -27,30 +29,47 @@ export default function Terms() {
           <div className="flex items-center gap-0">
             {/* Step 1: 完了 */}
             <div className="flex items-center gap-2">
-              <div className="w-5.5 h-5.5 rounded-full flex items-center justify-center" style={{ background: "var(--brand)" }}>
+              <div
+                className="w-5.5 h-5.5 rounded-full flex items-center justify-center"
+                style={{ background: "var(--brand)" }}
+              >
                 <HiCheck className="w-3 h-3 text-white" />
               </div>
-              <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>アカウント情報</span>
+              <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                アカウント情報
+              </span>
             </div>
 
             <div className="flex-1 h-px mx-3" style={{ background: "var(--brand)" }} />
 
             {/* Step 2: 現在 */}
             <div className="flex items-center gap-2">
-              <div className="w-5.5 h-5.5 rounded-full flex items-center justify-center" style={{ background: "var(--brand)" }}>
+              <div
+                className="w-5.5 h-5.5 rounded-full flex items-center justify-center"
+                style={{ background: "var(--brand)" }}
+              >
                 <span className="text-[11px] font-bold text-white">2</span>
               </div>
-              <span className="text-[11px] font-semibold" style={{ color: "var(--brand)" }}>利用規約</span>
+              <span className="text-[11px] font-semibold" style={{ color: "var(--brand)" }}>
+                利用規約
+              </span>
             </div>
 
             <div className="flex-1 h-px mx-3" style={{ background: "var(--ds-border)" }} />
 
             {/* Step 3: 未来 */}
             <div className="flex items-center gap-2">
-              <div className="w-5.5 h-5.5 rounded-full flex items-center justify-center" style={{ background: "var(--ds-border)" }}>
-                <span className="text-[11px] font-bold" style={{ color: "var(--text-muted)" }}>3</span>
+              <div
+                className="w-5.5 h-5.5 rounded-full flex items-center justify-center"
+                style={{ background: "var(--ds-border)" }}
+              >
+                <span className="text-[11px] font-bold" style={{ color: "var(--text-muted)" }}>
+                  3
+                </span>
               </div>
-              <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>完了</span>
+              <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                完了
+              </span>
             </div>
           </div>
         </div>
@@ -99,11 +118,18 @@ export default function Terms() {
             },
           ].map((section) => (
             <div key={section.title}>
-              <h2 className="text-[13px] font-semibold mb-1.5" style={{ color: "var(--text-main)" }}>{section.title}</h2>
+              <h2
+                className="text-[13px] font-semibold mb-1.5"
+                style={{ color: "var(--text-main)" }}
+              >
+                {section.title}
+              </h2>
               <p>{section.body}</p>
               {section.items && (
                 <ul className="mt-2 space-y-1 pl-4 list-disc">
-                  {section.items.map((item) => <li key={item}>{item}</li>)}
+                  {section.items.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
                 </ul>
               )}
             </div>
@@ -123,14 +149,20 @@ export default function Terms() {
               onChange={(event) => setAgreed(event.target.checked)}
               className="w-4 h-4 mt-0.5 shrink-0 rounded accent-[#2a8fd4]"
             />
-            <label htmlFor="agree" className="text-[12px] select-none leading-relaxed" style={{ color: "var(--text-sub)" }}>
+            <label
+              htmlFor="agree"
+              className="text-[12px] select-none leading-relaxed"
+              style={{ color: "var(--text-sub)" }}
+            >
               上記の利用規約およびプライバシーポリシーを読み、内容に同意します。
             </label>
           </div>
 
           <div className="flex gap-3">
             <Link to="/signup" className="flex-1">
-              <DsButton variant="secondary" fullWidth type="button">戻る</DsButton>
+              <DsButton variant="secondary" fullWidth type="button">
+                戻る
+              </DsButton>
             </Link>
             <div className="flex-1">
               <DsButton fullWidth type="button" disabled={!agreed} onClick={acceptTerms}>
@@ -143,8 +175,3 @@ export default function Terms() {
     </div>
   );
 }
-
-
-
-
-

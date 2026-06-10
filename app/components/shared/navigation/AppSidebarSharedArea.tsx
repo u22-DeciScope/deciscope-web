@@ -1,11 +1,12 @@
-import {
-  HiChatBubbleLeftRight,
-  HiChevronDoubleLeft,
-  HiChevronDoubleRight,
-} from "react-icons/hi2";
+import { HiChatBubbleLeftRight, HiChevronDoubleLeft, HiChevronDoubleRight } from "react-icons/hi2";
 
 const messages = [
-  { id: 1, user: "田中", text: "じゃあ始めようか。今日はプロダクトの方向性を決めたい。", own: false },
+  {
+    id: 1,
+    user: "田中",
+    text: "じゃあ始めようか。今日はプロダクトの方向性を決めたい。",
+    own: false,
+  },
   { id: 2, user: "佐藤", text: "アイデアいっぱいあるんだけど、絞れなくて。", own: false },
   { id: 3, user: "", text: "Deciscopeで決めよう。ターゲットを先に決めない？", own: true },
   { id: 4, user: "田中", text: "学生向けはどうかな。審査員にも刺さりそうだし。", own: false },
@@ -60,7 +61,10 @@ export function AppSidebarSharedArea({
         style={{ borderColor: "var(--ds-border)" }}
       >
         <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-(--brand)" />
-        <span className="ml-2 truncate text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>
+        <span
+          className="ml-2 truncate text-[12px] font-semibold"
+          style={{ color: "var(--text-main)" }}
+        >
           会話
         </span>
         <button
@@ -88,7 +92,10 @@ export function AppSidebarSharedArea({
             </div>
           ) : (
             <div key={message.id}>
-              <p className="mb-1 pl-1 text-[9px] font-semibold" style={{ color: "var(--text-sub)" }}>
+              <p
+                className="mb-1 pl-1 text-[9px] font-semibold"
+                style={{ color: "var(--text-sub)" }}
+              >
                 {message.user}
               </p>
               <p

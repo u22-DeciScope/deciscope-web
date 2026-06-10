@@ -25,8 +25,12 @@ export function DsInput({ label, extra, className = "", ...props }: DsInputProps
           border: "1px solid var(--input-border)",
           color: "var(--text-main)",
         }}
-        onFocus={(e) => { e.currentTarget.style.borderColor = "var(--brand)"; }}
-        onBlur={(e) => { e.currentTarget.style.borderColor = "var(--input-border)"; }}
+        onFocus={(e) => {
+          e.currentTarget.style.borderColor = "var(--brand)";
+        }}
+        onBlur={(e) => {
+          e.currentTarget.style.borderColor = "var(--input-border)";
+        }}
         {...props}
       />
     </div>

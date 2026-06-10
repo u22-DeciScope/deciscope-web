@@ -8,10 +8,7 @@ interface UseMicrosoftAuthFlowOptions {
   fallbackMessage: string;
 }
 
-export function useMicrosoftAuthFlow({
-  redirectTo,
-  fallbackMessage,
-}: UseMicrosoftAuthFlowOptions) {
+export function useMicrosoftAuthFlow({ redirectTo, fallbackMessage }: UseMicrosoftAuthFlowOptions) {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);

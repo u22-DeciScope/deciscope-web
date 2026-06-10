@@ -62,7 +62,10 @@ export function MeetingAssistantPanel() {
         >
           <HiSparkles className="h-3.5 w-3.5" />
         </span>
-        <span className="ml-2 flex-1 text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>
+        <span
+          className="ml-2 flex-1 text-[12px] font-semibold"
+          style={{ color: "var(--text-main)" }}
+        >
           AIアシスタント
         </span>
         <span
@@ -73,7 +76,10 @@ export function MeetingAssistantPanel() {
         </span>
       </header>
 
-      <div className="flex h-8.5 shrink-0 items-center gap-1 border-b px-2" style={{ borderColor: "var(--node-border)" }}>
+      <div
+        className="flex h-8.5 shrink-0 items-center gap-1 border-b px-2"
+        style={{ borderColor: "var(--node-border)" }}
+      >
         {["すべて", "リスク", "論点", "質問"].map((label, index) => (
           <button
             key={label}
@@ -99,7 +105,10 @@ export function MeetingAssistantPanel() {
               className="rounded-[10px] border p-3"
               style={{ background: insight.background, borderColor: insight.border }}
             >
-              <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold" style={{ color: insight.color }}>
+              <div
+                className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold"
+                style={{ color: insight.color }}
+              >
                 <Icon className="h-3.5 w-3.5" />
                 {insight.label}
               </div>
@@ -110,10 +119,16 @@ export function MeetingAssistantPanel() {
                 {insight.description}
               </p>
               <div className="mt-3 flex justify-end gap-1">
-                <button type="button" className="flex h-6 w-6 items-center justify-center rounded-md bg-(--reaction-bg)">
+                <button
+                  type="button"
+                  className="flex h-6 w-6 items-center justify-center rounded-md bg-(--reaction-bg)"
+                >
                   <HiCheck className="h-3 w-3" />
                 </button>
-                <button type="button" className="flex h-6 w-6 items-center justify-center rounded-md bg-(--reaction-bg)">
+                <button
+                  type="button"
+                  className="flex h-6 w-6 items-center justify-center rounded-md bg-(--reaction-bg)"
+                >
                   <HiEllipsisHorizontal className="h-3 w-3" />
                 </button>
               </div>

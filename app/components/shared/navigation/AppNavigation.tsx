@@ -1,6 +1,4 @@
-import {
-  appNavigationItems,
-} from "~/components/shared/navigation/navigationItems";
+import { appNavigationItems } from "~/components/shared/navigation/navigationItems";
 import { Link } from "react-router";
 import { useActiveNavigationItem } from "~/components/shared/navigation/useActiveNavigationItem";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
@@ -15,7 +13,9 @@ export function AppNavigation({ collapsed }: AppNavigationProps) {
   const { workspaceId } = useAuthenticatedLayout();
 
   return (
-    <nav className={`relative z-10 flex flex-1 flex-col gap-1 overflow-y-auto py-4 ${collapsed ? "px-2" : "px-3"}`}>
+    <nav
+      className={`relative z-10 flex flex-1 flex-col gap-1 overflow-y-auto py-4 ${collapsed ? "px-2" : "px-3"}`}
+    >
       {appNavigationItems.map((item) => {
         const Icon = item.icon;
         const active = item.id === activeItem;

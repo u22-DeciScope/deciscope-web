@@ -5,10 +5,7 @@ type ApiRequestOptions = RequestInit & {
   auth?: boolean;
 };
 
-export async function requestJson<T>(
-  path: string,
-  options: ApiRequestOptions = {},
-): Promise<T> {
+export async function requestJson<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
   const response = await requestRaw(path, options);
   const text = await response.text();
   const payload = parseJson(text);
@@ -18,10 +15,7 @@ export async function requestJson<T>(
   return payload as T;
 }
 
-export async function requestText(
-  path: string,
-  options: ApiRequestOptions = {},
-): Promise<string> {
+export async function requestText(path: string, options: ApiRequestOptions = {}): Promise<string> {
   const response = await requestRaw(path, options);
   const text = await response.text();
   if (!response.ok) {

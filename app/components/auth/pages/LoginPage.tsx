@@ -11,13 +11,20 @@ export default function Login() {
     typeof location.state?.from === "string" && workspaceIdFromPath(location.state.from)
       ? location.state.from
       : null;
-  const { error, isPending: isSigningIn, signIn } = useMicrosoftAuthFlow({
+  const {
+    error,
+    isPending: isSigningIn,
+    signIn,
+  } = useMicrosoftAuthFlow({
     redirectTo: requestedPath ?? demoWorkspacePath("/meetings"),
     fallbackMessage: "ログインに失敗しました。",
   });
 
   return (
-    <div className="min-h-svh flex items-center justify-center p-4" style={{ background: "var(--ds-bg)" }}>
+    <div
+      className="min-h-svh flex items-center justify-center p-4"
+      style={{ background: "var(--ds-bg)" }}
+    >
       <div
         className="w-full max-w-110 ds-surface rounded-[20px] px-10 py-10 flex flex-col gap-7"
         style={{ boxShadow: "var(--ds-shadow)" }}
@@ -25,8 +32,12 @@ export default function Login() {
         <BrandLogo size="sm" linkTo="/" />
 
         <div>
-          <h1 className="text-[30px] font-bold leading-tight" style={{ color: "var(--text-main)" }}>ログイン</h1>
-          <p className="text-[13px] mt-1.5" style={{ color: "var(--text-muted)" }}>アカウントを選択してください</p>
+          <h1 className="text-[30px] font-bold leading-tight" style={{ color: "var(--text-main)" }}>
+            ログイン
+          </h1>
+          <p className="text-[13px] mt-1.5" style={{ color: "var(--text-muted)" }}>
+            アカウントを選択してください
+          </p>
         </div>
 
         <button
@@ -62,7 +73,11 @@ export default function Login() {
 
         <p className="text-center text-[12px]" style={{ color: "var(--text-sub)" }}>
           アカウントをお持ちでないですか？{" "}
-          <Link to="/signup" className="font-semibold hover:underline" style={{ color: "var(--brand)" }}>
+          <Link
+            to="/signup"
+            className="font-semibold hover:underline"
+            style={{ color: "var(--brand)" }}
+          >
             新規登録
           </Link>
         </p>
@@ -70,7 +85,9 @@ export default function Login() {
         <div className="h-px" style={{ background: "var(--ds-border)" }} />
 
         <p className="text-center text-[12px]" style={{ color: "var(--text-muted)" }}>
-          <Link to="/terms" className="hover:underline">利用規約</Link>
+          <Link to="/terms" className="hover:underline">
+            利用規約
+          </Link>
           <span className="mx-1">·</span>
           <span title="プライバシーポリシーは準備中です">プライバシーポリシー</span>
         </p>
@@ -78,8 +95,3 @@ export default function Login() {
     </div>
   );
 }
-
-
-
-
-

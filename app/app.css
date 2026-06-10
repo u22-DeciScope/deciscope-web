@@ -4,7 +4,8 @@
 /* ============================================================
    Base
    ============================================================ */
-html, body {
+html,
+body {
   min-height: 480px;
   background: var(--ds-bg);
   color: var(--text-main);
@@ -13,6 +14,12 @@ html, body {
 
 .ds-surface {
   background: var(--ds-surface);
+}
+
+.ds-surface-elevated {
+  background: var(--ds-surface);
+  border-radius: 14px;
+  box-shadow: var(--ds-shadow);
 }
 
 .ds-surface-muted {

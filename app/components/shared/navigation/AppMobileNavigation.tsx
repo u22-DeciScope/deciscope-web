@@ -1,7 +1,5 @@
 import { Link } from "react-router";
-import {
-  appNavigationItems,
-} from "~/components/shared/navigation/navigationItems";
+import { appNavigationItems } from "~/components/shared/navigation/navigationItems";
 import { useActiveNavigationItem } from "~/components/shared/navigation/useActiveNavigationItem";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/routing/workspacePaths";

@@ -21,9 +21,7 @@ export default function LandingPage() {
           <p className="mb-4 text-sm font-semibold" style={{ color: "var(--brand)" }}>
             納得できる意思決定を、チームで。
           </p>
-          <h1 className="max-w-3xl text-4xl font-bold leading-tight sm:text-6xl">
-            Deciscope
-          </h1>
+          <h1 className="max-w-3xl text-4xl font-bold leading-tight sm:text-6xl">Deciscope</h1>
           <p className="mt-6 max-w-2xl text-base leading-8" style={{ color: "var(--text-sub)" }}>
             このページはサービス紹介サイトとして拡張するための公開トップページです。
           </p>

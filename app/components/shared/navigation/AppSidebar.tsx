@@ -3,95 +3,103 @@ import { ResizeHandle } from "~/components/shared/layout/ResizeHandle";
 import { AppNavigation } from "~/components/shared/navigation/AppNavigation";
 import { AppSidebarSharedArea } from "~/components/shared/navigation/AppSidebarSharedArea";
 import { AppUserMenu } from "~/components/shared/navigation/AppUserMenu";
-import { HiChevronDoubleLeft, HiChevronDoubleRight } from "react-icons/hi2";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/routing/workspacePaths";
+import { HiChevronDoubleLeft, HiChevronDoubleRight } from "react-icons/hi2";
+
+export const APP_SIDEBAR_SIZES = {
+  collapsedPaneWidth: 68,
+  defaultNavigationWidth: 220,
+  maxNavigationWidth: 220,
+  defaultSharedAreaWidth: 220,
+  maxSharedAreaWidth: 360,
+  collapseThreshold: 100,
+  resizeHandleWidth: 8,
+} as const;
 
 type AppSidebarProps = {
-  className?: string;
-  navigationCollapsed: boolean;
-  navigationWidth: number;
-  navigationWidthMax: number;
-  navigationWidthMin: number;
-  onNavigationCollapsedChange: (collapsed: boolean) => void;
-  onNavigationWidthChange: (width: number) => void;
-  onNavigationWidthReset: () => void;
-  onSharedAreaClose: () => void;
-  onSharedAreaOpen: () => void;
-  sharedAreaCollapsed: boolean;
-  sharedAreaWidth: number;
+  navigation: {
+    collapsed: boolean;
+    onCollapsedChange: (collapsed: boolean) => void;
+    onWidthChange: (width: number) => void;
+    onWidthReset: () => void;
+    width: number;
+  };
+  sharedArea: {
+    collapsed: boolean;
+    onClose: () => void;
+    onOpen: () => void;
+    width: number;
+  };
 };
 
-export function AppSidebar({
-  className = "",
-  navigationCollapsed,
-  navigationWidth,
-  navigationWidthMax,
-  navigationWidthMin,
-  onNavigationCollapsedChange,
-  onNavigationWidthChange,
-  onNavigationWidthReset,
-  onSharedAreaClose,
-  onSharedAreaOpen,
-  sharedAreaCollapsed,
-  sharedAreaWidth,
-}: AppSidebarProps) {
+export function AppSidebar({ navigation, sharedArea }: AppSidebarProps) {
   const { workspaceId } = useAuthenticatedLayout();
-  const CollapseIcon = navigationCollapsed ? HiChevronDoubleRight : HiChevronDoubleLeft;
+  const CollapseIcon = navigation.collapsed ? HiChevronDoubleRight : HiChevronDoubleLeft;
 
   return (
-    <aside
-      className={`relative min-w-0 rounded-[14px] ${className}`}
-    >
-      <div
-        className="absolute inset-0 rounded-[14px] bg-(--ds-surface)"
-        style={{ boxShadow: "var(--ds-shadow)" }}
-      />
-
-      <div className="relative z-10 flex min-w-0 shrink-0 flex-col" style={{ width: navigationWidth }}>
+    <aside className="ds-surface-elevated flex h-full min-w-0 flex-col overflow-hidden">
+      <header
+        className="flex h-12.5 shrink-0 items-center border-b"
+        style={{ borderColor: "var(--ds-border)" }}
+      >
         <div
-          className={`group relative flex h-[50px] shrink-0 items-center border-b ${
-            navigationCollapsed ? "justify-center px-2" : "px-4"
+          className={`group relative flex h-full shrink-0 items-center ${
+            navigation.collapsed ? "justify-center px-2" : "px-4"
           }`}
-          style={{ borderColor: "var(--ds-border)" }}
+          style={{ width: navigation.width }}
         >
-          <div className={navigationCollapsed ? "transition-opacity group-hover:opacity-0 group-focus-within:opacity-0" : ""}>
-            <BrandLogo size="sm" linkTo={workspacePath(workspaceId, "/meetings")} showText={!navigationCollapsed} />
+          <div
+            className={
+              navigation.collapsed
+                ? "transition-opacity group-hover:opacity-0 group-focus-within:opacity-0"
+                : ""
+            }
+          >
+            <BrandLogo
+              size="sm"
+              linkTo={workspacePath(workspaceId, "/meetings")}
+              showText={!navigation.collapsed}
+            />
           </div>
           <button
             type="button"
-            onClick={() => onNavigationCollapsedChange(!navigationCollapsed)}
+            onClick={() => navigation.onCollapsedChange(!navigation.collapsed)}
             className={`absolute flex h-7 w-7 items-center justify-center rounded-[7px] opacity-0 transition hover:opacity-70 focus-visible:opacity-100 group-hover:opacity-100 ${
-              navigationCollapsed ? "inset-x-0 mx-auto" : "right-3"
+              navigation.collapsed ? "inset-x-0 mx-auto" : "right-3"
             }`}
-            aria-label={navigationCollapsed ? "メニューを展開" : "メニューを折りたたむ"}
-            title={navigationCollapsed ? "メニューを展開" : "メニューを折りたたむ"}
+            aria-label={navigation.collapsed ? "メニューを展開" : "メニューを折りたたむ"}
+            title={navigation.collapsed ? "メニューを展開" : "メニューを折りたたむ"}
             style={{ color: "var(--text-muted)", background: "var(--ds-surface-muted)" }}
           >
             <CollapseIcon className="h-4 w-4" />
           </button>
         </div>
+      </header>
 
-        <AppNavigation collapsed={navigationCollapsed} />
+      <div className="flex min-h-0 min-w-0 flex-1">
+        <div className="flex min-w-0 shrink-0 flex-col" style={{ width: navigation.width }}>
+          <AppNavigation collapsed={navigation.collapsed} />
 
-        <AppUserMenu collapsed={navigationCollapsed} />
+          <AppUserMenu collapsed={navigation.collapsed} />
+        </div>
+
+        <ResizeHandle
+          ariaLabel="メニューの幅を変更"
+          max={APP_SIDEBAR_SIZES.maxNavigationWidth}
+          min={APP_SIDEBAR_SIZES.collapsedPaneWidth}
+          value={navigation.width}
+          onChange={navigation.onWidthChange}
+          onReset={navigation.onWidthReset}
+        />
+
+        <AppSidebarSharedArea
+          collapsed={sharedArea.collapsed}
+          onClose={sharedArea.onClose}
+          onOpen={sharedArea.onOpen}
+          width={sharedArea.width}
+        />
       </div>
-
-      <ResizeHandle
-        ariaLabel="メニューの幅を変更"
-        max={navigationWidthMax}
-        min={navigationWidthMin}
-        value={navigationWidth}
-        onChange={onNavigationWidthChange}
-        onReset={onNavigationWidthReset}
-      />
-
-      <AppSidebarSharedArea
-        collapsed={sharedAreaCollapsed}
-        onClose={onSharedAreaClose}
-        onOpen={onSharedAreaOpen}
-        width={sharedAreaWidth}
-      />
     </aside>
   );
 }
