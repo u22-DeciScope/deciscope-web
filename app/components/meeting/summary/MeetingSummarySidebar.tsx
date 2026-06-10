@@ -15,7 +15,7 @@ export function MeetingSummarySidebar({ summary }: MeetingSummarySidebarProps) {
   return (
     <div className="flex w-full flex-col gap-2 overflow-y-auto">
       <div
-        className="ds-surface overflow-hidden rounded-[14px]"
+        className="ds-surface overflow-hidden rounded-(--ds-radius-panel)"
         style={{ boxShadow: "var(--ds-shadow)" }}
       >
         <SidebarSectionHeader title="参加者" />
@@ -45,7 +45,7 @@ export function MeetingSummarySidebar({ summary }: MeetingSummarySidebarProps) {
       </div>
 
       <div
-        className="ds-surface overflow-hidden rounded-[14px]"
+        className="ds-surface overflow-hidden rounded-(--ds-radius-panel)"
         style={{ boxShadow: "var(--ds-shadow)" }}
       >
         <SidebarSectionHeader title="サマリー" />

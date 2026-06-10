@@ -80,7 +80,7 @@ export default function Meeting() {
   return (
     <WorkspacePageLayout
       header={
-        <div className="ds-surface flex min-h-13 items-center gap-3 rounded-[14px] px-4">
+        <div className="ds-surface flex min-h-13 items-center gap-3 rounded-(--ds-radius-panel) px-4">
           <span className="text-[13px] font-semibold" style={{ color: "var(--text-main)" }}>
             プロダクト方針検討会議
           </span>
@@ -97,7 +97,7 @@ export default function Meeting() {
             </span>
             <Link
               to={workspaceMeetingSummaryPath(workspaceId, id ?? "")}
-              className="rounded-[8px] border px-3 py-1.5 text-[11px] transition hover:opacity-70"
+              className="rounded-(--ds-radius-control) border px-3 py-1.5 text-[11px] transition hover:opacity-70"
               style={{ borderColor: "var(--ds-border)", color: "var(--text-sub)" }}
             >
               終了

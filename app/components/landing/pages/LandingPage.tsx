@@ -10,7 +10,7 @@ export default function LandingPage() {
           <BrandLogo size="md" />
           <Link
             to="/login"
-            className="rounded-[9px] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-80"
+            className="rounded-(--ds-radius-control) px-4 py-2 text-sm font-semibold text-white transition hover:opacity-80"
             style={{ background: "var(--brand)" }}
           >
             ログイン

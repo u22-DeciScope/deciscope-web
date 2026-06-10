@@ -72,7 +72,7 @@ export function ResizeHandle({
       aria-valuemax={max}
       aria-valuemin={min}
       aria-valuenow={value}
-      className="group relative z-10 w-2 shrink-0 cursor-col-resize touch-none outline-none"
+      className="group relative z-10 w-2 shrink-0 cursor-grab touch-none outline-none"
       onDoubleClick={onReset}
       onKeyDown={handleKeyDown}
       onPointerCancel={handlePointerEnd}

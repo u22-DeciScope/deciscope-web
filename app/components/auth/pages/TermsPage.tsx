@@ -21,7 +21,7 @@ export default function Terms() {
 
       {/* カード */}
       <div
-        className="w-full max-w-140 ds-surface rounded-[14px] overflow-hidden"
+        className="w-full max-w-140 ds-surface rounded-(--ds-radius-panel) overflow-hidden"
         style={{ boxShadow: "var(--ds-shadow)" }}
       >
         {/* ステッパー */}
@@ -139,7 +139,7 @@ export default function Terms() {
         {/* アクションエリア */}
         <div className="px-8 py-6 space-y-4">
           <div
-            className="flex items-start gap-3 p-4 rounded-[9px]"
+            className="flex items-start gap-3 p-4 rounded-(--ds-radius-control)"
             style={{ background: "var(--input-bg)", border: "1px solid var(--input-border)" }}
           >
             <input

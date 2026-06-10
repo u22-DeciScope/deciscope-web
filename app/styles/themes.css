@@ -16,6 +16,9 @@
   --ds-surface-raised: #ffffff;
   --ds-shadow: 0px 2px 16px 0px rgba(26, 95, 138, 0.1);
   --ds-border: #e8f4fb;
+  --ds-radius-control: 9px;
+  --ds-radius-panel: 14px;
+  --ds-radius-dialog: 20px;
 
   /* ---- Brand ---- */
   --brand: #2a8fd4;

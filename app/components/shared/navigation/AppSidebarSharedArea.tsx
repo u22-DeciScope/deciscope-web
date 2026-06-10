@@ -70,7 +70,7 @@ export function AppSidebarSharedArea({
         <button
           type="button"
           onClick={onClose}
-          className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] transition hover:bg-(--ds-surface-muted)"
+          className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-(--ds-radius-control) transition hover:bg-(--ds-surface-muted)"
           aria-label="共有エリアを閉じる"
           title="共有エリアを閉じる"
           style={{ color: "var(--text-muted)" }}
@@ -84,7 +84,7 @@ export function AppSidebarSharedArea({
           message.own ? (
             <div key={message.id} className="flex justify-end">
               <p
-                className="max-w-[90%] rounded-xl px-2.5 py-2 text-[11px] leading-4 text-white"
+                className="max-w-[90%] rounded-(--ds-radius-panel) px-2.5 py-2 text-[11px] leading-4 text-white"
                 style={{ background: "var(--chat-own-bg)" }}
               >
                 {message.text}
@@ -99,7 +99,7 @@ export function AppSidebarSharedArea({
                 {message.user}
               </p>
               <p
-                className="max-w-[90%] rounded-xl border px-2.5 py-2 text-[11px] leading-4"
+                className="max-w-[90%] rounded-(--ds-radius-panel) border px-2.5 py-2 text-[11px] leading-4"
                 style={{
                   background: "var(--chat-other-bg)",
                   borderColor: "var(--chat-other-border)",

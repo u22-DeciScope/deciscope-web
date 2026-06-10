@@ -69,7 +69,7 @@ export function AppUserMenu({ collapsed }: AppUserMenuProps) {
           <div
             role="menu"
             aria-label="アカウントメニュー"
-            className={`absolute bottom-full mb-2 w-64 overflow-hidden rounded-[14px] border p-2 ${
+            className={`absolute bottom-full mb-2 w-64 overflow-hidden rounded-(--ds-radius-panel) border p-2 ${
               collapsed ? "left-0" : "left-2"
             }`}
             style={{
@@ -95,7 +95,7 @@ export function AppUserMenu({ collapsed }: AppUserMenuProps) {
               type="button"
               role="menuitem"
               onClick={handleLogout}
-              className="flex w-full items-center gap-3 rounded-[9px] px-3 py-2.5 text-left text-[13px] font-medium transition hover:bg-(--ds-surface-muted)"
+              className="flex w-full items-center gap-3 rounded-(--ds-radius-control) px-3 py-2.5 text-left text-[13px] font-medium transition hover:bg-(--ds-surface-muted)"
               style={{ color: "var(--text-main)" }}
             >
               <HiArrowRightOnRectangle className="h-5 w-5 shrink-0" />
@@ -158,7 +158,7 @@ function AccountMenuItem({ icon: Icon, label, onClick }: AccountMenuItemProps) {
       disabled={disabled}
       onClick={onClick}
       title={disabled ? `${label}は準備中です` : undefined}
-      className={`flex w-full items-center gap-3 rounded-[9px] px-3 py-2.5 text-left text-[13px] font-medium transition ${
+      className={`flex w-full items-center gap-3 rounded-(--ds-radius-control) px-3 py-2.5 text-left text-[13px] font-medium transition ${
         disabled ? "cursor-not-allowed opacity-60" : "hover:bg-(--ds-surface-muted)"
       }`}
       style={{ color: "var(--text-main)" }}

@@ -18,7 +18,7 @@ body {
 
 .ds-surface-elevated {
   background: var(--ds-surface);
-  border-radius: 14px;
+  border-radius: var(--ds-radius-panel);
   box-shadow: var(--ds-shadow);
 }
 

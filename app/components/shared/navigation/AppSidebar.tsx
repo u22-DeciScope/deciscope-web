@@ -8,11 +8,11 @@ import { workspacePath } from "~/routing/workspacePaths";
 import { HiChevronDoubleLeft, HiChevronDoubleRight } from "react-icons/hi2";
 
 export const APP_SIDEBAR_SIZES = {
-  collapsedPaneWidth: 68,
-  defaultNavigationWidth: 220,
-  maxNavigationWidth: 220,
-  defaultSharedAreaWidth: 220,
-  maxSharedAreaWidth: 360,
+  collapsedPaneWidth: 52,
+  defaultNavigationWidth: 180,
+  maxNavigationWidth: 280,
+  defaultSharedAreaWidth: 320,
+  maxSharedAreaWidth: 400,
   collapseThreshold: 100,
   resizeHandleWidth: 8,
 } as const;
@@ -65,7 +65,7 @@ export function AppSidebar({ navigation, sharedArea }: AppSidebarProps) {
           <button
             type="button"
             onClick={() => navigation.onCollapsedChange(!navigation.collapsed)}
-            className={`absolute flex h-7 w-7 items-center justify-center rounded-[7px] opacity-0 transition hover:opacity-70 focus-visible:opacity-100 group-hover:opacity-100 ${
+            className={`absolute flex h-7 w-7 items-center justify-center rounded-(--ds-radius-control) opacity-0 transition hover:opacity-70 focus-visible:opacity-100 group-hover:opacity-100 ${
               navigation.collapsed ? "inset-x-0 mx-auto" : "right-3"
             }`}
             aria-label={navigation.collapsed ? "メニューを展開" : "メニューを折りたたむ"}

@@ -7,12 +7,12 @@ export type AppNavigationItem = {
   id: AppNavigationItemId;
   label: string;
   icon: IconType;
-  path?: string;
+  path: string;
 };
 
 export const appNavigationItems: AppNavigationItem[] = [
   { id: "home", label: "ホーム", icon: HiHome, path: "/meetings" },
-  { id: "meetings", label: "会議一覧", icon: HiListBullet },
-  { id: "team", label: "チーム", icon: HiUserGroup },
-  { id: "reports", label: "レポート", icon: HiChartBarSquare },
+  { id: "meetings", label: "会議一覧", icon: HiListBullet, path: "/" },
+  { id: "team", label: "チーム", icon: HiUserGroup, path: "/" },
+  { id: "reports", label: "レポート", icon: HiChartBarSquare, path: "/" },
 ];

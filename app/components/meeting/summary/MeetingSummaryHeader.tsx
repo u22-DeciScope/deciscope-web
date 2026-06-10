@@ -10,7 +10,7 @@ type MeetingSummaryHeaderProps = {
 export function MeetingSummaryHeader({ meetingsPath, title }: MeetingSummaryHeaderProps) {
   return (
     <div
-      className="ds-surface flex min-h-13 flex-wrap items-center gap-3 rounded-[14px] px-4 py-3 md:h-13 md:px-5 md:py-0"
+      className="ds-surface flex min-h-13 flex-wrap items-center gap-3 rounded-(--ds-radius-panel) px-4 py-3 md:h-13 md:px-5 md:py-0"
       style={{ boxShadow: "var(--ds-shadow)" }}
     >
       <Link to={meetingsPath} className="text-[12px]" style={{ color: "var(--text-muted)" }}>

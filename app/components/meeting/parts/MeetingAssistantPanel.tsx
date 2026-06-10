@@ -49,7 +49,7 @@ const insightIcons = {
 export function MeetingAssistantPanel() {
   return (
     <div
-      className="flex min-h-0 w-full flex-col overflow-hidden rounded-[14px]"
+      className="flex min-h-0 w-full flex-col overflow-hidden rounded-(--ds-radius-panel)"
       style={{ background: "var(--ds-surface)", boxShadow: "var(--ds-shadow)" }}
     >
       <header
@@ -102,7 +102,7 @@ export function MeetingAssistantPanel() {
           return (
             <article
               key={insight.id}
-              className="rounded-[10px] border p-3"
+              className="rounded-(--ds-radius-control) border p-3"
               style={{ background: insight.background, borderColor: insight.border }}
             >
               <div

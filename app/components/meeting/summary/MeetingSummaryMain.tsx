@@ -46,7 +46,7 @@ export function MeetingSummaryMain({ meetingsPath, summary }: MeetingSummaryMain
 function MeetingInfoCard({ summary }: { summary: MeetingSummaryViewModel }) {
   return (
     <div
-      className="ds-surface rounded-[14px] px-6 py-5 shrink-0"
+      className="ds-surface rounded-(--ds-radius-panel) px-6 py-5 shrink-0"
       style={{ boxShadow: "var(--ds-shadow)" }}
     >
       <div className="flex items-start justify-between">
@@ -85,7 +85,7 @@ function MeetingInfoCard({ summary }: { summary: MeetingSummaryViewModel }) {
 function AiSummaryCard({ summary }: { summary: string }) {
   return (
     <div
-      className="rounded-[14px] px-6 py-5 shrink-0"
+      className="rounded-(--ds-radius-panel) px-6 py-5 shrink-0"
       style={{
         background: "var(--ai-quest-bg)",
         border: "1px solid var(--ai-quest-border)",
@@ -94,7 +94,7 @@ function AiSummaryCard({ summary }: { summary: string }) {
     >
       <div className="flex items-center gap-2 mb-3">
         <div
-          className="w-6 h-6 rounded-[7px] flex items-center justify-center"
+          className="w-6 h-6 rounded-(--ds-radius-control) flex items-center justify-center"
           style={{ background: "var(--brand)" }}
         >
           <HiLightBulb className="w-3.5 h-3.5 text-white" />
@@ -193,7 +193,7 @@ function SummarySection({
 
   return (
     <div
-      className="ds-surface rounded-[14px] overflow-hidden"
+      className="ds-surface rounded-(--ds-radius-panel) overflow-hidden"
       style={{ boxShadow: "var(--ds-shadow)" }}
     >
       <div

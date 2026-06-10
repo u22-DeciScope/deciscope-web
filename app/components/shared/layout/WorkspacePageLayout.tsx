@@ -16,7 +16,7 @@ export function WorkspacePageLayout({
   return (
     <div className="flex min-h-full min-w-0 flex-col gap-2 md:h-full md:overflow-hidden">
       <header
-        className="ds-surface shrink-0 overflow-hidden rounded-[14px]"
+        className="ds-surface shrink-0 overflow-hidden rounded-(--ds-radius-panel)"
         style={{ boxShadow: "var(--ds-shadow)" }}
       >
         {header}
@@ -24,7 +24,7 @@ export function WorkspacePageLayout({
 
       <div className="flex min-h-0 flex-1 gap-2">
         <main
-          className="ds-surface min-w-0 flex-1 rounded-[14px] p-2 md:overflow-hidden"
+          className="ds-surface min-w-0 flex-1 rounded-(--ds-radius-panel) p-2 md:overflow-hidden"
           style={{ boxShadow: "var(--ds-shadow)" }}
         >
           {children}
@@ -32,7 +32,7 @@ export function WorkspacePageLayout({
 
         {rightSidebar ? (
           <aside
-            className={`ds-surface hidden shrink-0 overflow-hidden rounded-[14px] p-2 lg:flex ${rightSidebarClassName}`}
+            className={`ds-surface hidden shrink-0 overflow-hidden rounded-(--ds-radius-panel) p-2 lg:flex ${rightSidebarClassName}`}
             style={{ boxShadow: "var(--ds-shadow)" }}
           >
             {rightSidebar}

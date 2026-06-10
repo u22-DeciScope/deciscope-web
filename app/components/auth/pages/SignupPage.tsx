@@ -19,7 +19,7 @@ export default function Signup() {
       style={{ background: "var(--ds-bg)" }}
     >
       <div
-        className="w-full max-w-110 ds-surface rounded-[20px] px-10 py-10 flex flex-col gap-7"
+        className="w-full max-w-110 ds-surface rounded-(--ds-radius-dialog) px-10 py-10 flex flex-col gap-7"
         style={{ boxShadow: "var(--ds-shadow)" }}
       >
         <BrandLogo size="sm" linkTo="/" />
@@ -37,7 +37,7 @@ export default function Signup() {
           type="button"
           onClick={signIn}
           disabled={isSigningUp}
-          className="w-full flex items-center gap-3 px-5 py-3.5 rounded-[14px] border text-[14px] font-medium transition hover:opacity-80"
+          className="w-full flex items-center gap-3 px-5 py-3.5 rounded-(--ds-radius-panel) border text-[14px] font-medium transition hover:opacity-80"
           style={{
             borderColor: "var(--ds-border)",
             color: "var(--text-main)",

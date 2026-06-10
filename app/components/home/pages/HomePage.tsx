@@ -58,7 +58,7 @@ export default function Home() {
     <WorkspacePageLayout
       header={
         <div
-          className="ds-surface flex min-h-13 flex-wrap items-center justify-between gap-3 rounded-[14px] px-4 py-3 md:h-13 md:px-6 md:py-0"
+          className="ds-surface flex min-h-13 flex-wrap items-center justify-between gap-3 rounded-(--ds-radius-panel) px-4 py-3 md:h-13 md:px-6 md:py-0"
           style={{ boxShadow: "var(--ds-shadow)" }}
         >
           <div>
@@ -86,7 +86,7 @@ export default function Home() {
           ].map((stat) => (
             <div
               key={stat.label}
-              className="ds-surface rounded-[14px] px-5 py-4"
+              className="ds-surface rounded-(--ds-radius-panel) px-5 py-4"
               style={{ boxShadow: "var(--ds-shadow)" }}
             >
               <p className="text-[11px] mb-2" style={{ color: "var(--text-muted)" }}>
@@ -106,7 +106,7 @@ export default function Home() {
 
         {/* 今日の予定 */}
         <div
-          className="ds-surface rounded-[14px] overflow-hidden"
+          className="ds-surface rounded-(--ds-radius-panel) overflow-hidden"
           style={{ boxShadow: "var(--ds-shadow)" }}
         >
           <div
@@ -162,7 +162,7 @@ export default function Home() {
 
         {/* 最近の会議 */}
         <div
-          className="ds-surface rounded-[14px] overflow-hidden"
+          className="ds-surface rounded-(--ds-radius-panel) overflow-hidden"
           style={{ boxShadow: "var(--ds-shadow)" }}
         >
           <div
@@ -199,7 +199,7 @@ export default function Home() {
                 }
               >
                 <div
-                  className="w-8 h-8 rounded-[9px] flex items-center justify-center shrink-0"
+                  className="w-8 h-8 rounded-(--ds-radius-control) flex items-center justify-center shrink-0"
                   style={{ background: "var(--input-bg)" }}
                 >
                   <HiUserGroup className="w-4 h-4" style={{ color: "var(--text-muted)" }} />

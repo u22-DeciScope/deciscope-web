@@ -9,7 +9,7 @@ const messages = [
 export function MeetingChatPanel() {
   return (
     <section
-      className="flex max-h-72 w-full shrink-0 flex-col overflow-hidden rounded-[14px] xl:max-h-none xl:w-58"
+      className="flex max-h-72 w-full shrink-0 flex-col overflow-hidden rounded-(--ds-radius-panel) xl:max-h-none xl:w-58"
       style={{ background: "var(--ds-surface)", boxShadow: "var(--ds-shadow)" }}
     >
       <header
@@ -30,7 +30,7 @@ export function MeetingChatPanel() {
           message.own ? (
             <div key={message.id} className="flex justify-end">
               <p
-                className="max-w-45 rounded-xl px-2.5 py-2 text-[11px] leading-4 text-white"
+                className="max-w-45 rounded-(--ds-radius-panel) px-2.5 py-2 text-[11px] leading-4 text-white"
                 style={{ background: "var(--chat-own-bg)" }}
               >
                 {message.text}
@@ -45,7 +45,7 @@ export function MeetingChatPanel() {
                 {message.user}
               </p>
               <p
-                className="max-w-45 rounded-xl border px-2.5 py-2 text-[11px] leading-4"
+                className="max-w-45 rounded-(--ds-radius-panel) border px-2.5 py-2 text-[11px] leading-4"
                 style={{
                   background: "var(--chat-other-bg)",
                   borderColor: "var(--chat-other-border)",

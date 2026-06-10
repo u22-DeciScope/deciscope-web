@@ -26,7 +26,7 @@ export default function Login() {
       style={{ background: "var(--ds-bg)" }}
     >
       <div
-        className="w-full max-w-110 ds-surface rounded-[20px] px-10 py-10 flex flex-col gap-7"
+        className="w-full max-w-110 ds-surface rounded-(--ds-radius-dialog) px-10 py-10 flex flex-col gap-7"
         style={{ boxShadow: "var(--ds-shadow)" }}
       >
         <BrandLogo size="sm" linkTo="/" />
@@ -44,7 +44,7 @@ export default function Login() {
           type="button"
           onClick={signIn}
           disabled={isSigningIn}
-          className="w-full flex items-center gap-3 px-5 py-[14px] rounded-[14px] border text-[14px] font-medium transition hover:opacity-80"
+          className="w-full flex items-center gap-3 px-5 py-[14px] rounded-(--ds-radius-panel) border text-[14px] font-medium transition hover:opacity-80"
           style={{
             borderColor: "var(--ds-border)",
             color: "var(--text-main)",
@@ -59,7 +59,7 @@ export default function Login() {
         {error && (
           <div
             role="alert"
-            className="rounded-[9px] border px-4 py-3"
+            className="rounded-(--ds-radius-control) border px-4 py-3"
             style={{
               background: "var(--ai-risk-bg)",
               borderColor: "var(--ai-risk-border)",

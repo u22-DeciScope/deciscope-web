@@ -25,7 +25,7 @@ type DiscussionTreeProps = {
 export function DiscussionTree({ nodes }: DiscussionTreeProps) {
   return (
     <div
-      className="flex min-h-80 flex-1 flex-col overflow-hidden rounded-[14px] md:min-h-0"
+      className="flex min-h-80 flex-1 flex-col overflow-hidden rounded-(--ds-radius-panel) md:min-h-0"
       style={{ background: "var(--ds-surface)", boxShadow: "var(--ds-shadow)" }}
     >
       <div
@@ -48,7 +48,7 @@ export function DiscussionTree({ nodes }: DiscussionTreeProps) {
           return (
             <div
               key={node.id}
-              className="relative flex items-start gap-1.5 rounded-[10px] overflow-hidden border"
+              className="relative flex items-start gap-1.5 rounded-(--ds-radius-control) overflow-hidden border"
               style={{
                 marginLeft: node.indent * 20,
                 background: node.active ? "var(--node-active-bg)" : "var(--node-bg)",

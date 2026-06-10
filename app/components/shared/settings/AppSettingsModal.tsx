@@ -53,7 +53,7 @@ export function AppSettingsModal({ onClose }: AppSettingsModalProps) {
         aria-modal="true"
         aria-labelledby="settings-title"
         tabIndex={-1}
-        className="grid h-[min(760px,calc(100dvh-1.5rem))] w-full max-w-5xl overflow-hidden rounded-2xl border outline-none md:grid-cols-[220px_minmax(0,1fr)]"
+        className="grid h-[min(760px,calc(100dvh-1.5rem))] w-full max-w-5xl overflow-hidden rounded-(--ds-radius-dialog) border outline-none md:grid-cols-[220px_minmax(0,1fr)]"
         style={{
           background: "var(--ds-surface-raised)",
           borderColor: "var(--ds-border)",
@@ -77,7 +77,7 @@ export function AppSettingsModal({ onClose }: AppSettingsModalProps) {
                 <button
                   key={section.id}
                   type="button"
-                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium"
+                  className="flex w-full items-center gap-3 rounded-(--ds-radius-control) px-3 py-2.5 text-left text-sm font-medium"
                   style={{
                     background: index === 0 ? "var(--brand-light)" : "transparent",
                     color: index === 0 ? "var(--brand)" : "var(--text-sub)",
@@ -112,7 +112,7 @@ export function AppSettingsModal({ onClose }: AppSettingsModalProps) {
               type="button"
               onClick={onClose}
               aria-label="設定を閉じる"
-              className="rounded-lg p-2 transition hover:bg-(--ds-surface-muted)"
+              className="rounded-(--ds-radius-control) p-2 transition hover:bg-(--ds-surface-muted)"
               style={{ color: "var(--text-sub)" }}
             >
               <HiXMark className="h-6 w-6" />
@@ -142,7 +142,7 @@ export function AppSettingsModal({ onClose }: AppSettingsModalProps) {
             </SettingsGroup>
 
             <div
-              className="rounded-xl border p-4 text-sm leading-relaxed"
+              className="rounded-(--ds-radius-panel) border p-4 text-sm leading-relaxed"
               style={{
                 background: "var(--ds-surface-muted)",
                 borderColor: "var(--ds-border)",
@@ -171,7 +171,7 @@ function SettingsGroup({ children, title }: SettingsGroupProps) {
         {title}
       </h3>
       <div
-        className="overflow-hidden rounded-xl border"
+        className="overflow-hidden rounded-(--ds-radius-panel) border"
         style={{ borderColor: "var(--ds-border)" }}
       >
         {children}
