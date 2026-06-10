@@ -14,7 +14,7 @@ export function AppNavigation({ collapsed }: AppNavigationProps) {
 
   return (
     <nav
-      className={`relative z-10 flex flex-1 flex-col gap-1 overflow-y-auto ${collapsed ? "p-2" : "p-3"}`}
+      className={`relative z-10 flex flex-1 flex-col gap-1 overflow-y-auto p-2`}
     >
       {appNavigationItems.map((item) => {
         const Icon = item.icon;

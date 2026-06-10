@@ -1,5 +1,6 @@
-import { HiChevronDoubleLeft, HiChevronDoubleRight } from "react-icons/hi2";
 import { BrandLogo } from "~/components/BrandLogo";
+import { AppSidebarToggleButton } from "~/components/shared/navigation/AppSidebarToggleButton";
+import { APP_SIDEBAR_SIZES } from "~/components/shared/navigation/appSidebarSizes";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/routing/workspacePaths";
 
@@ -15,9 +16,9 @@ type AppSidebarHeaderProps = {
 
 export function AppSidebarHeader({ navigation, width }: AppSidebarHeaderProps) {
   const { workspaceId } = useAuthenticatedLayout();
-  const CollapseIcon = navigation.collapsed ? HiChevronDoubleRight : HiChevronDoubleLeft;
   const showLogoText = width >= LOGO_TEXT_MIN_WIDTH;
   const toggleLabel = navigation.collapsed ? "メニューを展開" : "メニューを折りたたむ";
+  const logoFrameWidth = showLogoText ? width : APP_SIDEBAR_SIZES.collapsedPaneWidth;
 
   function handleToggle() {
     navigation.onCollapsedChange(!navigation.collapsed);
@@ -28,40 +29,39 @@ export function AppSidebarHeader({ navigation, width }: AppSidebarHeaderProps) {
       className="flex h-12.5 shrink-0 items-center border-b"
       style={{ borderColor: "var(--ds-border)" }}
     >
-      <div className="relative flex h-full w-full min-w-0 items-center px-3">
+      <div
+        className={`relative flex h-full min-w-0 items-center px-3 ${
+          showLogoText ? "justify-start" : "justify-center"
+        }`}
+        style={{ width: logoFrameWidth }}
+      >
         {showLogoText ? (
           <>
             <div className="min-w-0 overflow-hidden pr-12">
               <BrandLogo size="sm" linkTo={workspacePath(workspaceId, "/meetings")} />
             </div>
-            <button
-              type="button"
+            <AppSidebarToggleButton
               onClick={handleToggle}
-              className="absolute right-2 flex h-7 w-7 items-center justify-center rounded-(--ds-radius-control) transition hover:opacity-70 focus-visible:opacity-100"
-              aria-label={toggleLabel}
-              title={toggleLabel}
-              style={{ color: "var(--text-muted)", background: "var(--ds-surface-muted)" }}
-            >
-              <CollapseIcon className="h-4 w-4" />
-            </button>
+              className="absolute right-2"
+              flipped={navigation.collapsed}
+              label={toggleLabel}
+              variant="filled"
+            />
           </>
         ) : (
-          <div className="group relative ml-auto flex h-7 w-7 items-center justify-center">
+          <div className="group relative flex h-7 w-7 items-center justify-center">
             <BrandLogo
               size="sm"
               linkTo={workspacePath(workspaceId, "/meetings")}
               showText={false}
             />
-            <button
-              type="button"
+            <AppSidebarToggleButton
               onClick={handleToggle}
-              className="absolute inset-0 flex items-center justify-center rounded-(--ds-radius-control) opacity-0 transition hover:opacity-70 focus-visible:opacity-100 group-hover:opacity-100"
-              aria-label={toggleLabel}
-              title={toggleLabel}
-              style={{ color: "var(--text-muted)", background: "var(--ds-surface-muted)" }}
-            >
-              <CollapseIcon className="h-4 w-4" />
-            </button>
+              className="absolute inset-0 opacity-0 hover:opacity-70 group-hover:opacity-100"
+              flipped={navigation.collapsed}
+              label={toggleLabel}
+              variant="filled"
+            />
           </div>
         )}
       </div>

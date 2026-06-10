@@ -1,4 +1,5 @@
-import { HiChatBubbleLeftRight, HiChevronDoubleLeft, HiChevronDoubleRight } from "react-icons/hi2";
+import { HiChatBubbleLeftRight, HiChevronDoubleRight } from "react-icons/hi2";
+import { AppSidebarToggleButton } from "~/components/shared/navigation/AppSidebarToggleButton";
 
 const messages = [
   {
@@ -7,14 +8,54 @@ const messages = [
     text: "じゃあ始めようか。今日はプロダクトの方向性を決めたい。",
     own: false,
   },
-  { id: 2, user: "佐藤", text: "アイデアいっぱいあるんだけど、絞れなくて。", own: false },
-  { id: 3, user: "", text: "Deciscopeで決めよう。ターゲットを先に決めない？", own: true },
-  { id: 4, user: "田中", text: "学生向けはどうかな。審査員にも刺さりそうだし。", own: false },
-  { id: 5, user: "佐藤", text: "でも学生って会議しないよね？", own: false },
-  { id: 6, user: "", text: "サークルとか就活グループとか、意外とある気がする。", own: true },
-  { id: 7, user: "田中", text: "MVPを考えると機能を絞らないと厳しいよな。", own: false },
-  { id: 8, user: "佐藤", text: "文字起こしと要約だけに絞る？", own: false },
-  { id: 9, user: "", text: "それだと差別化できない。AIの提案が必要だと思う。", own: true },
+  {
+    id: 2,
+    user: "佐藤",
+    text: "アイデアいっぱいあるんだけど、絞れなくて。",
+    own: false,
+  },
+  {
+    id: 3,
+    user: "",
+    text: "Deciscopeで決めよう。ターゲットを先に決めない？",
+    own: true,
+  },
+  {
+    id: 4,
+    user: "田中",
+    text: "学生向けはどうかな。審査員にも刺さりそうだし。",
+    own: false,
+  },
+  {
+    id: 5,
+    user: "佐藤",
+    text: "でも学生って会議しないよね？",
+    own: false,
+  },
+  {
+    id: 6,
+    user: "",
+    text: "サークルとか就活グループとか、意外とある気がする。",
+    own: true,
+  },
+  {
+    id: 7,
+    user: "田中",
+    text: "MVPを考えると機能を絞らないと厳しいよな。",
+    own: false,
+  },
+  {
+    id: 8,
+    user: "佐藤",
+    text: "文字起こしと要約だけに絞る？",
+    own: false,
+  },
+  {
+    id: 9,
+    user: "",
+    text: "それだと差別化できない。AIの提案が必要だと思う。",
+    own: true,
+  },
 ];
 
 type AppSidebarSharedAreaProps = {
@@ -67,16 +108,12 @@ export function AppSidebarSharedArea({
         >
           会話
         </span>
-        <button
-          type="button"
+        <AppSidebarToggleButton
           onClick={onClose}
-          className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-(--ds-radius-control) transition hover:bg-(--ds-surface-muted)"
-          aria-label="共有エリアを閉じる"
-          title="共有エリアを閉じる"
-          style={{ color: "var(--text-muted)" }}
-        >
-          <HiChevronDoubleLeft className="h-4 w-4" />
-        </button>
+          className="ml-auto"
+          flipped
+          label="共有エリアを閉じる"
+        />
       </header>
 
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
