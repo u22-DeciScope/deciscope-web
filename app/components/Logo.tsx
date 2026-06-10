@@ -1,4 +1,5 @@
 import { Link } from "react-router";
+import { HiSparkles } from "react-icons/hi2";
 
 interface LogoProps {
   size?: "sm" | "md" | "lg";
@@ -15,9 +16,7 @@ export function Logo({ size = "md", linkTo }: LogoProps) {
   const s = sizes[size];
   const inner = (
     <div className={`flex items-center ${s.gap}`}>
-      <svg viewBox="0 0 24 24" fill="currentColor" className={`${s.icon} shrink-0`} style={{ color: "var(--text-main)" }}>
-        <path d="M12 2l1.09 3.26L16.5 4.27l-2.18 2.73L16.5 9.73l-3.41-.99L12 12l-1.09-3.26L7.5 9.73l2.18-2.73L7.5 4.27l3.41.99L12 2z" />
-      </svg>
+      <HiSparkles className={`${s.icon} shrink-0`} style={{ color: "var(--text-main)" }} />
       <span className={`${s.text} font-bold`} style={{ color: "var(--text-main)" }}>
         Desiscope
       </span>

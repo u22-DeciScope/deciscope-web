@@ -15,8 +15,8 @@ export function DsButton({
   const base = `inline-flex items-center justify-center gap-2 rounded-[9px] px-4 py-[10px] text-[13px] font-semibold transition focus:outline-none disabled:opacity-50 ${fullWidth ? "w-full" : ""}`;
 
   const variants = {
-    primary:   { background: "var(--brand)",   color: "#fff",               border: "none" },
-    secondary: { background: "#fff",            color: "var(--text-sub)",    border: "1px solid var(--ds-border)" },
+    primary:   { background: "var(--brand)",     color: "var(--text-on-brand)", border: "none" },
+    secondary: { background: "var(--ds-surface)", color: "var(--text-sub)",      border: "1px solid var(--ds-border)" },
     ghost:     { background: "transparent",     color: "var(--text-sub)",    border: "none" },
   };
 

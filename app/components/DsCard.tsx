@@ -7,7 +7,7 @@ interface DsCardProps {
 export function DsCard({ children, className = "", padding = false }: DsCardProps) {
   return (
     <div
-      className={`bg-white rounded-[14px] overflow-hidden ${padding ? "p-6" : ""} ${className}`}
+      className={`ds-surface rounded-[14px] overflow-hidden ${padding ? "p-6" : ""} ${className}`}
       style={{ boxShadow: "var(--ds-shadow)" }}
     >
       {children}
@@ -23,12 +23,12 @@ interface DsCardHeaderProps {
 export function DsCardHeader({ children, dot = true }: DsCardHeaderProps) {
   return (
     <div
-      className="h-[40px] flex items-center px-4 shrink-0 border-b"
+      className="h-10 flex items-center px-4 shrink-0 border-b"
       style={{ borderColor: "var(--ds-border)" }}
     >
       {dot && (
         <span
-          className="w-[10px] h-[10px] rounded-full shrink-0 mr-2"
+          className="w-2.5 h-2.5 rounded-full shrink-0 mr-2"
           style={{ background: "var(--brand)" }}
         />
       )}
@@ -36,3 +36,4 @@ export function DsCardHeader({ children, dot = true }: DsCardHeaderProps) {
     </div>
   );
 }
+
