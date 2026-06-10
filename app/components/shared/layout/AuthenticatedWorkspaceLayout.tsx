@@ -49,8 +49,7 @@ export function AuthenticatedWorkspaceLayout() {
 
   const navigationCollapsed = navigationWidth <= collapseThreshold;
   const sharedAreaCollapsed = sharedAreaWidth <= collapseThreshold;
-  const sidebarWidth =
-    navigationWidth + resizeHandleWidth + sharedAreaWidth + resizeHandleWidth;
+  const sidebarWidth = navigationWidth + resizeHandleWidth + sharedAreaWidth + resizeHandleWidth;
   const navigationPane = {
     collapsed: navigationCollapsed,
     onCollapsedChange: (collapsed: boolean) =>
