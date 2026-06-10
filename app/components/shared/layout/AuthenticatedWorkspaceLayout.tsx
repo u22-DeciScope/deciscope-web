@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Navigate, Outlet, useLocation, useParams } from "react-router";
 
 import { AuthenticatedLayoutProvider } from "~/context/AuthenticatedLayoutContext";
@@ -21,9 +21,13 @@ const {
 export function AuthenticatedWorkspaceLayout() {
   const [navigationWidth, setNavigationWidth] = useState<number>(collapsedPaneWidth);
   const [sharedAreaWidth, setSharedAreaWidth] = useState<number>(defaultSharedAreaWidth);
-  const { pathname } = useLocation();
+  const { hash, pathname, search } = useLocation();
   const { workspaceId } = useParams();
   const session = useAuthenticatedSession();
+  const loginRedirectState = useMemo(
+    () => ({ from: `${pathname}${search}${hash}` }),
+    [hash, pathname, search],
+  );
 
   if (!workspaceId) {
     return <WorkspaceStatus message="ワークスペースを特定できませんでした。" />;
@@ -40,7 +44,7 @@ export function AuthenticatedWorkspaceLayout() {
   }
 
   if (session.status === "unauthenticated") {
-    return <Navigate to="/login" replace state={{ from: pathname }} />;
+    return <Navigate to="/login" replace state={loginRedirectState} />;
   }
 
   if (!session.user) {

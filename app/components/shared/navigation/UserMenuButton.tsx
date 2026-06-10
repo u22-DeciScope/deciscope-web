@@ -20,8 +20,8 @@ export function UserMenuButton({ collapsed, onClick, open, user }: UserMenuButto
       aria-haspopup="menu"
       aria-label={collapsed ? "アカウントメニューを開く" : undefined}
       onClick={onClick}
-      className={`flex w-full items-center py-3 text-left transition hover:bg-(--ds-surface-muted) ${
-        collapsed ? "justify-center px-2" : "gap-2.5 px-4"
+      className={`flex w-full items-center py-2 pt-3 text-left cursor-pointer transition hover:bg-(--ds-surface-muted) ${
+        collapsed ? "justify-center" : "gap-2.5 px-3"
       }`}
     >
       <UserAvatar user={user} />

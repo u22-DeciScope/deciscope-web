@@ -55,7 +55,7 @@ function UserMenuItem({ icon: Icon, label, onClick }: UserMenuItemProps) {
       type="button"
       role="menuitem"
       onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-(--ds-radius-control) px-3 py-2.5 text-left text-[13px] font-medium transition hover:bg-(--ds-surface-muted)"
+      className="flex w-full cursor-pointer items-center gap-3 rounded-(--ds-radius-control) px-3 py-2.5 text-left text-[13px] font-medium transition hover:bg-(--ds-surface-muted)"
       style={{ color: "var(--text-main)" }}
     >
       <Icon className="h-5 w-5 shrink-0" />

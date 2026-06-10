@@ -5,7 +5,7 @@ type UserAvatarProps = {
   user: User;
 };
 
-export function UserAvatar({ className = "h-7 w-7", user }: UserAvatarProps) {
+export function UserAvatar({ className = "h-8 w-8", user }: UserAvatarProps) {
   const displayName = user.displayName ?? user.email ?? "ユーザー";
   const avatarLetter = displayName.charAt(0);
 

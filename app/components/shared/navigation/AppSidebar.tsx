@@ -24,9 +24,16 @@ type AppSidebarProps = {
 };
 
 export function AppSidebar({ navigation, sharedArea }: AppSidebarProps) {
+  const sidebarContentWidth =
+    navigation.width + APP_SIDEBAR_SIZES.resizeHandleWidth + sharedArea.width;
+
   return (
     <aside className="ds-surface-elevated flex h-full min-w-0 flex-col overflow-hidden">
-      <AppSidebarHeader navigation={navigation} width={navigation.width} />
+      <AppSidebarHeader
+        navigation={navigation}
+        navigationWidth={navigation.width}
+        width={sidebarContentWidth}
+      />
 
       <div className="flex min-h-0 min-w-0 flex-1">
         <div className="flex min-w-0 shrink-0 flex-col" style={{ width: navigation.width }}>
