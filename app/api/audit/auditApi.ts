@@ -2,6 +2,8 @@
 // 実際の監査証跡はバックエンドで記録される想定。それまでは localStorage に状態を持ち、
 // バックエンドと同じ非同期インターフェースで振る舞う。
 
+import { workspaceIdSegmentFromPath } from "~/routing/workspacePaths";
+
 export type AuditEventType =
   | "bot_invited"
   | "bot_cancelled"
@@ -81,7 +83,7 @@ function saveState(state: AuditMockState) {
 
 function workspaceStorageKey() {
   if (typeof window === "undefined") return STORAGE_KEY;
-  const workspaceCode = window.location.pathname.match(/^\/w\/([^/]+)/)?.[1] ?? "public";
+  const workspaceCode = workspaceIdSegmentFromPath(window.location.pathname) ?? "public";
   return `${STORAGE_KEY}.${workspaceCode}`;
 }
 

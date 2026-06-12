@@ -2,6 +2,8 @@
 // 実際の Microsoft Graph / Bot 連携は Phase3 で別サービス(Media Adapter)経由になる想定。
 // それまでは localStorage に状態を持ち、バックエンドと同じ非同期インターフェースで振る舞う。
 
+import { workspaceIdSegmentFromPath } from "~/routing/workspacePaths";
+
 export type TeamsAdminConsentStatus = "not_requested" | "pending" | "granted";
 
 export type TeamsIntegrationStatusDto = {
@@ -72,7 +74,7 @@ function saveState(state: TeamsMockState) {
 
 function workspaceStorageKey() {
   if (typeof window === "undefined") return STORAGE_KEY;
-  const workspaceCode = window.location.pathname.match(/^\/w\/([^/]+)/)?.[1] ?? "public";
+  const workspaceCode = workspaceIdSegmentFromPath(window.location.pathname) ?? "public";
   return `${STORAGE_KEY}.${workspaceCode}`;
 }
 

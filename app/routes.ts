@@ -1,12 +1,13 @@
 import { type RouteConfig, index, route } from "@react-router/dev/routes";
+import { WORKSPACE_ROUTE_PATH, WORKSPACE_ROUTE_SEGMENT } from "./routing/workspacePaths";
 
 export default [
   index("routes/landing.tsx"),
   route("login", "routes/login.tsx"),
   route("signup", "routes/signup.tsx"),
   route("terms", "routes/terms.tsx"),
-  route("w", "routes/workspace-resolver.tsx"),
-  route("w/:workspaceId", "routes/workspace-layout.tsx", [
+  route(WORKSPACE_ROUTE_SEGMENT, "routes/workspace-resolver.tsx"),
+  route(WORKSPACE_ROUTE_PATH, "routes/workspace-layout.tsx", [
     index("routes/workspace.tsx"),
     route("meetings", "routes/home.tsx"),
     route("meetings/new", "routes/meeting.new.tsx"),

@@ -9,6 +9,7 @@ import { WorkspacePageLayout } from "~/components/shared/layout/WorkspacePageLay
 import { WorkspaceStatus } from "~/components/shared/layout/WorkspaceStatus";
 import { APP_SIDEBAR_SIZES, AppSidebar } from "~/components/shared/navigation/AppSidebar";
 import { setCurrentWorkspace } from "~/api/auth/authApi";
+import { WORKSPACE_ROUTE_BASE } from "~/routing/workspacePaths";
 
 const {
   collapsedPaneWidth,
@@ -58,7 +59,7 @@ export function AuthenticatedWorkspaceLayout() {
     return <WorkspaceStatus message="認証済みユーザーを取得できませんでした。" />;
   }
   if (!workspace) {
-    return <Navigate to="/w" replace />;
+    return <Navigate to={WORKSPACE_ROUTE_BASE} replace />;
   }
 
   const navigationCollapsed = navigationWidth <= collapseThreshold;

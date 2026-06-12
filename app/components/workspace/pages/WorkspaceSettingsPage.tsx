@@ -13,6 +13,7 @@ import {
 import { DsButton } from "~/components/DsButton";
 import { DsInput } from "~/components/DsInput";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
+import { workspacePath } from "~/routing/workspacePaths";
 
 export default function WorkspaceSettingsPage() {
   const { user, workspace, workspaces, workspaceId } = useAuthenticatedLayout();
@@ -74,7 +75,7 @@ export default function WorkspaceSettingsPage() {
               <Link
                 className="rounded-(--ds-radius-control) border px-3 py-2 text-sm"
                 key={item.id}
-                to={`/w/${encodeURIComponent(item.id)}/meetings`}
+                to={workspacePath(item.id, "/meetings")}
               >
                 {item.name}
               </Link>
