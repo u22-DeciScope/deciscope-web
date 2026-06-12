@@ -2,6 +2,7 @@ import { requestJson } from "~/api/core/apiClient";
 
 export type BackendJobDto = {
   id: string;
+  workspace_id: string;
   type: string;
   status: string;
   meeting_id?: string;

@@ -1,16 +1,23 @@
-import { getCurrentIdToken } from "~/api/firebase/firebaseAuthClient";
 import { apiBaseUrl } from "~/api/core/apiConfig";
 
-type ApiRequestOptions = RequestInit & {
-  auth?: boolean;
-};
+type ApiRequestOptions = RequestInit;
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
 
 export async function requestJson<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
   const response = await requestRaw(path, options);
   const text = await response.text();
   const payload = parseJson(text);
   if (!response.ok) {
-    throw new Error(responseErrorMessage(response, text, payload));
+    handleUnauthorized(response);
+    throw new ApiError(responseErrorMessage(response, text, payload), response.status);
   }
   return payload as T;
 }
@@ -19,9 +26,16 @@ export async function requestText(path: string, options: ApiRequestOptions = {})
   const response = await requestRaw(path, options);
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(responseErrorMessage(response, text, parseJson(text)));
+    handleUnauthorized(response);
+    throw new ApiError(responseErrorMessage(response, text, parseJson(text)), response.status);
   }
   return text;
+}
+
+function handleUnauthorized(response: Response) {
+  if (response.status === 401 && typeof window !== "undefined") {
+    window.dispatchEvent(new Event("deciscope:unauthorized"));
+  }
 }
 
 async function requestRaw(path: string, options: ApiRequestOptions) {
@@ -32,19 +46,13 @@ async function requestRaw(path: string, options: ApiRequestOptions) {
   if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  if (options.auth) {
-    const token = await getCurrentIdToken();
-    if (token) {
-      headers.set("Authorization", `Bearer ${token}`);
-    }
-  }
-
   const requestUrl = `${apiBaseUrl()}${path}`;
 
   try {
     return await fetch(requestUrl, {
       ...options,
       headers,
+      credentials: "include",
     });
   } catch (error) {
     const resolvedUrl =

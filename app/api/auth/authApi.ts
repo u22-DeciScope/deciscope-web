@@ -1,30 +1,59 @@
 import { requestJson } from "~/api/core/apiClient";
 
-export type BackendLoginResponseDto = {
-  status: string;
-  uid?: string;
-  id?: number;
-  email?: string;
-  name?: string;
-  auth_provider?: string;
-  user_store?: string;
+export type BackendUser = {
+  id: string;
+  display_name: string;
+  email: string;
+  photoURL?: string | null;
+  displayName?: string;
 };
 
+export type WorkspaceDto = {
+  id: string;
+  name: string;
+  role: "owner" | "member";
+  created_at: string;
+  updated_at: string;
+};
+
+export type BackendSession = {
+  user: BackendUser;
+  workspaces: WorkspaceDto[];
+  current_workspace_id: string;
+  expires_at: string;
+};
+
+function normalizeSession(session: BackendSession): BackendSession {
+  return {
+    ...session,
+    user: {
+      ...session.user,
+      displayName: session.user.display_name,
+      photoURL: null,
+    },
+  };
+}
+
 export async function syncAuthLogin(idToken: string) {
-  return requestJson<BackendLoginResponseDto>("/v1/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ idToken }),
-  });
+  return normalizeSession(
+    await requestJson<BackendSession>("/v1/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ idToken }),
+    }),
+  );
 }
 
 export async function fetchMe() {
-  return requestJson<Record<string, unknown>>("/v1/auth/me", {
-    auth: true,
-  });
+  return normalizeSession(await requestJson<BackendSession>("/v1/auth/me"));
 }
 
-export async function fetchAuthHealth() {
-  return requestJson<Record<string, unknown>>("/v1/auth/health", {
-    auth: true,
+export async function logoutSession() {
+  await requestJson<null>("/v1/auth/logout", { method: "POST" });
+}
+
+export async function setCurrentWorkspace(workspaceId: string) {
+  await requestJson<null>("/v1/session/current-workspace", {
+    method: "PUT",
+    body: JSON.stringify({ workspace_id: workspaceId }),
   });
 }

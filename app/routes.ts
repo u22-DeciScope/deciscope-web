@@ -5,6 +5,7 @@ export default [
   route("login", "routes/login.tsx"),
   route("signup", "routes/signup.tsx"),
   route("terms", "routes/terms.tsx"),
+  route("w", "routes/workspace-resolver.tsx"),
   route("w/:workspaceId", "routes/workspace-layout.tsx", [
     index("routes/workspace.tsx"),
     route("meetings", "routes/home.tsx"),
@@ -14,6 +15,7 @@ export default [
     route("meetings/:id/summary", "routes/meeting.$id.summary.tsx"),
     route("uploads", "routes/uploads.tsx"),
     route("settings/integrations", "routes/settings.integrations.tsx"),
+    route("settings/workspace", "routes/settings.workspace.tsx"),
     route("settings/audit", "routes/settings.audit.tsx"),
   ]),
 ] satisfies RouteConfig;

@@ -5,6 +5,7 @@ import {
   HiPlusCircle,
   HiShieldCheck,
   HiVideoCamera,
+  HiUsers,
 } from "react-icons/hi2";
 import type { IconType } from "react-icons";
 
@@ -14,7 +15,8 @@ export type AppNavigationItemId =
   | "upcoming"
   | "uploads"
   | "integrations"
-  | "audit";
+  | "audit"
+  | "workspace";
 
 export type AppNavigationItem = {
   id: AppNavigationItemId;
@@ -29,5 +31,6 @@ export const appNavigationItems: AppNavigationItem[] = [
   { id: "upcoming", label: "予定会議", icon: HiCalendarDays, path: "/meetings/upcoming" },
   { id: "uploads", label: "ファイル処理", icon: HiArrowUpTray, path: "/uploads" },
   { id: "integrations", label: "Teams 連携", icon: HiVideoCamera, path: "/settings/integrations" },
+  { id: "workspace", label: "Workspace設定", icon: HiUsers, path: "/settings/workspace" },
   { id: "audit", label: "監査とプライバシー", icon: HiShieldCheck, path: "/settings/audit" },
 ];

@@ -101,13 +101,13 @@ export default function MeetingNewPage() {
     setIsSubmitting(true);
     try {
       if (source === "fixture") {
-        const meeting = await createMeeting(title, "fixture_replay");
+        const meeting = await createMeeting(workspaceId, title, "fixture_replay");
         if (startImmediately && selectedFixture) {
           await startFixtureReplay(meeting.id, selectedFixture);
         }
         navigate(workspaceMeetingPath(workspaceId, meeting.id));
       } else {
-        const meeting = await createMeeting(title, "teams_bot");
+        const meeting = await createMeeting(workspaceId, title, "teams_bot");
         navigate(workspaceMeetingPath(workspaceId, meeting.id));
       }
     } catch (cause) {

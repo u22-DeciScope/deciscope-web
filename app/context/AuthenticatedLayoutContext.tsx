@@ -1,10 +1,12 @@
 import { createContext, useContext, type ReactNode } from "react";
-import type { User } from "firebase/auth";
+import type { BackendUser, WorkspaceDto } from "~/api/auth/authApi";
 
 type AuthenticatedLayoutContextValue = {
   logout: () => void | Promise<void>;
   today: string;
-  user: User;
+  user: BackendUser;
+  workspace: WorkspaceDto;
+  workspaces: WorkspaceDto[];
   workspaceId: string;
 };
 
@@ -20,9 +22,13 @@ export function AuthenticatedLayoutProvider({
   today,
   user,
   workspaceId,
+  workspace,
+  workspaces,
 }: AuthenticatedLayoutProviderProps) {
   return (
-    <AuthenticatedLayoutContext.Provider value={{ logout, today, user, workspaceId }}>
+    <AuthenticatedLayoutContext.Provider
+      value={{ logout, today, user, workspace, workspaces, workspaceId }}
+    >
       {children}
     </AuthenticatedLayoutContext.Provider>
   );

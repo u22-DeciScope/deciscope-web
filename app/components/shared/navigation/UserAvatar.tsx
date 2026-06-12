@@ -1,8 +1,8 @@
-import type { User } from "firebase/auth";
+import type { BackendUser } from "~/api/auth/authApi";
 
 type UserAvatarProps = {
   className?: string;
-  user: User;
+  user: BackendUser;
 };
 
 export function UserAvatar({ className = "h-8 w-8", user }: UserAvatarProps) {

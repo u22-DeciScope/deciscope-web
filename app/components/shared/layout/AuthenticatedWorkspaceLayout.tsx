@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Navigate, Outlet, useLocation, useParams } from "react-router";
 
 import { AuthenticatedLayoutProvider } from "~/context/AuthenticatedLayoutContext";
@@ -8,6 +8,7 @@ import { WorkspaceChromeProvider } from "~/components/shared/layout/WorkspaceChr
 import { WorkspacePageLayout } from "~/components/shared/layout/WorkspacePageLayout";
 import { WorkspaceStatus } from "~/components/shared/layout/WorkspaceStatus";
 import { APP_SIDEBAR_SIZES, AppSidebar } from "~/components/shared/navigation/AppSidebar";
+import { setCurrentWorkspace } from "~/api/auth/authApi";
 
 const {
   collapsedPaneWidth,
@@ -24,10 +25,16 @@ export function AuthenticatedWorkspaceLayout() {
   const { hash, pathname, search } = useLocation();
   const { workspaceId } = useParams();
   const session = useAuthenticatedSession();
+  const workspace = session.session?.workspaces.find((item) => item.id === workspaceId);
   const loginRedirectState = useMemo(
     () => ({ from: `${pathname}${search}${hash}` }),
     [hash, pathname, search],
   );
+  useEffect(() => {
+    if (workspaceId && workspace && session.session?.current_workspace_id !== workspaceId) {
+      void setCurrentWorkspace(workspaceId);
+    }
+  }, [session.session?.current_workspace_id, workspace, workspaceId]);
 
   if (!workspaceId) {
     return <WorkspaceStatus message="ワークスペースを特定できませんでした。" />;
@@ -49,6 +56,9 @@ export function AuthenticatedWorkspaceLayout() {
 
   if (!session.user) {
     return <WorkspaceStatus message="認証済みユーザーを取得できませんでした。" />;
+  }
+  if (!workspace) {
+    return <Navigate to="/w" replace />;
   }
 
   const navigationCollapsed = navigationWidth <= collapseThreshold;
@@ -75,6 +85,8 @@ export function AuthenticatedWorkspaceLayout() {
       logout={session.handleLogout}
       today={session.today}
       user={session.user}
+      workspace={workspace}
+      workspaces={session.session?.workspaces ?? []}
       workspaceId={workspaceId}
     >
       <div className="min-h-120 bg-(--ds-bg) md:flex md:h-[max(100dvh,480px)] md:overflow-hidden md:p-2.25">

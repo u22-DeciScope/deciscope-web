@@ -20,6 +20,9 @@ export function useActiveNavigationItem(): AppNavigationItemId {
   if (pathname.startsWith(workspacePath(workspaceId, "/settings/integrations"))) {
     return "integrations";
   }
+  if (pathname.startsWith(workspacePath(workspaceId, "/settings/workspace"))) {
+    return "workspace";
+  }
   if (pathname.startsWith(workspacePath(workspaceId, "/settings/audit"))) {
     return "audit";
   }

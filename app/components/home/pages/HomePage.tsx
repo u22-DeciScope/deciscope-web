@@ -23,7 +23,7 @@ export default function Home() {
   useEffect(() => {
     let active = true;
     setIsLoading(true);
-    listMeetings()
+    listMeetings(workspaceId)
       .then((result) => {
         if (!active) {
           return;
@@ -44,7 +44,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [workspaceId]);
 
   const activeMeetings = useMemo(
     () => meetings.filter((meeting) => meeting.status !== "ended").slice(0, 3),

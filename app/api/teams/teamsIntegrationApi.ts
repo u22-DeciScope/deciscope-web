@@ -49,7 +49,7 @@ function loadState(): TeamsMockState {
     return { status: disconnectedStatus, scheduledMeetingIds: [] };
   }
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(workspaceStorageKey());
     if (!raw) {
       return { status: disconnectedStatus, scheduledMeetingIds: [] };
     }
@@ -67,7 +67,13 @@ function saveState(state: TeamsMockState) {
   if (typeof window === "undefined") {
     return;
   }
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  window.localStorage.setItem(workspaceStorageKey(), JSON.stringify(state));
+}
+
+function workspaceStorageKey() {
+  if (typeof window === "undefined") return STORAGE_KEY;
+  const workspaceCode = window.location.pathname.match(/^\/w\/([^/]+)/)?.[1] ?? "public";
+  return `${STORAGE_KEY}.${workspaceCode}`;
 }
 
 export async function getTeamsIntegrationStatus(): Promise<TeamsIntegrationStatusDto> {
