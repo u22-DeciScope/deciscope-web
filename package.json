@@ -11,8 +11,10 @@
     "typecheck": "react-router typegen && tsc"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
     "@react-router/node": "7.17.0",
     "@react-router/serve": "7.17.0",
+    "@xyflow/react": "^12.11.0",
     "firebase": "^12.13.0",
     "isbot": "^5.1.31",
     "react": "^19.2.4",
