@@ -2,9 +2,8 @@ import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router";
 import { HiArrowPath, HiPause, HiPlay, HiStop } from "react-icons/hi2";
 
-import type { TreeNodePayload } from "~/api/meetings/meetingRuntimeTypes";
 import { DsButton } from "~/components/DsButton";
-import { DiscussionTree, type DiscussionTreeNode } from "~/components/meeting/parts/DiscussionTree";
+import { DiscussionTree } from "~/components/meeting/parts/DiscussionTree";
 import { MeetingAssistantPanel } from "~/components/meeting/parts/MeetingAssistantPanel";
 import { MeetingChatPanel } from "~/components/meeting/parts/MeetingChatPanel";
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
@@ -21,10 +20,6 @@ export default function Meeting() {
   const summaryPath = workspaceMeetingSummaryPath(workspaceId, id ?? "");
   const fixtureName = selectedFixture || runtime.fixtures[0]?.name || "";
 
-  const discussionNodes = useMemo(
-    () => treeNodesFromRuntime(runtime.tree?.nodes ?? []),
-    [runtime.tree?.nodes],
-  );
   const partials = useMemo(() => Object.values(runtime.partials), [runtime.partials]);
   const meetingTitle = runtime.meeting?.title ?? "会議";
   const statusLabel = runtime.meetingState.status ?? runtime.meeting?.status ?? runtime.connectionStatus;
@@ -103,12 +98,6 @@ export default function Meeting() {
           </div>
         ),
       },
-      rightSidebar: (
-        <MeetingAssistantPanel
-          insights={runtime.analysisItems}
-          speakerSummaries={runtime.speakerSummaries}
-        />
-      ),
     }),
     [finishMeeting, fixtureName, meetingTitle, runtime, statusLabel],
   );
@@ -126,7 +115,13 @@ export default function Meeting() {
       )}
       <div className="flex min-h-0 flex-1 flex-col gap-2 xl:flex-row">
         <MeetingChatPanel partials={partials} segments={runtime.segments} />
-        <DiscussionTree nodes={discussionNodes} />
+        <DiscussionTree nodes={runtime.tree?.nodes ?? []} edges={runtime.tree?.edges ?? []} />
+        <div className="flex max-h-80 w-full shrink-0 flex-col xl:max-h-none xl:w-72">
+          <MeetingAssistantPanel
+            insights={runtime.analysisItems}
+            speakerSummaries={runtime.speakerSummaries}
+          />
+        </div>
       </div>
     </section>
   );
@@ -161,18 +156,6 @@ function IconButton({
       {children}
     </button>
   );
-}
-
-function treeNodesFromRuntime(nodes: TreeNodePayload[]): DiscussionTreeNode[] {
-  return nodes.map((node, index) => ({
-    id: index + 1,
-    tag: node.kind ?? "topic",
-    user: node.speaker_label ?? "",
-    time: "",
-    text: node.label ?? node.id,
-    indent: node.kind === "topic" ? 0 : 1,
-    active: index === nodes.length - 1,
-  }));
 }
 
 function formatStatus(status: string) {
