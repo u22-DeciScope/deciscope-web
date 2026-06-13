@@ -1,0 +1,7 @@
+.react-router/
+build/
+node_modules/
+secrets/
+.env
+.env.*
+package-lock.json

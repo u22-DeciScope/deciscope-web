@@ -21,3 +21,18 @@
 # React Router
 /.react-router/
 /build/
+
+/node_modules/
+
+# Local env
+.env
+.env.local
+.env.*.local
+
+.claude
+
+# Firebase credentials
+/secrets/
+
+react-router-v7-policy.md
+AGENTS.md

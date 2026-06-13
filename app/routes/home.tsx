@@ -1,13 +1,11 @@
+import HomePage from "~/components/home/pages/HomePage";
+import { createPageTitle } from "~/root";
 import type { Route } from "./+types/home";
-import { Welcome } from "../welcome/welcome";
 
 export function meta({}: Route.MetaArgs) {
-  return [
-    { title: "New React Router App" },
-    { name: "description", content: "Welcome to React Router!" },
-  ];
+  return [{ title: createPageTitle("ホーム") }];
 }
 
 export default function Home() {
-  return <Welcome />;
+  return <HomePage />;
 }
