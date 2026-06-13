@@ -21,10 +21,12 @@ export type MeetingRealtimeEventDto = {
 
 export async function listMeetingEvents(meetingId: string, afterSeq = 0) {
   const path = `/v1/meetings/${encodeURIComponent(meetingId)}/events?after_seq=${encodeURIComponent(String(afterSeq))}`;
-  return requestJson<{ events: MeetingRealtimeEventDto[] }>(path);
+  const result = await requestJson<{ events: MeetingRealtimeEventDto[] | null }>(path);
+  return { events: Array.isArray(result.events) ? result.events : [] };
 }
 
 export async function listMeetingSegments(meetingId: string, afterSeq = 0) {
   const path = `/v1/meetings/${encodeURIComponent(meetingId)}/segments?after_seq=${encodeURIComponent(String(afterSeq))}`;
-  return requestJson<{ segments: MeetingSegmentDto[] }>(path);
+  const result = await requestJson<{ segments: MeetingSegmentDto[] | null }>(path);
+  return { segments: Array.isArray(result.segments) ? result.segments : [] };
 }

@@ -1,11 +1,11 @@
-import type { User } from "firebase/auth";
+import type { BackendUser } from "~/api/auth/authApi";
 import { HiArrowRightOnRectangle, HiCog6Tooth } from "react-icons/hi2";
 
 type UserMenuPopoverProps = {
   collapsed: boolean;
   onLogout: () => void | Promise<void>;
   onOpenSettings: () => void;
-  user: User;
+  user: BackendUser;
 };
 
 export function UserMenuPopover({

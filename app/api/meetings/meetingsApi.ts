@@ -4,6 +4,7 @@ import type { MeetingReportDto } from "~/api/meetings/meetingReportsApi";
 
 export type MeetingDto = {
   id: string;
+  workspace_id: string;
   title: string;
   status: string;
   source: string;
@@ -18,12 +19,14 @@ export type MeetingJoinTokenDto = {
   expires_at: string;
 };
 
-export async function listMeetings() {
-  return requestJson<{ meetings: MeetingDto[] }>("/v1/meetings");
+export async function listMeetings(workspaceId: string) {
+  return requestJson<{ meetings: MeetingDto[] }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/meetings`,
+  );
 }
 
-export async function createMeeting(title: string, source: string) {
-  return requestJson<MeetingDto>("/v1/meetings", {
+export async function createMeeting(workspaceId: string, title: string, source: string) {
+  return requestJson<MeetingDto>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/meetings`, {
     method: "POST",
     body: JSON.stringify({ title, source }),
   });

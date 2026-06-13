@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { syncAuthLogin } from "~/api/auth/authApi";
-import { signInWithMicrosoft } from "~/api/firebase/firebaseAuthClient";
+import { signInWithMicrosoft, signOutOfFirebase } from "~/api/firebase/firebaseAuthClient";
 
 interface UseMicrosoftAuthFlowOptions {
   redirectTo: string;
@@ -22,6 +22,7 @@ export function useMicrosoftAuthFlow({ redirectTo, fallbackMessage }: UseMicroso
       await syncAuthLogin(idToken);
       navigate(redirectTo);
     } catch (err) {
+      await signOutOfFirebase().catch(() => undefined);
       setError(err instanceof Error ? err.message : fallbackMessage);
     } finally {
       setIsPending(false);

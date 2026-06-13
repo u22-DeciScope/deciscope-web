@@ -1,11 +1,11 @@
 import { useNavigate } from "react-router";
-import { demoWorkspacePath } from "~/routing/workspacePaths";
+import { WORKSPACE_ROUTE_BASE } from "~/routing/workspacePaths";
 
 export function useTermsAgreement() {
   const navigate = useNavigate();
 
   function acceptTerms() {
-    navigate(demoWorkspacePath("/meetings"));
+    navigate(WORKSPACE_ROUTE_BASE);
   }
 
   return { acceptTerms };

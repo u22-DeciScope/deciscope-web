@@ -21,10 +21,7 @@ export default function UploadPage() {
     () => ({
       header: {
         title: "ファイル処理",
-        breadcrumbs: [
-          { label: "ホーム", to: meetingsPath },
-          { label: "ファイル処理" },
-        ],
+        breadcrumbs: [{ label: "ホーム", to: meetingsPath }, { label: "ファイル処理" }],
       },
     }),
     [meetingsPath],
@@ -39,7 +36,7 @@ export default function UploadPage() {
     setIsUploading(true);
     setError(null);
     try {
-      const result = await uploadFile(file);
+      const result = await uploadFile(workspaceId, file);
       setUpload(result.upload);
       setJob(result.job);
     } catch (cause) {
@@ -95,7 +92,7 @@ export default function UploadPage() {
       <div className="flex justify-end gap-2">
         {job && (
           <DsButton type="button" variant="secondary" onClick={refreshJob}>
-          ジョブを更新
+            ジョブを更新
           </DsButton>
         )}
         <DsButton type="submit" disabled={!file || isUploading}>

@@ -23,7 +23,7 @@ export default function Home() {
   useEffect(() => {
     let active = true;
     setIsLoading(true);
-    listMeetings()
+    listMeetings(workspaceId)
       .then((result) => {
         if (!active) {
           return;
@@ -44,7 +44,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [workspaceId]);
 
   const activeMeetings = useMemo(
     () => meetings.filter((meeting) => meeting.status !== "ended").slice(0, 3),
@@ -79,7 +79,11 @@ export default function Home() {
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {[
           { label: "進行中の会議", value: String(activeMeetings.length), color: "var(--brand)" },
-          { label: "完了済みレポート", value: String(recentMeetings.length), color: "var(--success)" },
+          {
+            label: "完了済みレポート",
+            value: String(recentMeetings.length),
+            color: "var(--success)",
+          },
           { label: "会議数", value: String(meetings.length), color: "var(--warning)" },
         ].map((stat) => (
           <div
@@ -275,6 +279,10 @@ function formatSource(source: string) {
   switch (source) {
     case "fixture_replay":
       return "テストデータ";
+    case "teams_bot":
+      return "Teams会議";
+    case "upload":
+      return "ファイル";
     default:
       return source;
   }

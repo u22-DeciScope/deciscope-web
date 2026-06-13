@@ -2,7 +2,7 @@ import { Link, useLocation } from "react-router";
 import { BrandLogo } from "~/components/BrandLogo";
 import { MicrosoftIcon } from "~/components/shared/MicrosoftIcon";
 import { useMicrosoftAuthFlow } from "~/hooks/useMicrosoftAuthFlow";
-import { demoWorkspacePath } from "~/routing/workspacePaths";
+import { WORKSPACE_ROUTE_BASE } from "~/routing/workspacePaths";
 import { workspaceIdFromPath } from "~/routing/workspaceRouteMatchers";
 
 export default function Login() {
@@ -16,7 +16,7 @@ export default function Login() {
     isPending: isSigningIn,
     signIn,
   } = useMicrosoftAuthFlow({
-    redirectTo: requestedPath ?? demoWorkspacePath("/meetings"),
+    redirectTo: requestedPath ?? WORKSPACE_ROUTE_BASE,
     fallbackMessage: "ログインに失敗しました。",
   });
 

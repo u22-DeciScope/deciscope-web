@@ -1,16 +1,15 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import type { User } from "firebase/auth";
-import { onFirebaseUserChanged, signOutOfFirebase } from "~/api/firebase/firebaseAuthClient";
+import { fetchMe, logoutSession, type BackendSession } from "~/api/auth/authApi";
+import { signOutOfFirebase } from "~/api/firebase/firebaseAuthClient";
 
 type AuthenticationStatus = "loading" | "authenticated" | "unauthenticated" | "error";
 
 export function useAuthenticatedSession() {
   const navigate = useNavigate();
-  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<BackendSession | null>(null);
   const [status, setStatus] = useState<AuthenticationStatus>("loading");
   const [error, setError] = useState<Error | null>(null);
-
   const today = new Date().toLocaleDateString("ja-JP", {
     year: "numeric",
     month: "long",
@@ -20,38 +19,44 @@ export function useAuthenticatedSession() {
 
   useEffect(() => {
     let active = true;
-    let unsubscribe: (() => void) | undefined;
-    onFirebaseUserChanged((currentUser) => {
-      if (!active) {
-        return;
-      }
-      setUser(currentUser);
-      setStatus(currentUser ? "authenticated" : "unauthenticated");
-    })
-      .then((cleanup) => {
+    fetchMe()
+      .then((value) => {
         if (active) {
-          unsubscribe = cleanup;
-        } else {
-          cleanup();
+          setSession(value);
+          setStatus("authenticated");
         }
       })
       .catch((cause: unknown) => {
-        if (!active) {
-          return;
-        }
-        setError(cause instanceof Error ? cause : new Error("認証状態を確認できませんでした。"));
-        setStatus("error");
+        if (!active) return;
+        const resolved = cause instanceof Error ? cause : new Error("Authentication failed");
+        setError(resolved);
+        setStatus(
+          resolved.message.toLowerCase().includes("unauthorized") ? "unauthenticated" : "error",
+        );
       });
     return () => {
       active = false;
-      unsubscribe?.();
     };
   }, []);
 
+  useEffect(() => {
+    async function handleUnauthorized() {
+      setSession(null);
+      setStatus("unauthenticated");
+      await signOutOfFirebase().catch(() => undefined);
+    }
+    window.addEventListener("deciscope:unauthorized", handleUnauthorized);
+    return () => window.removeEventListener("deciscope:unauthorized", handleUnauthorized);
+  }, []);
+
   async function handleLogout() {
-    await signOutOfFirebase();
-    navigate("/");
+    try {
+      await logoutSession();
+    } finally {
+      await signOutOfFirebase().catch(() => undefined);
+      navigate("/");
+    }
   }
 
-  return { error, handleLogout, status, today, user };
+  return { error, handleLogout, session, status, today, user: session?.user ?? null };
 }

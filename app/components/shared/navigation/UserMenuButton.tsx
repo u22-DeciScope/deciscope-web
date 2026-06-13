@@ -1,4 +1,4 @@
-import type { User } from "firebase/auth";
+import type { BackendUser } from "~/api/auth/authApi";
 import { HiChevronUpDown } from "react-icons/hi2";
 import { UserAvatar } from "~/components/shared/navigation/UserAvatar";
 
@@ -6,7 +6,7 @@ type UserMenuButtonProps = {
   collapsed: boolean;
   onClick: () => void;
   open: boolean;
-  user: User;
+  user: BackendUser;
 };
 
 export function UserMenuButton({ collapsed, onClick, open, user }: UserMenuButtonProps) {
