@@ -6,7 +6,7 @@ export default function LandingPage() {
   return (
     <main className="min-h-svh px-6 py-8" style={{ background: "var(--ds-bg)" }}>
       <div className="mx-auto flex min-h-[calc(100svh-4rem)] max-w-5xl flex-col">
-        <header className="flex items-center justify-between">
+        <header className="items-center justify-between">
           <BrandLogo size="md" />
           <Link
             to="/login"
