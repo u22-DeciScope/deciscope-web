@@ -23,6 +23,8 @@
 /build/
 
 /node_modules/
+/.docker-config/
+/.npm-cache/
 
 # Local env
 .env
