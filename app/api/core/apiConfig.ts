@@ -1,9 +1,11 @@
+import { getEnv } from "~/env";
+
 export function apiBaseUrl() {
-  return String(import.meta.env.VITE_API_BASE_URL ?? "/api");
+  return String(getEnv("VITE_API_BASE_URL") ?? "/api");
 }
 
 export function websocketBaseUrl() {
-  const configured = String(import.meta.env.VITE_WS_BASE_URL ?? "/ws");
+  const configured = String(getEnv("VITE_WS_BASE_URL") ?? "/ws");
   if (/^wss?:\/\//.test(configured) || typeof window === "undefined") {
     return configured;
   }

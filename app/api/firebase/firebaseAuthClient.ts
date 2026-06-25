@@ -1,4 +1,5 @@
 import type { User } from "firebase/auth";
+import { getEnv } from "~/env";
 
 type FirebaseConfig = {
   apiKey: string;
@@ -13,7 +14,7 @@ let cachedAuthPromise: Promise<import("firebase/auth").Auth> | null = null;
 
 export function firebaseConfigStatus() {
   const missing = requiredFirebaseEnvKeys().filter(
-    (key) => !String(import.meta.env[key] ?? "").trim(),
+    (key) => !String(getEnv(key) ?? "").trim(),
   );
 
   return {
@@ -78,17 +79,17 @@ async function createFirebaseAuth() {
 
 function readConfig(): FirebaseConfig {
   return {
-    apiKey: String(import.meta.env.VITE_FIREBASE_API_KEY),
-    authDomain: String(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN),
-    projectId: String(import.meta.env.VITE_FIREBASE_PROJECT_ID),
-    appId: String(import.meta.env.VITE_FIREBASE_APP_ID),
+    apiKey: String(getEnv("VITE_FIREBASE_API_KEY")),
+    authDomain: String(getEnv("VITE_FIREBASE_AUTH_DOMAIN")),
+    projectId: String(getEnv("VITE_FIREBASE_PROJECT_ID")),
+    appId: String(getEnv("VITE_FIREBASE_APP_ID")),
     storageBucket: optionalEnv("VITE_FIREBASE_STORAGE_BUCKET"),
     messagingSenderId: optionalEnv("VITE_FIREBASE_MESSAGING_SENDER_ID"),
   };
 }
 
 function optionalEnv(key: string) {
-  const value = String(import.meta.env[key] ?? "").trim();
+  const value = String(getEnv(key) ?? "").trim();
   return value === "" ? undefined : value;
 }
 
