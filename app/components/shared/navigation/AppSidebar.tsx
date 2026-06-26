@@ -24,7 +24,10 @@ type AppSidebarProps = {
 };
 
 export function AppSidebar({ navigation}: AppSidebarProps) {
-  const sidebarContentWidth =navigation.width +APP_SIDEBAR_SIZES.resizeHandleWidth;
+  const sidebarContentWidth =
+  navigation.width +
+  APP_SIDEBAR_SIZES.resizeHandleWidth
+
 
   return (
     <aside className="ds-surface-elevated flex h-full min-w-0 flex-col overflow-hidden">
@@ -35,7 +38,7 @@ export function AppSidebar({ navigation}: AppSidebarProps) {
       />
 
       <div className="min-h-0 min-w-0 flex-1">
-        <div className="min-w-0 shrink-0 flex-col" style={{ width: navigation.width }}>
+        <div className="min-w-0 flex-col" style={{ width: navigation.width }}>
           <AppNavigation collapsed={navigation.collapsed} />
 
           <AppUserMenu collapsed={navigation.collapsed} />

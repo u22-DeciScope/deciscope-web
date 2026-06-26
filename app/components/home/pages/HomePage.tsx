@@ -146,7 +146,7 @@ export default function Home() {
               }
             >
               <div
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-(--ds-radius-control)"
+                className="flex h-8 w-8 items-center justify-center rounded-(--ds-radius-control)"
                 style={{ background: "var(--input-bg)" }}
               >
                 <HiUserGroup className="h-4 w-4" style={{ color: "var(--text-muted)" }} />

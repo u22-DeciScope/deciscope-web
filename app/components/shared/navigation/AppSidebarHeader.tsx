@@ -31,7 +31,11 @@ export function AppSidebarHeader({ navigation, navigationWidth, width }: AppSide
       className="flex h-12.5 items-center border-b"
       style={{ borderColor: "var(--ds-border)" }}
     >
-      <div className="relative flex h-full min-w-0 items-center">
+      <div  className={`flex h-full min-w-0 items-center px-3 ${
+            showLogoText ? "justify-start" : "justify-center"}`}
+            style={{ width: logoFrameWidth }}
+          >
+
         <div
           className={`flex h-full min-w-0 items-center px-3 ${
             showLogoText ? "justify-start" : "justify-center"
