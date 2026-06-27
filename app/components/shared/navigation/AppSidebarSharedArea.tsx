@@ -80,7 +80,7 @@ export function AppSidebarSharedArea({
         <button
           type="button"
           onClick={onOpen}
-          className="flex h-[50px] w-full shrink-0 items-center justify-center border-b transition hover:bg-(--ds-surface-muted)"
+          className="flex w-full shrink-0 items-center justify-center border-b transition hover:bg-(--ds-surface-muted)"
           aria-label="共有エリアを開く"
           title="共有エリアを開く"
           style={{ borderColor: "var(--ds-border)", color: "var(--text-sub)" }}
