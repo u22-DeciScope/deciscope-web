@@ -12,7 +12,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/${{ github.event.repository.name }}
+  IMAGE_NAME: ${{ github.repository_owner }}/deciscope-web
 
 jobs:
   publish:
@@ -66,3 +66,24 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Update Kubernetes manifests in yd-network
+        env:
+          INFRA_REPO_PAT: ${{ secrets.INFRA_REPO_PAT }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          SHORT_SHA="sha-${GITHUB_SHA::7}"
+          
+          git clone https://x-access-token:${INFRA_REPO_PAT}@github.com/yukiidayo/yd-network.git infra
+          cd infra
+          
+          # Force lowercase since GitHub owner could be u22-DeciScope
+          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          
+          sed -i "s|image: ghcr.io/u22-deciscope/deciscope-web:.*|image: ghcr.io/${REPO_OWNER}/deciscope-web:${SHORT_SHA}|g" k8s/manifests/deciscope/web.yaml
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add k8s/manifests/deciscope/web.yaml
+          git commit -m "chore(web): deploy ${SHORT_SHA}" || echo "No changes to commit"
+          git push origin main
