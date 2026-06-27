@@ -9,13 +9,9 @@ import { WorkspaceStatus } from "~/components/shared/layout/WorkspaceStatus";
 import { APP_SIDEBAR_SIZES, AppSidebar } from "~/components/shared/navigation/AppSidebar";
 import { setCurrentWorkspace } from "~/api/auth/authApi";
 import { WORKSPACE_ROUTE_BASE } from "~/routing/workspacePaths";
+import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
-const {
-  collapsedPaneWidth,
-  defaultNavigationWidth,
-  collapseThreshold,
-} = APP_SIDEBAR_SIZES;
-
+const { collapsedPaneWidth, defaultNavigationWidth, collapseThreshold } = APP_SIDEBAR_SIZES;
 
 export function AuthenticatedWorkspaceLayout() {
   const [navigationWidth, setNavigationWidth] = useState<number>(collapsedPaneWidth);
@@ -28,6 +24,14 @@ export function AuthenticatedWorkspaceLayout() {
     [hash, pathname, search],
   );
   useEffect(() => {
+    meetingStartDebug("auth-guard", "state", {
+      authStatus: session.status,
+      route: pathname,
+      workspaceId: workspaceId ?? null,
+    });
+  }, [pathname, session.status, workspaceId]);
+
+  useEffect(() => {
     if (workspaceId && workspace && session.session?.current_workspace_id !== workspaceId) {
       void setCurrentWorkspace(workspaceId);
     }
@@ -38,6 +42,9 @@ export function AuthenticatedWorkspaceLayout() {
   }
 
   if (session.status === "loading") {
+    meetingStartDebug("auth-guard", "redirect skipped because auth is loading", {
+      route: pathname,
+    });
     return <WorkspaceStatus message="認証状態を確認しています..." />;
   }
 
@@ -48,6 +55,10 @@ export function AuthenticatedWorkspaceLayout() {
   }
 
   if (session.status === "unauthenticated") {
+    meetingStartDebug("auth-guard", "redirecting to login", {
+      route: pathname,
+      reason: "unauthenticated",
+    });
     return <Navigate to="/login" replace state={loginRedirectState} />;
   }
 
@@ -55,6 +66,10 @@ export function AuthenticatedWorkspaceLayout() {
     return <WorkspaceStatus message="認証済みユーザーを取得できませんでした。" />;
   }
   if (!workspace) {
+    meetingStartDebug("auth-guard", "redirecting to workspace resolver", {
+      route: pathname,
+      reason: "workspace_not_found",
+    });
     return <Navigate to={WORKSPACE_ROUTE_BASE} replace />;
   }
 
@@ -80,7 +95,7 @@ export function AuthenticatedWorkspaceLayout() {
     >
       <div className="min-h-120 bg-(--ds-bg) md:flex md:h-[max(100dvh,480px)] md:overflow-hidden md:p-2.25">
         <section className="md:shrink-0">
-          <AppSidebar navigation={navigationPane}/>
+          <AppSidebar navigation={navigationPane} />
         </section>
 
         <section className="min-w-0 flex-1 md:overflow-hidden">

@@ -79,7 +79,31 @@ POST /api/v1/meeting-sessions
 }
 ```
 
-レスポンスの `sessionId` を受け取ったら、フロントエンドは既存の会議画面へ遷移します。`/test` で同じセッションの文字起こしを確認する場合は、次のように `sessionId` を指定します。
+レスポンスの `sessionId` を受け取ったら、フロントエンドは `sessionId` をURLに含めて会議画面へ遷移します。
+
+```text
+/w/<workspaceId>/meetings/<sessionId>?sessionId=<sessionId>
+```
+
+会議URL送信時の流れは、`POST /api/v1/meeting-sessions`、`sessionId` の `localStorage` 保存、`sessionId` 付きURLへの遷移の順です。`sessionId` をURLに持たせることで、認証状態の再確認、ページ再読み込み、React stateの破棄を挟んでも会議セッションを復元できます。送信中はボタンをdisabledにし、同じsubmitの二重実行を防ぎます。
+
+ホームの進行中一覧では、フロントエンドが保存した `sessionId` とGo APIの `GET /api/v1/meeting-sessions/{sessionId}` のstatusを使ってTeams会議を表示します。`ended` または `failed` のTeams sessionは進行中一覧から外れ、最近の会議側に表示されます。Teams会議の「開く」「記録を見る」は必ず `?sessionId=<sessionId>` 付きで会議画面へ遷移するため、既存meetingレコードだけを開いて空の会議画面になることを避けます。
+
+`sessionId` は `localStorage` の `deciscope:meetingSessions:v1` に保持します。旧実装の `deciscope:lastSessionId` は最後に作成したsessionの控えとしてのみ更新し、ホーム一覧へは自動移行しません。存在しないsessionIdが保存されている場合は、ホーム表示時の再取得で削除します。
+
+認証状態が `loading` の間は未認証扱いでredirectせず、「認証状態を確認しています...」を表示します。WebSocketの一時切断や再接続中も会議画面は維持し、画面内の接続状態として表示します。
+
+開発時は `VITE_DECISCOPE_DEBUG_MEETING_START=true`、またはVite dev modeで、次のdebugログを確認できます。joinUrl全文は出力しません。
+
+```text
+[meeting-start] session created
+[meeting-start] navigating to meeting page
+[auth-guard] state
+[meeting-page] mounted or route changed
+[meeting-page] WebSocket connected
+```
+
+`/test` で同じセッションの文字起こしを確認する場合は、次のように `sessionId` を指定します。
 
 ```text
 /api/v1/ws/transcript-segments?sessionId=<sessionId>

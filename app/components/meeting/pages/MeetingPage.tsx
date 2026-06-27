@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import {
   HiArrowPath,
@@ -18,27 +18,70 @@ import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeCo
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { useMeetingTranscriptSession } from "~/hooks/useMeetingTranscriptSession";
 import { useMeetingRuntime } from "~/hooks/useMeetingRuntime";
+import {
+  findMeetingSessionRecord,
+  upsertMeetingSessionRecord,
+} from "~/api/meetingSessions/meetingSessionRegistry";
 import type { MeetingSegmentDto } from "~/api/meetings/meetingEventsApi";
 import { workspaceMeetingSummaryPath } from "~/routing/workspacePaths";
+import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
 export default function Meeting() {
   const navigate = useNavigate();
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const { workspaceId } = useAuthenticatedLayout();
-  const sessionId = searchParams.get("sessionId")?.trim() ?? "";
-  const runtime = useMeetingRuntime(id);
-  const transcriptSession = useMeetingTranscriptSession(id, sessionId);
+  const registeredSession = findMeetingSessionRecord(workspaceId, id ?? "");
+  const routeSessionId = id?.startsWith("session_") ? id : "";
+  const sessionId =
+    searchParams.get("sessionId")?.trim() || registeredSession?.sessionId || routeSessionId;
+  const isSessionOnlyRoute = Boolean(sessionId && id === sessionId);
+  const runtimeMeetingId = isSessionOnlyRoute ? undefined : id;
+  const runtime = useMeetingRuntime(runtimeMeetingId);
+  const transcriptSession = useMeetingTranscriptSession(
+    runtimeMeetingId ?? sessionId,
+    sessionId,
+    workspaceId,
+  );
   const [selectedFixture, setSelectedFixture] = useState("");
-  const summaryPath = workspaceMeetingSummaryPath(workspaceId, id ?? "");
+  const summaryPath = workspaceMeetingSummaryPath(workspaceId, runtimeMeetingId ?? "");
   const fixtureName = selectedFixture || runtime.fixtures[0]?.name || "";
+  const meetingTitle = runtime.meeting?.title ?? (sessionId ? "Teams 会議" : "会議");
+
+  useEffect(() => {
+    meetingStartDebug("meeting-page", "mounted or route changed", {
+      routeMeetingId: id,
+      runtimeMeetingId: runtimeMeetingId ?? null,
+      sessionId: sessionId || null,
+      isSessionOnlyRoute,
+    });
+  }, [id, isSessionOnlyRoute, runtimeMeetingId, sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || !transcriptSession.sessionStatus) {
+      return;
+    }
+    upsertMeetingSessionRecord({
+      sessionId,
+      workspaceId,
+      meetingId: isSessionOnlyRoute ? null : (runtimeMeetingId ?? null),
+      title: meetingTitle,
+      status: transcriptSession.sessionStatus,
+    });
+  }, [
+    isSessionOnlyRoute,
+    meetingTitle,
+    runtimeMeetingId,
+    sessionId,
+    transcriptSession.sessionStatus,
+    workspaceId,
+  ]);
 
   const partials = useMemo(() => Object.values(runtime.partials), [runtime.partials]);
   const segments = useMemo(
     () => mergeDisplaySegments(runtime.segments, transcriptSession.segments),
     [runtime.segments, transcriptSession.segments],
   );
-  const meetingTitle = runtime.meeting?.title ?? "会議";
   const statusLabel =
     transcriptSession.sessionStatus ??
     runtime.meetingState.status ??
@@ -122,7 +165,7 @@ export default function Meeting() {
               <HiStop className="h-3.5 w-3.5" />
             </IconButton>
             <DsButton
-              disabled={runtime.isEnding || statusLabel === "ended"}
+              disabled={!runtimeMeetingId || runtime.isEnding || statusLabel === "ended"}
               variant="secondary"
               onClick={finishMeeting}
             >
@@ -132,7 +175,7 @@ export default function Meeting() {
         ),
       },
     }),
-    [finishMeeting, fixtureName, meetingTitle, runtime, sessionId, statusLabel],
+    [finishMeeting, fixtureName, meetingTitle, runtime, runtimeMeetingId, sessionId, statusLabel],
   );
   useWorkspaceChrome(chrome);
 

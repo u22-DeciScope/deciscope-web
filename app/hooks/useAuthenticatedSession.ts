@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { fetchMe, logoutSession, type BackendSession } from "~/api/auth/authApi";
 import { signOutOfFirebase } from "~/api/firebase/firebaseAuthClient";
+import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
 type AuthenticationStatus = "loading" | "authenticated" | "unauthenticated" | "error";
 
 export function useAuthenticatedSession() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [session, setSession] = useState<BackendSession | null>(null);
   const [status, setStatus] = useState<AuthenticationStatus>("loading");
   const [error, setError] = useState<Error | null>(null);
@@ -19,20 +21,31 @@ export function useAuthenticatedSession() {
 
   useEffect(() => {
     let active = true;
+    meetingStartDebug("auth-guard", "fetchMe started", { route: location.pathname });
     fetchMe()
       .then((value) => {
         if (active) {
           setSession(value);
           setStatus("authenticated");
+          meetingStartDebug("auth-guard", "fetchMe succeeded", {
+            route: location.pathname,
+            workspaceCount: value.workspaces.length,
+          });
         }
       })
       .catch((cause: unknown) => {
         if (!active) return;
         const resolved = cause instanceof Error ? cause : new Error("Authentication failed");
         setError(resolved);
-        setStatus(
-          resolved.message.toLowerCase().includes("unauthorized") ? "unauthenticated" : "error",
-        );
+        const nextStatus = resolved.message.toLowerCase().includes("unauthorized")
+          ? "unauthenticated"
+          : "error";
+        setStatus(nextStatus);
+        meetingStartDebug("auth-guard", "fetchMe failed", {
+          route: location.pathname,
+          status: nextStatus,
+          message: resolved.message,
+        });
       });
     return () => {
       active = false;
@@ -43,6 +56,7 @@ export function useAuthenticatedSession() {
     async function handleUnauthorized() {
       setSession(null);
       setStatus("unauthenticated");
+      meetingStartDebug("auth-guard", "unauthorized event received", { route: location.pathname });
       await signOutOfFirebase().catch(() => undefined);
     }
     window.addEventListener("deciscope:unauthorized", handleUnauthorized);

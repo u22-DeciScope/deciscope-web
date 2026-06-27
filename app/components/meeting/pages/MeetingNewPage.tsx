@@ -1,15 +1,16 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { HiVideoCamera } from "react-icons/hi2";
 
 import { createMeetingSession } from "~/api/meetingSessions/meetingSessionsApi";
-import { createMeeting } from "~/api/meetings/meetingsApi";
+import { upsertMeetingSessionRecord } from "~/api/meetingSessions/meetingSessionRegistry";
 import { validateTeamsJoinUrl } from "~/api/teams/teamsIntegrationApi";
 import { DsButton } from "~/components/DsButton";
 import { DsInput } from "~/components/DsInput";
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspaceMeetingPath, workspacePath } from "~/routing/workspacePaths";
+import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
 export default function MeetingNewPage() {
   const navigate = useNavigate();
@@ -18,6 +19,7 @@ export default function MeetingNewPage() {
   const [joinUrl, setJoinUrl] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const submitInFlightRef = useRef(false);
 
   const chrome = useMemo(
     () => ({
@@ -32,6 +34,10 @@ export default function MeetingNewPage() {
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitInFlightRef.current) {
+      meetingStartDebug("meeting-start", "submit ignored because request is already in flight");
+      return;
+    }
     setError(null);
 
     const validationError = validateTeamsJoinUrl(joinUrl);
@@ -40,17 +46,37 @@ export default function MeetingNewPage() {
       return;
     }
 
+    submitInFlightRef.current = true;
     setIsSubmitting(true);
+    meetingStartDebug("meeting-start", "submit started", { hasJoinUrl: Boolean(joinUrl.trim()) });
     try {
+      meetingStartDebug("meeting-start", "POST /api/v1/meeting-sessions started");
       const session = await createMeetingSession(joinUrl.trim());
-      const meeting = await createMeeting(workspaceId, "Teams 会議", "teams_bot");
-      const meetingPath = `${workspaceMeetingPath(workspaceId, meeting.id)}?sessionId=${encodeURIComponent(
+      meetingStartDebug("meeting-start", "session created", {
+        sessionId: session.sessionId,
+        status: session.status,
+      });
+      upsertMeetingSessionRecord({
+        sessionId: session.sessionId,
+        workspaceId,
+        title: "Teams 会議",
+        status: session.status,
+      });
+      meetingStartDebug("meeting-start", "recent session persisted", {
+        sessionId: session.sessionId,
+      });
+      const meetingPath = `${workspaceMeetingPath(workspaceId, session.sessionId)}?sessionId=${encodeURIComponent(
         session.sessionId,
       )}`;
+      meetingStartDebug("meeting-start", "navigating to meeting page", { to: meetingPath });
       navigate(meetingPath);
     } catch (cause) {
+      meetingStartDebug("meeting-start", "submit failed", {
+        message: cause instanceof Error ? cause.message : String(cause),
+      });
       setError(cause instanceof Error ? cause.message : "会議に入室できませんでした。");
     } finally {
+      submitInFlightRef.current = false;
       setIsSubmitting(false);
     }
   }

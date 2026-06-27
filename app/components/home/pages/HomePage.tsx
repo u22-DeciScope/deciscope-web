@@ -2,6 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { HiChevronRight, HiPlus, HiUserGroup } from "react-icons/hi2";
 
+import { getMeetingSession } from "~/api/meetingSessions/meetingSessionsApi";
+import {
+  deleteMeetingSessionRecord,
+  isTerminalMeetingSessionStatus,
+  listMeetingSessionRecords,
+  type MeetingSessionRecord,
+  updateMeetingSessionRecordStatus,
+} from "~/api/meetingSessions/meetingSessionRegistry";
 import { listMeetings, type MeetingDto } from "~/api/meetings/meetingsApi";
 import { DsButton } from "~/components/DsButton";
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
@@ -12,10 +20,13 @@ import {
   workspacePath,
 } from "~/routing/workspacePaths";
 
+const staleActiveSessionMs = 12 * 60 * 60 * 1000;
+
 export default function Home() {
   const { today, user, workspaceId } = useAuthenticatedLayout();
   const displayName = user.displayName?.split(" ")[0] ?? "ゲスト";
   const [meetings, setMeetings] = useState<MeetingDto[]>([]);
+  const [meetingSessions, setMeetingSessions] = useState<MeetingSessionRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const newMeetingPath = workspacePath(workspaceId, "/meetings/new");
@@ -23,12 +34,14 @@ export default function Home() {
   useEffect(() => {
     let active = true;
     setIsLoading(true);
-    listMeetings(workspaceId)
-      .then((result) => {
+
+    Promise.all([listMeetings(workspaceId), refreshMeetingSessionRecords(workspaceId)])
+      .then(([result, sessions]) => {
         if (!active) {
           return;
         }
         setMeetings(result.meetings);
+        setMeetingSessions(sessions);
         setError(null);
       })
       .catch((cause: unknown) => {
@@ -46,13 +59,18 @@ export default function Home() {
     };
   }, [workspaceId]);
 
-  const activeMeetings = useMemo(
-    () => meetings.filter((meeting) => meeting.status !== "ended").slice(0, 3),
-    [meetings],
+  const meetingItems = useMemo(
+    () => buildMeetingItems(meetings, meetingSessions, workspaceId),
+    [meetingSessions, meetings, workspaceId],
   );
+  const allActiveMeetings = useMemo(
+    () => sortByCreatedAtDesc(meetingItems.filter(isActiveMeetingItem)),
+    [meetingItems],
+  );
+  const activeMeetings = useMemo(() => allActiveMeetings.slice(0, 3), [allActiveMeetings]);
   const recentMeetings = useMemo(
-    () => meetings.filter((meeting) => meeting.status === "ended").slice(0, 5),
-    [meetings],
+    () => meetingItems.filter((meeting) => !isActiveMeetingItem(meeting)).slice(0, 5),
+    [meetingItems],
   );
 
   const chrome = useMemo(
@@ -78,13 +96,13 @@ export default function Home() {
     <div className="flex h-full min-h-0 flex-col gap-2 md:overflow-y-auto">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {[
-          { label: "進行中の会議", value: String(activeMeetings.length), color: "var(--brand)" },
+          { label: "進行中の会議", value: String(allActiveMeetings.length), color: "var(--brand)" },
           {
-            label: "完了済みレポート",
+            label: "終了した会議",
             value: String(recentMeetings.length),
             color: "var(--success)",
           },
-          { label: "会議数", value: String(meetings.length), color: "var(--warning)" },
+          { label: "会議数", value: String(meetingItems.length), color: "var(--warning)" },
         ].map((stat) => (
           <div
             key={stat.label}
@@ -110,18 +128,11 @@ export default function Home() {
           {isLoading && <EmptyRow label="会議を読み込んでいます..." />}
           {!isLoading && error && <EmptyRow label={error} />}
           {!isLoading && !error && activeMeetings.length === 0 && (
-            <EmptyRow label="進行中の会議はまだありません。会議を作成するとテストデータ再生を開始できます。" />
+            <EmptyRow label="進行中の会議はまだありません。会議を開始するとここに表示されます。" />
           )}
           {!isLoading &&
             !error &&
-            activeMeetings.map((meeting) => (
-              <MeetingRow
-                key={meeting.id}
-                meeting={meeting}
-                to={workspaceMeetingPath(workspaceId, meeting.id)}
-                actionLabel="開く"
-              />
-            ))}
+            activeMeetings.map((meeting) => <MeetingRow key={meeting.id} meeting={meeting} />)}
         </div>
       </section>
 
@@ -129,15 +140,15 @@ export default function Home() {
         className="ds-surface overflow-hidden rounded-(--ds-radius-panel)"
         style={{ boxShadow: "var(--ds-shadow)" }}
       >
-        <SectionHeader title="最近のレポート" actionLabel="すべて" />
+        <SectionHeader title="最近の会議" actionLabel="すべて" />
         <div>
           {!isLoading && !error && recentMeetings.length === 0 && (
-            <EmptyRow label="完了済みの会議レポートはまだありません。" />
+            <EmptyRow label="終了した会議はまだありません。" />
           )}
           {recentMeetings.map((meeting, index) => (
             <Link
               key={meeting.id}
-              to={workspaceMeetingSummaryPath(workspaceId, meeting.id)}
+              to={meeting.recentTo}
               className="flex items-center gap-4 px-5 py-3 transition hover:opacity-80"
               style={
                 index < recentMeetings.length - 1
@@ -176,20 +187,27 @@ export default function Home() {
   );
 }
 
-function MeetingRow({
-  actionLabel,
-  meeting,
-  to,
-}: {
-  actionLabel: string;
-  meeting: MeetingDto;
+type MeetingListItem = {
+  id: string;
+  title: string;
+  status: string;
+  source: string;
+  created_at: string;
+  updated_at: string;
+  ended_at?: string;
+  detailId: string;
   to: string;
-}) {
+  recentTo: string;
+  actionLabel: string;
+  isTeamsSession: boolean;
+};
+
+function MeetingRow({ meeting }: { meeting: MeetingListItem }) {
   return (
     <div className="flex items-center gap-4 px-5 py-3">
       <div className="min-w-20">
         <p className="text-[13px] font-bold" style={{ color: "var(--text-main)" }}>
-          {meeting.status}
+          {formatStatus(meeting.status)}
         </p>
         <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
           {formatShortDate(meeting.created_at)}
@@ -207,11 +225,11 @@ function MeetingRow({
           {meeting.title}
         </p>
         <p className="truncate text-[11px]" style={{ color: "var(--text-muted)" }}>
-          {meeting.id}
+          {meeting.detailId}
         </p>
       </div>
-      <Link to={to}>
-        <DsButton variant="secondary">{actionLabel}</DsButton>
+      <Link to={meeting.to}>
+        <DsButton variant="secondary">{meeting.actionLabel}</DsButton>
       </Link>
     </div>
   );
@@ -246,7 +264,162 @@ function EmptyRow({ label }: { label: string }) {
   );
 }
 
-function formatShortDate(value: string) {
+async function refreshMeetingSessionRecords(workspaceId: string) {
+  const records = listMeetingSessionRecords(workspaceId);
+  await Promise.all(
+    records.map(async (record) => {
+      try {
+        const session = await getMeetingSession(record.sessionId);
+        updateMeetingSessionRecordStatus(workspaceId, record.sessionId, session.status);
+      } catch (cause) {
+        if (isMissingMeetingSessionError(cause)) {
+          deleteMeetingSessionRecord(record.sessionId);
+        }
+      }
+    }),
+  );
+  return listMeetingSessionRecords(workspaceId);
+}
+
+function buildMeetingItems(
+  meetings: MeetingDto[],
+  sessions: MeetingSessionRecord[],
+  workspaceId: string,
+) {
+  const sessionByMeetingId = new Map<string, MeetingSessionRecord>();
+  const sessionById = new Map<string, MeetingSessionRecord>();
+  for (const session of sessions) {
+    sessionById.set(session.sessionId, session);
+    if (session.meetingId) {
+      sessionByMeetingId.set(session.meetingId, session);
+    }
+  }
+
+  const usedSessionIds = new Set<string>();
+  const items: MeetingListItem[] = [];
+
+  for (const meeting of meetings) {
+    const linkedSession = sessionByMeetingId.get(meeting.id) ?? sessionById.get(meeting.id);
+
+    if (meeting.source === "teams_bot") {
+      if (!linkedSession) {
+        if (meeting.status === "ended") {
+          items.push(meetingToListItem(meeting, workspaceId));
+        }
+        continue;
+      }
+
+      usedSessionIds.add(linkedSession.sessionId);
+      items.push(meetingToListItem(meeting, workspaceId, linkedSession));
+      continue;
+    }
+
+    items.push(meetingToListItem(meeting, workspaceId));
+  }
+
+  for (const session of sessions) {
+    if (!usedSessionIds.has(session.sessionId)) {
+      items.push(sessionToListItem(session, workspaceId));
+    }
+  }
+
+  return items.sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
+}
+
+function meetingToListItem(
+  meeting: MeetingDto,
+  workspaceId: string,
+  session?: MeetingSessionRecord,
+): MeetingListItem {
+  const meetingEnded = meeting.status === "ended" || Boolean(meeting.ended_at);
+  const status = meetingEnded ? "ended" : (session?.status ?? meeting.status);
+  const sessionQuery = session ? `?sessionId=${encodeURIComponent(session.sessionId)}` : "";
+  const meetingPath = `${workspaceMeetingPath(workspaceId, meeting.id)}${sessionQuery}`;
+  return {
+    id: meeting.id,
+    title: meeting.title,
+    status,
+    source: meeting.source,
+    created_at: meeting.created_at,
+    updated_at: meetingEnded ? meeting.updated_at : (session?.updatedAt ?? meeting.updated_at),
+    ended_at: meetingEnded
+      ? (meeting.ended_at ?? meeting.updated_at)
+      : isTerminalMeetingSessionStatus(status)
+        ? (session?.updatedAt ?? meeting.ended_at)
+        : meeting.ended_at,
+    detailId: session?.sessionId ?? meeting.id,
+    to: meetingPath,
+    recentTo: session ? meetingPath : workspaceMeetingSummaryPath(workspaceId, meeting.id),
+    actionLabel: isActiveMeetingStatus(status, Boolean(session)) ? "開く" : "記録を見る",
+    isTeamsSession: Boolean(session),
+  };
+}
+
+function sessionToListItem(session: MeetingSessionRecord, workspaceId: string): MeetingListItem {
+  const meetingPath = `${workspaceMeetingPath(
+    workspaceId,
+    session.sessionId,
+  )}?sessionId=${encodeURIComponent(session.sessionId)}`;
+  return {
+    id: session.sessionId,
+    title: session.title,
+    status: session.status,
+    source: "teams_bot",
+    created_at: session.createdAt,
+    updated_at: session.updatedAt,
+    ended_at: isTerminalMeetingSessionStatus(session.status) ? session.updatedAt : undefined,
+    detailId: session.sessionId,
+    to: meetingPath,
+    recentTo: meetingPath,
+    actionLabel: isActiveMeetingStatus(session.status, true) ? "開く" : "記録を見る",
+    isTeamsSession: true,
+  };
+}
+
+function isActiveMeetingItem(item: MeetingListItem) {
+  if (!isActiveMeetingStatus(item.status, item.isTeamsSession)) {
+    return false;
+  }
+  if (!item.isTeamsSession) {
+    return true;
+  }
+  return Date.now() - Date.parse(item.updated_at) <= staleActiveSessionMs;
+}
+
+function isActiveMeetingStatus(status: string, isTeamsSession: boolean) {
+  if (isTeamsSession) {
+    return (
+      status === "pending_join" ||
+      status === "command_sent" ||
+      status === "joining" ||
+      status === "joined" ||
+      status === "recording"
+    );
+  }
+  return status === "started";
+}
+
+function sortByCreatedAtDesc(items: MeetingListItem[]) {
+  return [...items].sort((a, b) => dateValue(b.created_at) - dateValue(a.created_at));
+}
+
+function dateValue(value?: string) {
+  if (!value) {
+    return 0;
+  }
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function isMissingMeetingSessionError(cause: unknown) {
+  if (!(cause instanceof Error)) {
+    return false;
+  }
+  const message = cause.message.toLowerCase();
+  return message.includes("404") || message.includes("not found");
+}
+
+function formatShortDate(value?: string) {
   if (!value) {
     return "";
   }
@@ -270,6 +443,18 @@ function formatStatus(status: string) {
       return "進行中";
     case "ended":
       return "終了";
+    case "pending_join":
+      return "参加待機";
+    case "command_sent":
+      return "Bot参加命令済み";
+    case "joining":
+      return "Bot参加中";
+    case "joined":
+      return "Bot参加済み";
+    case "recording":
+      return "録音中";
+    case "failed":
+      return "失敗";
     default:
       return status;
   }
