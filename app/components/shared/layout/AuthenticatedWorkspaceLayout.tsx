@@ -3,7 +3,6 @@ import { Navigate, Outlet, useLocation, useParams } from "react-router";
 
 import { AuthenticatedLayoutProvider } from "~/context/AuthenticatedLayoutContext";
 import { useAuthenticatedSession } from "~/hooks/useAuthenticatedSession";
-import { ResizeHandle } from "~/components/shared/layout/ResizeHandle";
 import { WorkspaceChromeProvider } from "~/components/shared/layout/WorkspaceChromeContext";
 import { WorkspacePageLayout } from "~/components/shared/layout/WorkspacePageLayout";
 import { WorkspaceStatus } from "~/components/shared/layout/WorkspaceStatus";
@@ -14,15 +13,12 @@ import { WORKSPACE_ROUTE_BASE } from "~/routing/workspacePaths";
 const {
   collapsedPaneWidth,
   defaultNavigationWidth,
-  defaultSharedAreaWidth,
-  maxSharedAreaWidth,
   collapseThreshold,
-  resizeHandleWidth,
 } = APP_SIDEBAR_SIZES;
+
 
 export function AuthenticatedWorkspaceLayout() {
   const [navigationWidth, setNavigationWidth] = useState<number>(collapsedPaneWidth);
-  const [sharedAreaWidth, setSharedAreaWidth] = useState<number>(defaultSharedAreaWidth);
   const { hash, pathname, search } = useLocation();
   const { workspaceId } = useParams();
   const session = useAuthenticatedSession();
@@ -63,8 +59,6 @@ export function AuthenticatedWorkspaceLayout() {
   }
 
   const navigationCollapsed = navigationWidth <= collapseThreshold;
-  const sharedAreaCollapsed = sharedAreaWidth <= collapseThreshold;
-  const sidebarWidth = navigationWidth + resizeHandleWidth + sharedAreaWidth + resizeHandleWidth;
   const navigationPane = {
     collapsed: navigationCollapsed,
     onCollapsedChange: (collapsed: boolean) =>
@@ -73,12 +67,6 @@ export function AuthenticatedWorkspaceLayout() {
       setNavigationWidth(width <= collapseThreshold ? collapsedPaneWidth : width),
     onWidthReset: () => setNavigationWidth(defaultNavigationWidth),
     width: navigationWidth,
-  };
-  const sharedAreaPane = {
-    collapsed: sharedAreaCollapsed,
-    onClose: () => setSharedAreaWidth(collapsedPaneWidth),
-    onOpen: () => setSharedAreaWidth(defaultSharedAreaWidth),
-    width: sharedAreaWidth,
   };
 
   return (
@@ -92,17 +80,7 @@ export function AuthenticatedWorkspaceLayout() {
     >
       <div className="min-h-120 bg-(--ds-bg) md:flex md:h-[max(100dvh,480px)] md:overflow-hidden md:p-2.25">
         <section className="md:shrink-0">
-          <AppSidebar navigation={navigationPane} sharedArea={sharedAreaPane} />
-          <ResizeHandle
-            ariaLabel="表示エリアの幅を変更"
-            max={maxSharedAreaWidth}
-            min={collapsedPaneWidth}
-            value={sharedAreaWidth}
-            onChange={(width) =>
-              setSharedAreaWidth(width <= collapseThreshold ? collapsedPaneWidth : width)
-            }
-            onReset={() => setSharedAreaWidth(defaultSharedAreaWidth)}
-          />
+          <AppSidebar navigation={navigationPane}/>
         </section>
 
         <section className="min-w-0 flex-1 md:overflow-hidden">
