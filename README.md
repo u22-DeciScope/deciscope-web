@@ -63,6 +63,8 @@ GET /api/v1/transcript-segments?sessionId=<sessionId>&callId=<callId>&limit=100&
 
 履歴APIが未実装の場合、画面にその旨を表示し、WebSocket受信は継続します。履歴とWebSocketで同じデータが届いた場合は、`eventId` または `callId + sequenceNo`、もしくは `sessionId + sequenceNo` で重複排除します。
 
+Transcript segmentには任意で `speakerId` / `speakerName` が含まれます。`/test` では最新表示と一覧でspeaker情報を確認できます。過去データや手動POSTにはspeaker情報が無い場合があり、その場合は画面上で `話者不明`、または `speakerId` だけがある場合は `話者 <speakerId>` として表示します。`text` が空文字、またはtrim後に空の場合はフロントエンドでは表示しません。
+
 ## 会議URLからBot参加
 
 workspace配下の「Teams 会議に入室」画面でTeams会議URLを貼って `会議に入室` を押すと、フロントエンドはGo APIへ次のリクエストを送ります。
@@ -164,6 +166,25 @@ API_PROXY_TARGET=http://host.docker.internal:9090 WS_PROXY_TARGET=ws://host.dock
 7. 会議作成画面または `/test` の接続状態が `connected` になり、最新の文字起こしと一覧に受信データが表示されることを確認します。
 
 `/test` は既存の公開ページやworkspace配下のルートとは分離しており、確認用UIとして追加されています。
+
+speaker情報つきの手動POST例:
+
+```json
+{
+  "sessionId": "manual-speaker-session",
+  "eventId": "manual-speaker-test-12345",
+  "callId": "manual-speaker-call",
+  "sequenceNo": 12345,
+  "recognizedAtUtc": "2026-06-27T07:00:00Z",
+  "offsetTicks": 0,
+  "durationTicks": 10000000,
+  "text": "話者情報つきの手動テストです",
+  "speakerId": "manual-speaker-001",
+  "speakerName": "手動テスト太郎"
+}
+```
+
+このpayloadを送信すると、会議中画面のタイムラインと `/test` に `手動テスト太郎` が表示されます。`/test` の一覧では `speakerId` も確認できます。
 
 ## ビルド
 

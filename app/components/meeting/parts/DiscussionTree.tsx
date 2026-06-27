@@ -28,8 +28,8 @@ const tagStyle: Record<string, { bg: string; fg: string }> = {
   todo: { bg: "var(--tag-policy-bg)", fg: "var(--tag-policy-fg)" },
 };
 
-const NODE_WIDTH = 232;
-const NODE_HEIGHT = 76;
+const NODE_WIDTH = 260;
+const NODE_HEIGHT = 90;
 
 type DiscussionNodeData = {
   tag: string;
@@ -48,27 +48,52 @@ type DiscussionTreeProps = {
 export function DiscussionTree({ nodes, edges }: DiscussionTreeProps) {
   return (
     <div
-      className="flex min-h-80 flex-1 flex-col overflow-hidden rounded-(--ds-radius-panel) md:min-h-0"
-      style={{ background: "var(--ds-surface)", boxShadow: "var(--ds-shadow)" }}
+      className="flex min-h-80 min-w-0 flex-col overflow-hidden rounded-(--ds-radius-panel) border md:min-h-0"
+      style={{ background: "var(--ds-surface)", borderColor: "var(--ds-border)" }}
     >
       <div
-        className="flex h-10 shrink-0 items-center border-b px-4"
+        className="flex h-11 shrink-0 items-center border-b px-4"
         style={{ borderColor: "var(--node-border)" }}
       >
         <span
-          className="h-2.5 w-2.5 shrink-0 rounded-full"
+          className="h-2.5 w-2.5 shrink-0 rounded-full shadow-[0_0_0_4px_var(--brand-light)]"
           style={{ background: "var(--brand)" }}
         />
-        <span className="ml-2 text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>
-          議論ツリー
+        <div className="ml-2 min-w-0 flex-1">
+          <p className="text-[12px] font-bold" style={{ color: "var(--text-main)" }}>
+            議論ツリー
+          </p>
+          <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+            論点・リスク・決定事項の関係
+          </p>
+        </div>
+        <span
+          className="rounded-full px-2 py-1 text-[10px] font-bold"
+          style={{ background: "var(--brand-light)", color: "var(--brand)" }}
+        >
+          {nodes.length}
         </span>
       </div>
 
       <div className="relative min-h-0 flex-1">
         {nodes.length === 0 ? (
-          <p className="px-5 py-4 text-[11px]" style={{ color: "var(--text-muted)" }}>
-            分析イベントが届くと議論ツリーが表示されます。
-          </p>
+          <div className="p-4">
+            <div
+              className="rounded-(--ds-radius-control) border px-4 py-5 text-[12px]"
+              style={{
+                background: "var(--ds-surface-muted)",
+                borderColor: "var(--ds-border)",
+                color: "var(--text-muted)",
+              }}
+            >
+              <p className="font-semibold" style={{ color: "var(--text-main)" }}>
+                議論構造を待っています
+              </p>
+              <p className="mt-1 leading-5">
+                分析イベントが届くと、React Flow上に論点のつながりが表示されます。
+              </p>
+            </div>
+          </div>
         ) : (
           <ReactFlowProvider>
             <DiscussionFlow nodes={nodes} edges={edges} />
@@ -150,6 +175,7 @@ function DiscussionFlow({ nodes, edges }: DiscussionTreeProps) {
         nodeTypes={nodeTypes}
         fitView
         minZoom={0.2}
+        maxZoom={1.25}
         proOptions={{ hideAttribution: false }}
         nodesDraggable={false}
         nodesConnectable={false}
@@ -157,7 +183,7 @@ function DiscussionFlow({ nodes, edges }: DiscussionTreeProps) {
         onNodeClick={(_, node) => setSelectedId(node.id)}
         onPaneClick={() => setSelectedId(null)}
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} color="var(--node-border)" />
+        <Background variant={BackgroundVariant.Dots} gap={22} color="var(--node-border)" />
         <Controls showInteractive={false} position="bottom-left" />
       </ReactFlow>
 
@@ -180,15 +206,13 @@ function DiscussionNodeView({ data, selected }: NodeProps<DiscussionFlowNode>) {
 
   return (
     <div
-      className="flex flex-col gap-1 rounded-(--ds-radius-control) border px-2.5 py-2"
+      className="flex flex-col gap-1.5 rounded-(--ds-radius-control) border px-3 py-2.5"
       style={{
         width: NODE_WIDTH,
         height: NODE_HEIGHT,
         // バッジ(タグ色そのまま)が埋もれないよう、カード背景は同系色の薄いトーンにする
         background: `color-mix(in srgb, ${style.bg} 55%, var(--node-bg))`,
-        borderColor: emphasized
-          ? style.fg
-          : `color-mix(in srgb, ${style.fg} 35%, transparent)`,
+        borderColor: emphasized ? style.fg : `color-mix(in srgb, ${style.fg} 35%, transparent)`,
         borderWidth: emphasized ? "1.5px" : "1px",
         boxShadow: selected
           ? `0 0 0 2.5px color-mix(in srgb, ${style.fg} 30%, transparent)`
@@ -196,7 +220,7 @@ function DiscussionNodeView({ data, selected }: NodeProps<DiscussionFlowNode>) {
         cursor: "pointer",
       }}
     >
-      <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
+      <Handle type="target" position={Position.Left} style={{ opacity: 0 }} />
       <div className="flex items-center gap-1.5">
         <span
           className="shrink-0 rounded-sm px-1.25 py-0.75 text-[9px] font-semibold leading-none"
@@ -205,21 +229,18 @@ function DiscussionNodeView({ data, selected }: NodeProps<DiscussionFlowNode>) {
           {data.tag}
         </span>
         {data.speaker && (
-          <span
-            className="truncate text-[10px] font-medium"
-            style={{ color: "var(--text-sub)" }}
-          >
+          <span className="truncate text-[10px] font-medium" style={{ color: "var(--text-sub)" }}>
             {data.speaker}
           </span>
         )}
       </div>
       <span
-        className="line-clamp-2 text-[12px] leading-normal"
+        className="line-clamp-2 text-[13px] font-semibold leading-5"
         style={{ color: "var(--text-main)" }}
       >
         {data.label}
       </span>
-      <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
+      <Handle type="source" position={Position.Right} style={{ opacity: 0 }} />
     </div>
   );
 }
@@ -252,7 +273,7 @@ function NodeDetailCard({
 
   return (
     <div
-      className="absolute right-2 top-2 z-10 flex w-64 max-h-[calc(100%-1rem)] flex-col overflow-hidden rounded-(--ds-radius-panel) border"
+      className="absolute right-2 top-2 z-10 flex w-72 max-h-[calc(100%-1rem)] flex-col overflow-hidden rounded-(--ds-radius-panel) border"
       style={{
         background: "var(--ds-surface)",
         borderColor: "var(--node-border)",
@@ -269,7 +290,10 @@ function NodeDetailCard({
         >
           {node.kind ?? "topic"}
         </span>
-        <span className="flex-1 truncate text-[11px] font-semibold" style={{ color: "var(--text-main)" }}>
+        <span
+          className="flex-1 truncate text-[11px] font-semibold"
+          style={{ color: "var(--text-main)" }}
+        >
           ノード詳細
         </span>
         <button
@@ -376,7 +400,7 @@ function normalizeEdges(nodes: TreeNodePayload[], edges: TreeEdgePayload[]): Tre
 function layoutPositions(nodes: TreeNodePayload[], edges: TreeEdgePayload[]) {
   const graph = new dagre.graphlib.Graph();
   graph.setDefaultEdgeLabel(() => ({}));
-  graph.setGraph({ rankdir: "TB", nodesep: 28, ranksep: 48 });
+  graph.setGraph({ rankdir: "LR", nodesep: 36, ranksep: 72 });
 
   for (const node of nodes) {
     graph.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });

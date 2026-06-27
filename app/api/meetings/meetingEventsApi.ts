@@ -5,6 +5,8 @@ export type MeetingSegmentDto = {
   seq: number;
   segment_id: string;
   speaker_label: string;
+  speaker_id?: string;
+  speaker_name?: string;
   text: string;
   start_ms: number;
   end_ms: number;

@@ -48,6 +48,29 @@ export async function createMeetingSession(joinUrl: string): Promise<MeetingSess
   return session;
 }
 
+export async function getMeetingSession(sessionId: string): Promise<MeetingSessionDto> {
+  const response = await fetch(
+    apiUrl(`${MEETING_SESSIONS_PATH}/${encodeURIComponent(sessionId)}`),
+    {
+      headers: { Accept: "application/json" },
+      credentials: "include",
+    },
+  );
+
+  const payload = await readJsonBody(response);
+  if (!response.ok) {
+    throw new Error(
+      errorMessageFromPayload(payload) || `${response.status} ${response.statusText}`,
+    );
+  }
+
+  const session = normalizeMeetingSession(payload);
+  if (!session) {
+    throw new Error("Go APIの会議セッション取得レスポンスを解析できませんでした。");
+  }
+  return session;
+}
+
 export function isMeetingSessionStatus(value: unknown): value is MeetingSessionStatus {
   return (
     typeof value === "string" && meetingSessionStatuses.includes(value as MeetingSessionStatus)

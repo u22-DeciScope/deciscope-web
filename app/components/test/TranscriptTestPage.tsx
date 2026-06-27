@@ -53,6 +53,9 @@ export default function TranscriptTestPage() {
   const appendSegments = useCallback((incoming: TranscriptSegment[]) => {
     const accepted: TranscriptSegment[] = [];
     for (const segment of incoming) {
+      if (!segment.text.trim()) {
+        continue;
+      }
       const key = transcriptSegmentKey(segment);
       if (seenKeysRef.current.has(key)) {
         continue;
@@ -366,7 +369,7 @@ export default function TranscriptTestPage() {
               {segments.length === 0 ? (
                 <EmptyState label="Connect後に受信したデータがここへ表示されます。" />
               ) : (
-                <table className="w-full min-w-[820px] border-separate border-spacing-0 text-left text-[12px]">
+                <table className="w-full min-w-[1040px] border-separate border-spacing-0 text-left text-[12px]">
                   <thead
                     className="sticky top-0 z-10"
                     style={{ background: "var(--ds-surface-muted)" }}
@@ -375,6 +378,8 @@ export default function TranscriptTestPage() {
                       <TableHead>sequenceNo</TableHead>
                       <TableHead>recognizedAtUtc</TableHead>
                       <TableHead>sessionId</TableHead>
+                      <TableHead>speakerName</TableHead>
+                      <TableHead>speakerId</TableHead>
                       <TableHead>callId</TableHead>
                       <TableHead>text</TableHead>
                       <TableHead>duplicate</TableHead>
@@ -474,6 +479,8 @@ function TranscriptSummary({ segment }: { segment: TranscriptSegment }) {
         <SummaryField label="sequenceNo" value={String(segment.sequenceNo)} />
         <SummaryField label="recognizedAtUtc" value={segment.recognizedAtUtc || "-"} />
         <SummaryField label="sessionId" value={segment.sessionId || "-"} />
+        <SummaryField label="speakerName" value={transcriptSpeakerName(segment)} />
+        <SummaryField label="speakerId" value={segment.speakerId || "-"} />
         <SummaryField label="callId" value={segment.callId || "-"} />
         {segment.duplicate && <SummaryField label="duplicate" value="true" accent />}
       </div>
@@ -523,6 +530,8 @@ function TranscriptRow({ segment }: { segment: TranscriptSegment }) {
       <TableCell mono>{String(segment.sequenceNo)}</TableCell>
       <TableCell mono>{segment.recognizedAtUtc || "-"}</TableCell>
       <TableCell mono>{segment.sessionId || "-"}</TableCell>
+      <TableCell>{transcriptSpeakerName(segment)}</TableCell>
+      <TableCell mono>{compactSpeakerId(segment.speakerId) || "-"}</TableCell>
       <TableCell mono>{segment.callId || "-"}</TableCell>
       <TableCell>{segment.text || "(empty)"}</TableCell>
       <TableCell>
@@ -570,6 +579,33 @@ function segmentMatchesFilters(segment: TranscriptSegment, filters: TranscriptSu
     return false;
   }
   return true;
+}
+
+function transcriptSpeakerName(segment: TranscriptSegment) {
+  const speakerName = segment.speakerName?.trim();
+  if (speakerName) {
+    return speakerName;
+  }
+  const speakerLabel = segment.speakerLabel?.trim();
+  if (speakerLabel) {
+    return speakerLabel;
+  }
+  const speakerId = segment.speakerId?.trim();
+  if (speakerId) {
+    return `話者 ${compactSpeakerId(speakerId)}`;
+  }
+  return "話者不明";
+}
+
+function compactSpeakerId(speakerId?: string | null) {
+  const value = speakerId?.trim();
+  if (!value) {
+    return "";
+  }
+  if (value.length <= 32) {
+    return value;
+  }
+  return `${value.slice(0, 18)}...${value.slice(-10)}`;
 }
 
 function sortSegments(segments: TranscriptSegment[]) {

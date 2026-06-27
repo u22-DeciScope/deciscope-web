@@ -8,6 +8,9 @@ export type TranscriptSegment = {
   sessionId?: string;
   callId: string;
   sequenceNo: number;
+  speakerLabel?: string;
+  speakerId?: string | null;
+  speakerName?: string | null;
   recognizedAtUtc: string;
   offsetTicks?: number;
   durationTicks?: number;
@@ -222,20 +225,42 @@ function normalizeTranscriptSegment(value: unknown): TranscriptSegment | null {
   const eventId = optionalString(source.eventId) ?? optionalString(source.event_id);
   const sessionId = optionalString(source.sessionId) ?? optionalString(source.session_id);
   const callId = optionalString(source.callId) ?? optionalString(source.call_id) ?? "";
+  const speakerId =
+    optionalString(source.speakerId) ??
+    optionalString(source.speakerID) ??
+    optionalString(source.speaker_id);
+  const speakerName =
+    optionalString(source.speakerName) ??
+    optionalString(source.speaker_name) ??
+    optionalString(source.displayName) ??
+    optionalString(source.display_name);
+  const speakerLabel =
+    optionalString(source.speakerLabel) ??
+    optionalString(source.speaker_label) ??
+    optionalString(source.speakerDisplayName) ??
+    optionalString(source.participantName) ??
+    optionalString(source.userName);
   const recognizedAtUtc =
     optionalString(source.recognizedAtUtc) ?? optionalString(source.recognized_at_utc) ?? "";
-  const text = optionalString(source.text) ?? "";
+  const text = (optionalString(source.text) ?? "").trim();
   const sequenceNo = optionalNumber(source.sequenceNo) ?? optionalNumber(source.sequence_no) ?? 0;
   const offsetTicks = optionalNumber(source.offsetTicks) ?? optionalNumber(source.offset_ticks);
   const durationTicks =
     optionalNumber(source.durationTicks) ?? optionalNumber(source.duration_ticks);
   const duplicate = optionalBoolean(source.duplicate);
 
+  if (!text) {
+    return null;
+  }
+
   return {
     ...(eventId ? { eventId } : {}),
     ...(sessionId ? { sessionId } : {}),
     callId,
     sequenceNo,
+    ...(speakerLabel ? { speakerLabel } : {}),
+    ...(speakerId ? { speakerId } : {}),
+    ...(speakerName ? { speakerName } : {}),
     recognizedAtUtc,
     ...(offsetTicks !== undefined ? { offsetTicks } : {}),
     ...(durationTicks !== undefined ? { durationTicks } : {}),
