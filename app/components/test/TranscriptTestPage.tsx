@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router";
 import { HiBolt, HiNoSymbol, HiPlay, HiSignal, HiStop, HiTrash } from "react-icons/hi2";
 
 import {
   buildTranscriptWebSocketUrl,
   fetchTranscriptSegmentHistory,
   maskWebSocketUrl,
-  parseTranscriptSegmentEvent,
+  parseTranscriptWebSocketEvent,
   transcriptSegmentKey,
   transcriptWebSocketToken,
+  type TranscriptSubscriptionFilters,
   type TranscriptSegment,
 } from "~/api/transcripts/transcriptSegmentsApi";
 import { DsButton } from "~/components/DsButton";
@@ -18,12 +20,15 @@ type ConnectionStatus = "disconnected" | "connecting" | "connected" | "reconnect
 const RECONNECT_DELAYS_MS = [1000, 2000, 5000];
 
 export default function TranscriptTestPage() {
-  const [callId, setCallId] = useState("");
+  const [searchParams] = useSearchParams();
+  const [callId, setCallId] = useState(() => searchParams.get("callId") ?? "");
+  const [sessionId, setSessionId] = useState(() => searchParams.get("sessionId") ?? "");
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const [activeUrl, setActiveUrl] = useState("");
   const [previewUrl, setPreviewUrl] = useState("");
   const [lastEventType, setLastEventType] = useState<string | null>(null);
+  const [sessionStatus, setSessionStatus] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [historyMessage, setHistoryMessage] = useState<string | null>(null);
 
@@ -32,6 +37,7 @@ export default function TranscriptTestPage() {
   const reconnectAttemptRef = useRef(0);
   const manualDisconnectRef = useRef(false);
   const lastCallIdRef = useRef("");
+  const lastSessionIdRef = useRef("");
   const historyRequestIdRef = useRef(0);
   const seenKeysRef = useRef(new Set<string>());
 
@@ -70,17 +76,19 @@ export default function TranscriptTestPage() {
   }, []);
 
   const loadHistory = useCallback(
-    async (nextCallId: string) => {
+    async (filters: TranscriptSubscriptionFilters) => {
       const requestId = historyRequestIdRef.current + 1;
       historyRequestIdRef.current = requestId;
       setHistoryMessage("履歴を取得しています...");
 
       try {
-        const result = await fetchTranscriptSegmentHistory(nextCallId, 100);
+        const result = await fetchTranscriptSegmentHistory(filters, 100);
         if (historyRequestIdRef.current !== requestId) {
           return;
         }
-        appendSegments(result.segments);
+        appendSegments(
+          result.segments.filter((segment) => segmentMatchesFilters(segment, filters)),
+        );
         setHistoryMessage(
           result.unavailable
             ? "履歴取得APIはまだ利用できない可能性があります。WebSocket受信は継続します。"
@@ -99,14 +107,15 @@ export default function TranscriptTestPage() {
   );
 
   const openSocket = useCallback(
-    (nextCallId: string, reconnecting = false) => {
+    (filters: TranscriptSubscriptionFilters, reconnecting = false) => {
       clearReconnectTimer();
       socketRef.current?.close();
 
-      const url = buildTranscriptWebSocketUrl(nextCallId, token);
+      const url = buildTranscriptWebSocketUrl(filters, token);
       const socket = new WebSocket(url);
       socketRef.current = socket;
-      lastCallIdRef.current = nextCallId;
+      lastCallIdRef.current = filters.callId ?? "";
+      lastSessionIdRef.current = filters.sessionId ?? "";
       manualDisconnectRef.current = false;
       setActiveUrl(url);
       setStatus(reconnecting ? "reconnecting" : "connecting");
@@ -123,10 +132,25 @@ export default function TranscriptTestPage() {
 
       socket.onmessage = (event) => {
         try {
-          const parsed = parseTranscriptSegmentEvent(String(event.data));
+          const parsed = parseTranscriptWebSocketEvent(String(event.data));
           setLastEventType(parsed.type);
+          if (parsed.sessionStatus) {
+            if (
+              !lastSessionIdRef.current ||
+              parsed.sessionStatus.sessionId === lastSessionIdRef.current
+            ) {
+              setSessionStatus(parsed.sessionStatus.status);
+            }
+            return;
+          }
           if (parsed.segment) {
-            appendSegments([parsed.segment]);
+            const currentFilters = {
+              callId: lastCallIdRef.current,
+              sessionId: lastSessionIdRef.current,
+            };
+            if (segmentMatchesFilters(parsed.segment, currentFilters)) {
+              appendSegments([parsed.segment]);
+            }
           }
         } catch (error) {
           setMessage(
@@ -164,7 +188,7 @@ export default function TranscriptTestPage() {
         setStatus("reconnecting");
         setMessage(`${Math.round(delay / 1000)}秒後に再接続します。`);
         reconnectTimerRef.current = window.setTimeout(() => {
-          openSocket(lastCallIdRef.current, true);
+          openSocket({ callId: lastCallIdRef.current, sessionId: lastSessionIdRef.current }, true);
         }, delay);
       };
     },
@@ -172,12 +196,13 @@ export default function TranscriptTestPage() {
   );
 
   const connect = useCallback(() => {
-    const nextCallId = callId.trim();
+    const filters = { callId: callId.trim(), sessionId: sessionId.trim() };
     reconnectAttemptRef.current = 0;
-    lastCallIdRef.current = nextCallId;
-    loadHistory(nextCallId);
-    openSocket(nextCallId, false);
-  }, [callId, loadHistory, openSocket]);
+    lastCallIdRef.current = filters.callId;
+    lastSessionIdRef.current = filters.sessionId;
+    loadHistory(filters);
+    openSocket(filters, false);
+  }, [callId, loadHistory, openSocket, sessionId]);
 
   const disconnect = useCallback(() => {
     manualDisconnectRef.current = true;
@@ -192,11 +217,12 @@ export default function TranscriptTestPage() {
     seenKeysRef.current.clear();
     setSegments([]);
     setLastEventType(null);
+    setSessionStatus(null);
   }, []);
 
   useEffect(() => {
-    setPreviewUrl(buildTranscriptWebSocketUrl(callId, token));
-  }, [callId, token]);
+    setPreviewUrl(buildTranscriptWebSocketUrl({ callId, sessionId }, token));
+  }, [callId, sessionId, token]);
 
   useEffect(() => {
     return () => {
@@ -240,7 +266,14 @@ export default function TranscriptTestPage() {
           className="ds-surface rounded-(--ds-radius-panel) p-4"
           style={{ boxShadow: "var(--ds-shadow)" }}
         >
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+            <DsInput
+              label="sessionId"
+              value={sessionId}
+              placeholder="session_..."
+              onChange={(event) => setSessionId(event.currentTarget.value)}
+              disabled={canDisconnect}
+            />
             <DsInput
               label="callId"
               value={callId}
@@ -263,8 +296,11 @@ export default function TranscriptTestPage() {
               </DsButton>
             </div>
           </div>
+          <p className="mt-3 text-[12px]" style={{ color: "var(--text-muted)" }}>
+            sessionId と callId を両方指定した場合は、両方のqueryを付与して絞り込みます。
+          </p>
 
-          <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
+          <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
             <div
               className="min-w-0 rounded-(--ds-radius-control) border px-3 py-2"
               style={{ borderColor: "var(--ds-border)", background: "var(--input-bg)" }}
@@ -280,11 +316,12 @@ export default function TranscriptTestPage() {
               </code>
             </div>
             <div
-              className="grid grid-cols-2 overflow-hidden rounded-(--ds-radius-control) border"
+              className="grid grid-cols-3 overflow-hidden rounded-(--ds-radius-control) border"
               style={{ borderColor: "var(--ds-border)" }}
             >
               <Metric label="受信件数" value={String(segments.length)} />
               <Metric label="last type" value={lastEventType ?? "-"} compact />
+              <Metric label="session" value={sessionStatus ?? "-"} compact />
             </div>
           </div>
 
@@ -337,6 +374,7 @@ export default function TranscriptTestPage() {
                     <tr style={{ color: "var(--text-muted)" }}>
                       <TableHead>sequenceNo</TableHead>
                       <TableHead>recognizedAtUtc</TableHead>
+                      <TableHead>sessionId</TableHead>
                       <TableHead>callId</TableHead>
                       <TableHead>text</TableHead>
                       <TableHead>duplicate</TableHead>
@@ -435,6 +473,7 @@ function TranscriptSummary({ segment }: { segment: TranscriptSegment }) {
       <div className="grid grid-cols-1 gap-2 text-[12px]">
         <SummaryField label="sequenceNo" value={String(segment.sequenceNo)} />
         <SummaryField label="recognizedAtUtc" value={segment.recognizedAtUtc || "-"} />
+        <SummaryField label="sessionId" value={segment.sessionId || "-"} />
         <SummaryField label="callId" value={segment.callId || "-"} />
         {segment.duplicate && <SummaryField label="duplicate" value="true" accent />}
       </div>
@@ -483,6 +522,7 @@ function TranscriptRow({ segment }: { segment: TranscriptSegment }) {
     <tr className="align-top" style={{ color: "var(--text-main)" }}>
       <TableCell mono>{String(segment.sequenceNo)}</TableCell>
       <TableCell mono>{segment.recognizedAtUtc || "-"}</TableCell>
+      <TableCell mono>{segment.sessionId || "-"}</TableCell>
       <TableCell mono>{segment.callId || "-"}</TableCell>
       <TableCell>{segment.text || "(empty)"}</TableCell>
       <TableCell>
@@ -518,6 +558,18 @@ function EmptyState({ label }: { label: string }) {
       {label}
     </div>
   );
+}
+
+function segmentMatchesFilters(segment: TranscriptSegment, filters: TranscriptSubscriptionFilters) {
+  const callId = filters.callId?.trim();
+  const sessionId = filters.sessionId?.trim();
+  if (sessionId && segment.sessionId !== sessionId) {
+    return false;
+  }
+  if (callId && segment.callId !== callId) {
+    return false;
+  }
+  return true;
 }
 
 function sortSegments(segments: TranscriptSegment[]) {

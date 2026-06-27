@@ -24,6 +24,10 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           ws: true,
         },
+        "/api/v1/meeting-sessions": {
+          target: apiProxyTarget,
+          changeOrigin: true,
+        },
         "/api": {
           target: apiProxyTarget,
           changeOrigin: true,

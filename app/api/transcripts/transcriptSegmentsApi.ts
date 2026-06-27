@@ -1,5 +1,11 @@
+import {
+  isMeetingSessionStatus,
+  type MeetingSessionStatus,
+} from "~/api/meetingSessions/meetingSessionsApi";
+
 export type TranscriptSegment = {
   eventId?: string;
+  sessionId?: string;
   callId: string;
   sequenceNo: number;
   recognizedAtUtc: string;
@@ -15,6 +21,25 @@ export type TranscriptSegmentEvent = {
   data?: unknown;
 };
 
+export type TranscriptSubscriptionFilters = {
+  callId?: string;
+  sessionId?: string;
+};
+
+export type TranscriptSubscriptionInput = string | TranscriptSubscriptionFilters;
+
+export type MeetingSessionStatusChange = {
+  sessionId: string;
+  status: MeetingSessionStatus;
+};
+
+export type ParsedTranscriptWebSocketEvent = {
+  type: string;
+  sentAtUtc?: string;
+  segment: TranscriptSegment | null;
+  sessionStatus: MeetingSessionStatusChange | null;
+};
+
 type TranscriptHistoryResult = {
   segments: TranscriptSegment[];
   unavailable: boolean;
@@ -28,10 +53,14 @@ export function transcriptWebSocketToken() {
   return token || null;
 }
 
-export function buildTranscriptWebSocketUrl(callId: string, token = transcriptWebSocketToken()) {
+export function buildTranscriptWebSocketUrl(
+  input: TranscriptSubscriptionInput = {},
+  token = transcriptWebSocketToken(),
+) {
   const configured = String(import.meta.env.VITE_DECISCOPE_WS_URL ?? "").trim();
   const source = configured || TRANSCRIPT_WS_PATH;
   const url = resolveBrowserUrl(source);
+  const filters = normalizeTranscriptFilters(input);
 
   if (url.protocol === "http:") {
     url.protocol = "ws:";
@@ -41,11 +70,15 @@ export function buildTranscriptWebSocketUrl(callId: string, token = transcriptWe
     url.protocol = defaultWebSocketProtocol();
   }
 
-  const trimmedCallId = callId.trim();
-  if (trimmedCallId) {
-    url.searchParams.set("callId", trimmedCallId);
+  if (filters.callId) {
+    url.searchParams.set("callId", filters.callId);
   } else {
     url.searchParams.delete("callId");
+  }
+  if (filters.sessionId) {
+    url.searchParams.set("sessionId", filters.sessionId);
+  } else {
+    url.searchParams.delete("sessionId");
   }
 
   if (token) {
@@ -70,11 +103,11 @@ export function maskWebSocketUrl(value: string) {
 }
 
 export async function fetchTranscriptSegmentHistory(
-  callId: string,
+  input: TranscriptSubscriptionInput = {},
   limit = 100,
   token = transcriptWebSocketToken(),
 ): Promise<TranscriptHistoryResult> {
-  const url = buildTranscriptHistoryUrl(callId, limit, token);
+  const url = buildTranscriptHistoryUrl(input, limit, token);
   const response = await fetch(url, {
     headers: { Accept: "application/json" },
     credentials: "include",
@@ -93,13 +126,34 @@ export async function fetchTranscriptSegmentHistory(
   return { segments: extractTranscriptSegments(payload), unavailable: false };
 }
 
-export function parseTranscriptSegmentEvent(raw: string) {
+export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebSocketEvent {
   const payload = JSON.parse(raw) as TranscriptSegmentEvent;
-  if (payload.type !== "transcript_segment.created") {
-    return { type: payload.type || "unknown", segment: null };
+  const type = payload.type || "unknown";
+
+  if (type === "meeting_session.status_changed") {
+    return {
+      type,
+      sentAtUtc: payload.sentAtUtc,
+      segment: null,
+      sessionStatus: normalizeMeetingSessionStatusChange(payload.data),
+    };
   }
 
-  return { type: payload.type, segment: normalizeTranscriptSegment(payload.data) };
+  if (type === "transcript_segment.created") {
+    return {
+      type,
+      sentAtUtc: payload.sentAtUtc,
+      segment: normalizeTranscriptSegment(payload.data),
+      sessionStatus: null,
+    };
+  }
+
+  return { type, sentAtUtc: payload.sentAtUtc, segment: null, sessionStatus: null };
+}
+
+export function parseTranscriptSegmentEvent(raw: string) {
+  const parsed = parseTranscriptWebSocketEvent(raw);
+  return { type: parsed.type, segment: parsed.segment };
 }
 
 export function transcriptSegmentKey(segment: TranscriptSegment) {
@@ -109,17 +163,27 @@ export function transcriptSegmentKey(segment: TranscriptSegment) {
   if (segment.callId && Number.isFinite(segment.sequenceNo)) {
     return `${segment.callId}:${segment.sequenceNo}`;
   }
+  if (segment.sessionId && Number.isFinite(segment.sequenceNo)) {
+    return `${segment.sessionId}:${segment.sequenceNo}`;
+  }
   return `${segment.callId}:${segment.recognizedAtUtc}:${segment.text}`;
 }
 
-function buildTranscriptHistoryUrl(callId: string, limit: number, token: string | null) {
+function buildTranscriptHistoryUrl(
+  input: TranscriptSubscriptionInput,
+  limit: number,
+  token: string | null,
+) {
   const configured = String(import.meta.env.VITE_DECISCOPE_API_BASE_URL ?? "").trim();
   const base = configured || browserOrigin();
   const url = new URL(TRANSCRIPT_HISTORY_PATH, base);
-  const trimmedCallId = callId.trim();
+  const filters = normalizeTranscriptFilters(input);
 
-  if (trimmedCallId) {
-    url.searchParams.set("callId", trimmedCallId);
+  if (filters.callId) {
+    url.searchParams.set("callId", filters.callId);
+  }
+  if (filters.sessionId) {
+    url.searchParams.set("sessionId", filters.sessionId);
   }
   url.searchParams.set("limit", String(limit));
   if (token) {
@@ -156,6 +220,7 @@ function normalizeTranscriptSegment(value: unknown): TranscriptSegment | null {
 
   const source = value as Record<string, unknown>;
   const eventId = optionalString(source.eventId) ?? optionalString(source.event_id);
+  const sessionId = optionalString(source.sessionId) ?? optionalString(source.session_id);
   const callId = optionalString(source.callId) ?? optionalString(source.call_id) ?? "";
   const recognizedAtUtc =
     optionalString(source.recognizedAtUtc) ?? optionalString(source.recognized_at_utc) ?? "";
@@ -168,6 +233,7 @@ function normalizeTranscriptSegment(value: unknown): TranscriptSegment | null {
 
   return {
     ...(eventId ? { eventId } : {}),
+    ...(sessionId ? { sessionId } : {}),
     callId,
     sequenceNo,
     recognizedAtUtc,
@@ -175,6 +241,31 @@ function normalizeTranscriptSegment(value: unknown): TranscriptSegment | null {
     ...(durationTicks !== undefined ? { durationTicks } : {}),
     text,
     ...(duplicate !== undefined ? { duplicate } : {}),
+  };
+}
+
+function normalizeMeetingSessionStatusChange(value: unknown): MeetingSessionStatusChange | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const source = value as Record<string, unknown>;
+  const sessionId = optionalString(source.sessionId) ?? optionalString(source.session_id);
+  const status = source.status;
+  if (!sessionId || !isMeetingSessionStatus(status)) {
+    return null;
+  }
+  return { sessionId, status };
+}
+
+function normalizeTranscriptFilters(
+  input: TranscriptSubscriptionInput,
+): Required<TranscriptSubscriptionFilters> {
+  if (typeof input === "string") {
+    return { callId: input.trim(), sessionId: "" };
+  }
+  return {
+    callId: input.callId?.trim() ?? "",
+    sessionId: input.sessionId?.trim() ?? "",
   };
 }
 
