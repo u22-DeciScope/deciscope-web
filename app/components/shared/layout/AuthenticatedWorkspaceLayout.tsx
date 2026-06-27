@@ -91,7 +91,7 @@ export function AuthenticatedWorkspaceLayout() {
       workspaceId={workspaceId}
     >
       <div className="min-h-120 bg-(--ds-bg) md:flex md:h-[max(100dvh,480px)] md:overflow-hidden md:p-2.25">
-        <section className="hidden md:flex md:shrink-0" style={{ width: sidebarWidth }}>
+        <section className="md:shrink-0">
           <AppSidebar navigation={navigationPane} sharedArea={sharedAreaPane} />
           <ResizeHandle
             ariaLabel="表示エリアの幅を変更"
