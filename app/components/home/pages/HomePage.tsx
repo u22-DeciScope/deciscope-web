@@ -389,10 +389,12 @@ function isActiveMeetingItem(item: MeetingListItem) {
 function isActiveMeetingStatus(status: string, isTeamsSession: boolean) {
   if (isTeamsSession) {
     return (
+      status === "requested" ||
       status === "pending_join" ||
       status === "command_sent" ||
       status === "joining" ||
       status === "joined" ||
+      status === "active" ||
       status === "recording"
     );
   }
@@ -443,6 +445,8 @@ function formatStatus(status: string) {
       return "進行中";
     case "ended":
       return "終了";
+    case "requested":
+      return "参加要求済み";
     case "pending_join":
       return "参加待機";
     case "command_sent":
@@ -451,10 +455,16 @@ function formatStatus(status: string) {
       return "Bot参加中";
     case "joined":
       return "Bot参加済み";
+    case "active":
+      return "進行中";
     case "recording":
       return "録音中";
     case "failed":
       return "失敗";
+    case "stale":
+      return "停止扱い";
+    case "timeout":
+      return "タイムアウト";
     default:
       return status;
   }

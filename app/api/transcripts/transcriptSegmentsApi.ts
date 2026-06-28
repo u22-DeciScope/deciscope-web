@@ -111,6 +111,35 @@ export async function fetchTranscriptSegmentHistory(
   token = transcriptWebSocketToken(),
 ): Promise<TranscriptHistoryResult> {
   const url = buildTranscriptHistoryUrl(input, limit, token);
+  return fetchTranscriptHistoryUrl(url);
+}
+
+export async function fetchMeetingSessionTranscriptSegmentHistory(
+  sessionId: string,
+  limit = 100,
+  token = transcriptWebSocketToken(),
+): Promise<TranscriptHistoryResult> {
+  const url = buildMeetingSessionTranscriptHistoryUrl(sessionId, limit, token);
+  return fetchTranscriptHistoryUrl(url);
+}
+
+export function buildTranscriptHistoryDebugUrl(
+  input: TranscriptSubscriptionInput = {},
+  limit = 100,
+  token = transcriptWebSocketToken(),
+) {
+  return maskWebSocketUrl(buildTranscriptHistoryUrl(input, limit, token));
+}
+
+export function buildMeetingSessionTranscriptHistoryDebugUrl(
+  sessionId: string,
+  limit = 100,
+  token = transcriptWebSocketToken(),
+) {
+  return maskWebSocketUrl(buildMeetingSessionTranscriptHistoryUrl(sessionId, limit, token));
+}
+
+async function fetchTranscriptHistoryUrl(url: string): Promise<TranscriptHistoryResult> {
   const response = await fetch(url, {
     headers: { Accept: "application/json" },
     credentials: "include",
@@ -193,6 +222,24 @@ function buildTranscriptHistoryUrl(
     url.searchParams.set("token", token);
   }
 
+  return url.toString();
+}
+
+function buildMeetingSessionTranscriptHistoryUrl(
+  sessionId: string,
+  limit: number,
+  token: string | null,
+) {
+  const configured = String(import.meta.env.VITE_DECISCOPE_API_BASE_URL ?? "").trim();
+  const base = configured || browserOrigin();
+  const url = new URL(
+    `/api/v1/meeting-sessions/${encodeURIComponent(sessionId.trim())}/transcript-segments`,
+    base,
+  );
+  url.searchParams.set("limit", String(limit));
+  if (token) {
+    url.searchParams.set("token", token);
+  }
   return url.toString();
 }
 

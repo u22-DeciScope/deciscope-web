@@ -97,7 +97,7 @@ export function deleteMeetingSessionRecord(sessionId: string) {
 }
 
 export function isTerminalMeetingSessionStatus(status: string) {
-  return status === "ended" || status === "failed";
+  return status === "ended" || status === "failed" || status === "stale" || status === "timeout";
 }
 
 function readRecords() {

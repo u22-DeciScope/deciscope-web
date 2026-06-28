@@ -7,8 +7,10 @@ import {
 import { updateMeetingSessionRecordStatus } from "~/api/meetingSessions/meetingSessionRegistry";
 import type { MeetingSegmentDto } from "~/api/meetings/meetingEventsApi";
 import {
+  buildMeetingSessionTranscriptHistoryDebugUrl,
   buildTranscriptWebSocketUrl,
-  fetchTranscriptSegmentHistory,
+  fetchMeetingSessionTranscriptSegmentHistory,
+  maskWebSocketUrl,
   parseTranscriptWebSocketEvent,
   transcriptSegmentKey,
   type TranscriptSegment,
@@ -46,32 +48,70 @@ export function useMeetingTranscriptSession(
   const shouldReconnectRef = useRef(false);
 
   const appendSegments = useCallback(
-    (incoming: TranscriptSegment[]) => {
+    (incoming: TranscriptSegment[], source = "unknown") => {
       if (!normalizedSessionId) {
+        meetingStartDebug("meeting-page", "transcript ignored", {
+          source,
+          reason: "missing_current_session_id",
+          incomingCount: incoming.length,
+        });
         return;
       }
 
       const accepted: TranscriptSegment[] = [];
+      let ignoredSessionMismatch = 0;
+      let ignoredEmptyText = 0;
+      let ignoredDuplicate = 0;
+      const mismatchSamples: Array<Record<string, unknown>> = [];
       for (const segment of incoming) {
         if (segment.sessionId !== normalizedSessionId) {
+          ignoredSessionMismatch += 1;
+          if (mismatchSamples.length < 3) {
+            mismatchSamples.push({
+              eventId: segment.eventId ?? null,
+              segmentSessionId: segment.sessionId ?? null,
+              currentSessionId: normalizedSessionId,
+              callId: segment.callId,
+              sequenceNo: segment.sequenceNo,
+            });
+          }
           continue;
         }
         if (!segment.text.trim()) {
+          ignoredEmptyText += 1;
           continue;
         }
         const key = transcriptSegmentKey(segment);
         if (seenKeysRef.current.has(key)) {
+          ignoredDuplicate += 1;
           continue;
         }
         seenKeysRef.current.add(key);
         accepted.push(segment);
       }
 
+      meetingStartDebug("meeting-page", "transcript append evaluated", {
+        source,
+        sessionId: normalizedSessionId,
+        incomingCount: incoming.length,
+        acceptedCount: accepted.length,
+        ignoredSessionMismatch,
+        ignoredEmptyText,
+        ignoredDuplicate,
+        mismatchSamples,
+      });
+
       if (accepted.length === 0) {
         return;
       }
 
       setSegments((current) => sortTranscriptSegments([...current, ...accepted]));
+      meetingStartDebug("meeting-page", "transcript appended", {
+        source,
+        sessionId: normalizedSessionId,
+        appendedCount: accepted.length,
+        sequenceNos: accepted.map((segment) => segment.sequenceNo),
+      });
     },
     [normalizedSessionId],
   );
@@ -102,28 +142,46 @@ export function useMeetingTranscriptSession(
     setError(null);
 
     let active = true;
+    const historyDebugUrl = buildMeetingSessionTranscriptHistoryDebugUrl(normalizedSessionId, 100);
+    const websocketUrl = buildTranscriptWebSocketUrl({ sessionId: normalizedSessionId });
+
+    meetingStartDebug("meeting-page", "transcript subscription started", {
+      sessionId: normalizedSessionId,
+      historyUrl: historyDebugUrl,
+      websocketUrl: maskWebSocketUrl(websocketUrl),
+    });
 
     async function loadInitialData() {
       try {
         meetingStartDebug("meeting-page", "session data loading started", {
           sessionId: normalizedSessionId,
+          historyUrl: historyDebugUrl,
         });
         const [session, history] = await Promise.all([
           getMeetingSession(normalizedSessionId),
-          fetchTranscriptSegmentHistory({ sessionId: normalizedSessionId }, 100),
+          fetchMeetingSessionTranscriptSegmentHistory(normalizedSessionId, 100),
         ]);
         if (!active) {
           return;
         }
         setSessionStatus(session.status);
+        if (session.status === "failed") {
+          setError("会議セッションがfailedになりました。Bot側のログを確認してください。");
+        } else if (session.status === "stale") {
+          setError("会議セッションがstaleになりました。再度会議URLから入室してください。");
+        } else if (session.status === "timeout") {
+          setError("会議セッションがtimeoutになりました。再度会議URLから入室してください。");
+        }
         if (workspaceId) {
           updateMeetingSessionRecordStatus(workspaceId, normalizedSessionId, session.status);
         }
-        appendSegments(history.segments);
+        appendSegments(history.segments, "history");
         meetingStartDebug("meeting-page", "session data loaded", {
           sessionId: normalizedSessionId,
+          meetingUrlHash: session.meetingUrlHash ?? null,
           status: session.status,
           historyCount: history.segments.length,
+          historyUnavailable: history.unavailable,
         });
       } catch (cause) {
         if (!active) {
@@ -141,12 +199,13 @@ export function useMeetingTranscriptSession(
       clearReconnectTimer(reconnectTimerRef);
       socketRef.current?.close();
 
-      const socket = new WebSocket(buildTranscriptWebSocketUrl({ sessionId: normalizedSessionId }));
+      const socket = new WebSocket(websocketUrl);
       socketRef.current = socket;
       setConnectionStatus(reconnecting ? "reconnecting" : "connecting");
       meetingStartDebug("meeting-page", "WebSocket connecting", {
         sessionId: normalizedSessionId,
         reconnecting,
+        url: maskWebSocketUrl(websocketUrl),
       });
 
       socket.addEventListener("open", () => {
@@ -165,9 +224,19 @@ export function useMeetingTranscriptSession(
           return;
         }
         try {
-          const parsed = parseTranscriptWebSocketEvent(String(event.data));
+          const raw = String(event.data);
+          meetingStartDebug("meeting-page", "transcript WebSocket message received", {
+            sessionId: normalizedSessionId,
+            length: raw.length,
+            payload: truncateForLog(raw),
+          });
+          const parsed = parseTranscriptWebSocketEvent(raw);
           if (parsed.sessionStatus && parsed.sessionStatus.sessionId === activeSessionRef.current) {
             setSessionStatus(parsed.sessionStatus.status);
+            meetingStartDebug("meeting-page", "session status received", {
+              sessionId: parsed.sessionStatus.sessionId,
+              status: parsed.sessionStatus.status,
+            });
             if (workspaceId) {
               updateMeetingSessionRecordStatus(
                 workspaceId,
@@ -177,15 +246,50 @@ export function useMeetingTranscriptSession(
             }
             if (parsed.sessionStatus.status === "failed") {
               setError("会議セッションがfailedになりました。Bot側のログを確認してください。");
+            } else if (parsed.sessionStatus.status === "stale") {
+              setError("会議セッションがstaleになりました。再度会議URLから入室してください。");
+            } else if (parsed.sessionStatus.status === "timeout") {
+              setError("会議セッションがtimeoutになりました。再度会議URLから入室してください。");
             }
             return;
           }
 
-          if (parsed.segment) {
-            appendSegments([parsed.segment]);
+          if (parsed.sessionStatus) {
+            meetingStartDebug("meeting-page", "session status ignored", {
+              reason: "session_id_mismatch",
+              currentSessionId: activeSessionRef.current,
+              receivedSessionId: parsed.sessionStatus.sessionId,
+              status: parsed.sessionStatus.status,
+            });
+            return;
           }
+
+          if (parsed.segment) {
+            meetingStartDebug("meeting-page", "transcript received", {
+              sessionId: parsed.segment.sessionId ?? null,
+              currentSessionId: activeSessionRef.current,
+              eventId: parsed.segment.eventId ?? null,
+              callId: parsed.segment.callId,
+              sequenceNo: parsed.segment.sequenceNo,
+              speakerId: parsed.segment.speakerId ?? null,
+              speakerName: parsed.segment.speakerName ?? null,
+              textLength: parsed.segment.text.trim().length,
+            });
+            appendSegments([parsed.segment], "websocket");
+            return;
+          }
+
+          meetingStartDebug("meeting-page", "transcript event ignored", {
+            reason: "unsupported_or_empty_event",
+            type: parsed.type,
+            sentAtUtc: parsed.sentAtUtc ?? null,
+          });
         } catch (cause) {
           setError(`文字起こしイベントを解析できませんでした: ${errorMessage(cause)}`);
+          meetingStartDebug("meeting-page", "transcript event parse failed", {
+            sessionId: normalizedSessionId,
+            message: errorMessage(cause),
+          });
         }
       });
 
@@ -200,7 +304,7 @@ export function useMeetingTranscriptSession(
         });
       });
 
-      socket.addEventListener("close", () => {
+      socket.addEventListener("close", (event) => {
         if (!active || socketRef.current !== socket) {
           return;
         }
@@ -209,6 +313,8 @@ export function useMeetingTranscriptSession(
           setConnectionStatus("closed");
           meetingStartDebug("meeting-page", "WebSocket closed", {
             sessionId: normalizedSessionId,
+            code: event.code,
+            reason: event.reason || null,
           });
           return;
         }
@@ -220,6 +326,8 @@ export function useMeetingTranscriptSession(
         meetingStartDebug("meeting-page", "WebSocket reconnect scheduled", {
           sessionId: normalizedSessionId,
           delay,
+          code: event.code,
+          reason: event.reason || null,
         });
         reconnectTimerRef.current = setTimeout(() => connect(true), delay);
       });
@@ -234,8 +342,12 @@ export function useMeetingTranscriptSession(
       clearReconnectTimer(reconnectTimerRef);
       socketRef.current?.close();
       socketRef.current = null;
+      meetingStartDebug("meeting-page", "transcript subscription closed", {
+        sessionId: normalizedSessionId,
+        reason: "effect_cleanup",
+      });
     };
-  }, [appendSegments, normalizedSessionId]);
+  }, [appendSegments, normalizedSessionId, workspaceId]);
 
   return useMemo(
     () => ({
@@ -328,4 +440,11 @@ function clearReconnectTimer(timerRef: MutableRefObject<ReturnType<typeof setTim
 
 function errorMessage(cause: unknown) {
   return cause instanceof Error ? cause.message : "unknown error";
+}
+
+function truncateForLog(value: string, maxLength = 1200) {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength)}...`;
 }

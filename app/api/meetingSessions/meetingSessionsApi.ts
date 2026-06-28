@@ -1,26 +1,40 @@
 export type MeetingSessionStatus =
+  | "requested"
   | "pending_join"
   | "command_sent"
   | "joining"
   | "joined"
+  | "active"
   | "recording"
   | "ended"
-  | "failed";
+  | "failed"
+  | "stale"
+  | "timeout";
 
 export type MeetingSessionDto = {
   sessionId: string;
   status: MeetingSessionStatus;
+  meetingUrlHash?: string;
+  reused?: boolean;
+  botCallId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  lastError?: string;
 };
 
 const MEETING_SESSIONS_PATH = "/api/v1/meeting-sessions";
 const meetingSessionStatuses: MeetingSessionStatus[] = [
+  "requested",
   "pending_join",
   "command_sent",
   "joining",
   "joined",
+  "active",
   "recording",
   "ended",
   "failed",
+  "stale",
+  "timeout",
 ];
 
 export async function createMeetingSession(joinUrl: string): Promise<MeetingSessionDto> {
@@ -87,7 +101,25 @@ function normalizeMeetingSession(value: unknown): MeetingSessionDto | null {
   if (!sessionId || !isMeetingSessionStatus(status)) {
     return null;
   }
-  return { sessionId, status };
+  const meetingUrlHash =
+    optionalString(source.meetingUrlHash) ??
+    optionalString(source.meeting_url_hash) ??
+    optionalString(source.joinUrlHash) ??
+    optionalString(source.join_url_hash);
+  const botCallId = optionalString(source.botCallId) ?? optionalString(source.bot_call_id);
+  const createdAt = optionalString(source.createdAt) ?? optionalString(source.created_at);
+  const updatedAt = optionalString(source.updatedAt) ?? optionalString(source.updated_at);
+  const lastError = optionalString(source.lastError) ?? optionalString(source.last_error);
+  return {
+    sessionId,
+    status,
+    ...(meetingUrlHash ? { meetingUrlHash } : {}),
+    ...(typeof source.reused === "boolean" ? { reused: source.reused } : {}),
+    ...(botCallId ? { botCallId } : {}),
+    ...(createdAt ? { createdAt } : {}),
+    ...(updatedAt ? { updatedAt } : {}),
+    ...(lastError ? { lastError } : {}),
+  };
 }
 
 async function readJsonBody(response: Response) {

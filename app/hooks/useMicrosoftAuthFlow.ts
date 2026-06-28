@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { syncAuthLogin } from "~/api/auth/authApi";
 import { signInWithMicrosoft, signOutOfFirebase } from "~/api/firebase/firebaseAuthClient";
+import { notifyAuthenticatedSessionChanged } from "~/hooks/useAuthenticatedSession";
 
 interface UseMicrosoftAuthFlowOptions {
   redirectTo: string;
@@ -19,7 +20,8 @@ export function useMicrosoftAuthFlow({ redirectTo, fallbackMessage }: UseMicroso
     try {
       const user = await signInWithMicrosoft();
       const idToken = await user.getIdToken();
-      await syncAuthLogin(idToken);
+      const session = await syncAuthLogin(idToken);
+      notifyAuthenticatedSessionChanged(session);
       navigate(redirectTo);
     } catch (err) {
       await signOutOfFirebase().catch(() => undefined);

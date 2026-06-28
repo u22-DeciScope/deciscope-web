@@ -9,6 +9,7 @@ import {
 import type { ReactNode } from "react";
 
 import type { Route } from "./+types/root";
+import { AuthenticatedSessionProvider } from "~/hooks/useAuthenticatedSession";
 import "~/app.css";
 
 export const PRODUCT_NAME = "Deciscope";
@@ -60,7 +61,11 @@ export function Layout({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
-  return <Outlet />;
+  return (
+    <AuthenticatedSessionProvider>
+      <Outlet />
+    </AuthenticatedSessionProvider>
+  );
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
