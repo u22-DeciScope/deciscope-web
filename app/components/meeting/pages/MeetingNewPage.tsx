@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { HiVideoCamera } from "react-icons/hi2";
 
-import { createMeetingSession, getMeetingSession } from "~/api/meetingSessions/meetingSessionsApi";
-import type { MeetingSessionStatus } from "~/api/meetingSessions/meetingSessionsApi";
+import { createMeetingSession } from "~/api/meetingSessions/meetingSessionsApi";
 import {
   readPendingMeetingNavigation,
   savePendingMeetingNavigation,
@@ -19,7 +18,9 @@ import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
 export default function MeetingNewPage() {
   const navigate = useNavigate();
+  const { hash, pathname, search } = useLocation();
   const { workspaceId } = useAuthenticatedLayout();
+  const currentPath = `${pathname}${search}${hash}`;
   const meetingsPath = workspacePath(workspaceId, "/meetings");
   const [joinUrl, setJoinUrl] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -45,12 +46,17 @@ export default function MeetingNewPage() {
       return;
     }
     meetingStartDebug("meeting-start", "recovering pending meeting navigation", {
+      source: "meeting-start",
       reason: "returned_to_join_page_after_navigation",
+      currentPath,
+      targetPath: pending.path,
+      authLoading: false,
+      workspaceLoading: false,
       sessionId: pending.sessionId,
-      to: pending.path,
+      meetingStatus: null,
     });
     navigate(pending.path, { replace: true });
-  }, [navigate, workspaceId]);
+  }, [currentPath, navigate, workspaceId]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -79,7 +85,14 @@ export default function MeetingNewPage() {
     const validationError = validateTeamsJoinUrl(normalizedJoinUrl);
     if (validationError) {
       meetingStartDebug("meeting-start", "returning to URL input", {
+        source: "meeting-start",
         reason: "validation_failed",
+        currentPath,
+        targetPath: currentPath,
+        authLoading: false,
+        workspaceLoading: false,
+        sessionId: null,
+        meetingStatus: null,
         message: validationError,
       });
       setError(validationError);
@@ -103,73 +116,39 @@ export default function MeetingNewPage() {
         reused: session.reused ?? false,
       });
 
-      const readySession = await waitForMeetingSessionReady(session, workspaceId, (polled) => {
-        upsertMeetingSessionRecord({
-          sessionId: polled.sessionId,
-          workspaceId,
-          title: "Teams 会議",
-          status: polled.status,
-        });
-        setSubmitMessage(formatSubmitMessage(polled.status));
-        meetingStartDebug("meeting-start", "polled session status", {
-          sessionId: polled.sessionId,
-          meetingUrlHash: polled.meetingUrlHash ?? null,
-          status: polled.status,
-          botCallId: polled.botCallId ?? null,
-        });
-      });
-
-      if (shouldReturnToInput(readySession.status)) {
-        const message = readySession.lastError || `会議セッションが ${readySession.status} です。`;
-        meetingStartDebug("meeting-start", "returning to URL input", {
-          reason: "terminal_session_status",
-          sessionId: readySession.sessionId,
-          meetingUrlHash: readySession.meetingUrlHash ?? null,
-          status: readySession.status,
-          message,
-        });
-        setError(message);
-        return;
-      }
-
-      if (!isReadyMeetingSessionStatus(readySession.status)) {
-        const message = `会議セッションが ${readySession.status} のままタイムアウトしました。`;
-        meetingStartDebug("meeting-start", "returning to URL input", {
-          reason: "join_status_timeout",
-          sessionId: readySession.sessionId,
-          meetingUrlHash: readySession.meetingUrlHash ?? null,
-          status: readySession.status,
-          message,
-        });
-        setError(message);
-        return;
-      }
-
       upsertMeetingSessionRecord({
-        sessionId: readySession.sessionId,
+        sessionId: session.sessionId,
         workspaceId,
         title: "Teams 会議",
-        status: readySession.status,
+        status: session.status,
       });
       meetingStartDebug("meeting-start", "recent session persisted", {
-        sessionId: readySession.sessionId,
-        meetingUrlHash: readySession.meetingUrlHash ?? null,
-        status: readySession.status,
+        sessionId: session.sessionId,
+        meetingUrlHash: session.meetingUrlHash ?? null,
+        status: session.status,
       });
-      const meetingPath = `${workspaceMeetingPath(workspaceId, readySession.sessionId)}?sessionId=${encodeURIComponent(
-        readySession.sessionId,
+      const meetingPath = `${workspaceMeetingPath(workspaceId, session.sessionId)}?sessionId=${encodeURIComponent(
+        session.sessionId,
       )}`;
       savePendingMeetingNavigation({
         workspaceId,
-        sessionId: readySession.sessionId,
+        sessionId: session.sessionId,
         path: meetingPath,
       });
+      setSubmitMessage("会議画面へ移動します...");
       meetingStartDebug("meeting-start", "navigating to meeting page", {
-        reason: "bot_join_ready_status",
-        sessionId: readySession.sessionId,
-        meetingUrlHash: readySession.meetingUrlHash ?? null,
-        status: readySession.status,
-        to: meetingPath,
+        source: "meeting-start",
+        reason: "session_created_or_reused",
+        currentPath,
+        targetPath: meetingPath,
+        authLoading: false,
+        workspaceLoading: false,
+        sessionId: session.sessionId,
+        meetingUrlHash: session.meetingUrlHash ?? null,
+        status: session.status,
+        meetingStatus: session.status,
+        botCallId: session.botCallId ?? null,
+        reused: session.reused ?? false,
       });
       navigate(meetingPath);
     } catch (cause) {
@@ -177,7 +156,14 @@ export default function MeetingNewPage() {
         message: cause instanceof Error ? cause.message : String(cause),
       });
       meetingStartDebug("meeting-start", "returning to URL input", {
+        source: "meeting-start",
         reason: "join_request_failed",
+        currentPath,
+        targetPath: currentPath,
+        authLoading: false,
+        workspaceLoading: false,
+        sessionId: null,
+        meetingStatus: null,
         message: cause instanceof Error ? cause.message : String(cause),
       });
       setError(cause instanceof Error ? cause.message : "会議に入室できませんでした。");
@@ -226,54 +212,6 @@ export default function MeetingNewPage() {
   );
 }
 
-type MeetingSessionLike = Awaited<ReturnType<typeof createMeetingSession>>;
-
-const meetingJoinPollIntervalMs = 1000;
-const meetingJoinTimeoutMs = 45_000;
-
-async function waitForMeetingSessionReady(
-  initialSession: MeetingSessionLike,
-  workspaceId: string,
-  onStatus: (session: MeetingSessionLike) => void,
-) {
-  let session = initialSession;
-  const deadline = Date.now() + meetingJoinTimeoutMs;
-  meetingStartDebug("meeting-start", "polling target session_id fixed", {
-    sessionId: session.sessionId,
-    meetingUrlHash: session.meetingUrlHash ?? null,
-    status: session.status,
-    workspaceId,
-  });
-
-  for (;;) {
-    onStatus(session);
-    if (isReadyMeetingSessionStatus(session.status) || shouldReturnToInput(session.status)) {
-      return session;
-    }
-    if (!isWaitingMeetingSessionStatus(session.status)) {
-      return session;
-    }
-    if (Date.now() >= deadline) {
-      return { ...session, status: "timeout" as const };
-    }
-    await sleep(meetingJoinPollIntervalMs);
-    session = await getMeetingSession(session.sessionId);
-  }
-}
-
-function isReadyMeetingSessionStatus(status: MeetingSessionStatus) {
-  return status === "joined" || status === "recording" || status === "active";
-}
-
-function isWaitingMeetingSessionStatus(status: MeetingSessionStatus) {
-  return (
-    status === "requested" ||
-    status === "pending_join" ||
-    status === "command_sent" ||
-    status === "joining"
-  );
-}
-
 function normalizeMeetingUrlForClient(value: string) {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -289,31 +227,6 @@ function normalizeMeetingUrlForClient(value: string) {
   } catch {
     return trimmed.replace(/\/+$/, "");
   }
-}
-
-function shouldReturnToInput(status: MeetingSessionStatus) {
-  return status === "failed" || status === "stale" || status === "timeout";
-}
-
-function formatSubmitMessage(status: MeetingSessionStatus) {
-  switch (status) {
-    case "requested":
-    case "pending_join":
-    case "command_sent":
-    case "joining":
-      return "Bot参加状態を確認しています...";
-    case "joined":
-      return "Bot入室を確認しました。会議画面へ移動します...";
-    case "recording":
-    case "active":
-      return "録音開始を確認しました。会議画面へ移動します...";
-    default:
-      return "会議セッションを確認しています...";
-  }
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function safeUrlHost(value: string) {

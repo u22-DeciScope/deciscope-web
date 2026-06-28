@@ -19,17 +19,21 @@ export function AuthenticatedWorkspaceLayout() {
   const { workspaceId } = useParams();
   const session = useAuthenticatedSession();
   const workspace = session.session?.workspaces.find((item) => item.id === workspaceId);
-  const loginRedirectState = useMemo(
-    () => ({ from: `${pathname}${search}${hash}` }),
-    [hash, pathname, search],
-  );
+  const currentPath = `${pathname}${search}${hash}`;
+  const routeSessionId = meetingSessionIdFromLocation(pathname, search);
+  const loginRedirectState = useMemo(() => ({ from: currentPath }), [currentPath]);
   useEffect(() => {
     meetingStartDebug("auth-guard", "state", {
+      source: "auth-guard",
       authStatus: session.status,
-      route: pathname,
+      currentPath,
       workspaceId: workspaceId ?? null,
+      authLoading: session.status === "loading",
+      workspaceLoading: session.status === "loading",
+      sessionId: routeSessionId,
+      meetingStatus: null,
     });
-  }, [pathname, session.status, workspaceId]);
+  }, [currentPath, routeSessionId, session.status, workspaceId]);
 
   useEffect(() => {
     if (workspaceId && workspace && session.session?.current_workspace_id !== workspaceId) {
@@ -43,7 +47,14 @@ export function AuthenticatedWorkspaceLayout() {
 
   if (session.status === "loading") {
     meetingStartDebug("auth-guard", "redirect skipped because auth is loading", {
-      route: pathname,
+      source: "auth-guard",
+      reason: "auth_loading",
+      currentPath,
+      targetPath: null,
+      authLoading: true,
+      workspaceLoading: true,
+      sessionId: routeSessionId,
+      meetingStatus: null,
     });
     return <WorkspaceStatus message="認証状態を確認しています..." />;
   }
@@ -56,8 +67,14 @@ export function AuthenticatedWorkspaceLayout() {
 
   if (session.status === "unauthenticated") {
     meetingStartDebug("auth-guard", "redirecting to login", {
-      route: pathname,
+      source: "auth-guard",
       reason: "unauthenticated",
+      currentPath,
+      targetPath: "/login",
+      authLoading: false,
+      workspaceLoading: false,
+      sessionId: routeSessionId,
+      meetingStatus: null,
     });
     return <Navigate to="/login" replace state={loginRedirectState} />;
   }
@@ -67,8 +84,14 @@ export function AuthenticatedWorkspaceLayout() {
   }
   if (!workspace) {
     meetingStartDebug("auth-guard", "redirecting to workspace resolver", {
-      route: pathname,
+      source: "auth-guard",
       reason: "workspace_not_found",
+      currentPath,
+      targetPath: WORKSPACE_ROUTE_BASE,
+      authLoading: false,
+      workspaceLoading: false,
+      sessionId: routeSessionId,
+      meetingStatus: null,
     });
     return <Navigate to={WORKSPACE_ROUTE_BASE} replace />;
   }
@@ -110,4 +133,23 @@ export function AuthenticatedWorkspaceLayout() {
       </div>
     </AuthenticatedLayoutProvider>
   );
+}
+
+function meetingSessionIdFromLocation(pathname: string, search: string) {
+  const querySessionId = new URLSearchParams(search).get("sessionId")?.trim();
+  if (querySessionId) {
+    return querySessionId;
+  }
+
+  const match = pathname.match(/\/meetings\/([^/?#]+)/);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  try {
+    const decoded = decodeURIComponent(match[1]);
+    return decoded.startsWith("session_") ? decoded : null;
+  } catch {
+    return match[1].startsWith("session_") ? match[1] : null;
+  }
 }

@@ -27,6 +27,8 @@ export type TranscriptSessionConnectionStatus =
   | "error";
 
 const reconnectDelaysMs = [1000, 2000, 5000];
+const historyRetryDelaysMs = [2000, 5000, 10000];
+const transcriptHistoryRetryMessage = "文字起こし履歴を取得中/再試行中です。";
 const ticksPerMillisecond = 10_000;
 
 export function useMeetingTranscriptSession(
@@ -42,6 +44,7 @@ export function useMeetingTranscriptSession(
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const historyRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptRef = useRef(0);
   const seenKeysRef = useRef(new Set<string>());
   const activeSessionRef = useRef("");
@@ -119,6 +122,7 @@ export function useMeetingTranscriptSession(
   useEffect(() => {
     if (!normalizedSessionId) {
       clearReconnectTimer(reconnectTimerRef);
+      clearReconnectTimer(historyRetryTimerRef);
       shouldReconnectRef.current = false;
       socketRef.current?.close();
       socketRef.current = null;
@@ -155,43 +159,77 @@ export function useMeetingTranscriptSession(
       try {
         meetingStartDebug("meeting-page", "session data loading started", {
           sessionId: normalizedSessionId,
-          historyUrl: historyDebugUrl,
         });
-        const [session, history] = await Promise.all([
-          getMeetingSession(normalizedSessionId),
-          fetchMeetingSessionTranscriptSegmentHistory(normalizedSessionId, 100),
-        ]);
+        const session = await getMeetingSession(normalizedSessionId);
         if (!active) {
           return;
         }
         setSessionStatus(session.status);
-        if (session.status === "failed") {
-          setError("会議セッションがfailedになりました。Bot側のログを確認してください。");
-        } else if (session.status === "stale") {
-          setError("会議セッションがstaleになりました。再度会議URLから入室してください。");
-        } else if (session.status === "timeout") {
-          setError("会議セッションがtimeoutになりました。再度会議URLから入室してください。");
+        const statusError = sessionStatusErrorMessage(session.status);
+        if (statusError) {
+          setError(statusError);
         }
         if (workspaceId) {
           updateMeetingSessionRecordStatus(workspaceId, normalizedSessionId, session.status);
         }
-        appendSegments(history.segments, "history");
         meetingStartDebug("meeting-page", "session data loaded", {
           sessionId: normalizedSessionId,
           meetingUrlHash: session.meetingUrlHash ?? null,
           status: session.status,
-          historyCount: history.segments.length,
-          historyUnavailable: history.unavailable,
         });
       } catch (cause) {
         if (!active) {
           return;
         }
-        setError(errorMessage(cause));
+        setError(`会議セッションを復元できませんでした: ${errorMessage(cause)}`);
         meetingStartDebug("meeting-page", "session data load failed", {
           sessionId: normalizedSessionId,
           message: errorMessage(cause),
         });
+      }
+    }
+
+    async function loadTranscriptHistory(attempt = 0) {
+      clearReconnectTimer(historyRetryTimerRef);
+      try {
+        meetingStartDebug("meeting-page", "transcript history loading started", {
+          sessionId: normalizedSessionId,
+          historyUrl: historyDebugUrl,
+          attempt,
+        });
+        const history = await fetchMeetingSessionTranscriptSegmentHistory(normalizedSessionId, 100);
+        if (!active) {
+          return;
+        }
+        appendSegments(history.segments, "history");
+        setError((current) => (current === transcriptHistoryRetryMessage ? null : current));
+        meetingStartDebug("meeting-page", "transcript history loaded", {
+          sessionId: normalizedSessionId,
+          historyCount: history.segments.length,
+          historyUnavailable: history.unavailable,
+          attempt,
+        });
+      } catch (cause) {
+        if (!active) {
+          return;
+        }
+        const delay =
+          historyRetryDelaysMs[Math.min(attempt, historyRetryDelaysMs.length - 1)] ?? null;
+        const willRetry = delay !== null;
+        setError((current) => current ?? transcriptHistoryRetryMessage);
+        meetingStartDebug("meeting-page", "transcript history load failed", {
+          sessionId: normalizedSessionId,
+          historyUrl: historyDebugUrl,
+          attempt,
+          message: errorMessage(cause),
+          willRetry,
+          retryDelayMs: delay,
+        });
+        if (willRetry) {
+          historyRetryTimerRef.current = setTimeout(() => {
+            void loadTranscriptHistory(attempt + 1);
+          }, delay);
+        }
       }
     }
 
@@ -244,12 +282,9 @@ export function useMeetingTranscriptSession(
                 parsed.sessionStatus.status,
               );
             }
-            if (parsed.sessionStatus.status === "failed") {
-              setError("会議セッションがfailedになりました。Bot側のログを確認してください。");
-            } else if (parsed.sessionStatus.status === "stale") {
-              setError("会議セッションがstaleになりました。再度会議URLから入室してください。");
-            } else if (parsed.sessionStatus.status === "timeout") {
-              setError("会議セッションがtimeoutになりました。再度会議URLから入室してください。");
+            const statusError = sessionStatusErrorMessage(parsed.sessionStatus.status);
+            if (statusError) {
+              setError(statusError);
             }
             return;
           }
@@ -334,12 +369,14 @@ export function useMeetingTranscriptSession(
     }
 
     void loadInitialData();
+    void loadTranscriptHistory();
     connect(false);
 
     return () => {
       active = false;
       shouldReconnectRef.current = false;
       clearReconnectTimer(reconnectTimerRef);
+      clearReconnectTimer(historyRetryTimerRef);
       socketRef.current?.close();
       socketRef.current = null;
       meetingStartDebug("meeting-page", "transcript subscription closed", {
@@ -440,6 +477,19 @@ function clearReconnectTimer(timerRef: MutableRefObject<ReturnType<typeof setTim
 
 function errorMessage(cause: unknown) {
   return cause instanceof Error ? cause.message : "unknown error";
+}
+
+function sessionStatusErrorMessage(status: MeetingSessionStatus) {
+  switch (status) {
+    case "failed":
+      return "会議セッションがfailedになりました。Bot側のログを確認してください。";
+    case "stale":
+      return "会議セッションがstaleになりました。再度会議URLから入室してください。";
+    case "timeout":
+      return "会議セッションがtimeoutになりました。再度会議URLから入室してください。";
+    default:
+      return null;
+  }
 }
 
 function truncateForLog(value: string, maxLength = 1200) {

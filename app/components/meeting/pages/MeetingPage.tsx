@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import {
   HiArrowPath,
@@ -44,6 +44,7 @@ export default function Meeting() {
     sessionId,
     workspaceId,
   );
+  const clearedPendingSessionRef = useRef("");
   const [selectedFixture, setSelectedFixture] = useState("");
   const summaryPath = workspaceMeetingSummaryPath(workspaceId, runtimeMeetingId ?? "");
   const fixtureName = selectedFixture || runtime.fixtures[0]?.name || "";
@@ -56,10 +57,24 @@ export default function Meeting() {
       sessionId: sessionId || null,
       isSessionOnlyRoute,
     });
-    if (sessionId) {
-      clearPendingMeetingNavigation(workspaceId, sessionId);
-    }
   }, [id, isSessionOnlyRoute, runtimeMeetingId, sessionId, workspaceId]);
+
+  useEffect(() => {
+    if (
+      !sessionId ||
+      !transcriptSession.sessionStatus ||
+      clearedPendingSessionRef.current === sessionId
+    ) {
+      return;
+    }
+    clearPendingMeetingNavigation(workspaceId, sessionId);
+    clearedPendingSessionRef.current = sessionId;
+    meetingStartDebug("meeting-page", "pending meeting navigation cleared", {
+      reason: "session_restored",
+      sessionId,
+      meetingStatus: transcriptSession.sessionStatus,
+    });
+  }, [sessionId, transcriptSession.sessionStatus, workspaceId]);
 
   useEffect(() => {
     if (!sessionId || !transcriptSession.sessionStatus) {
