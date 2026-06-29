@@ -26,9 +26,7 @@ export default function MeetingNewPage() {
   const currentPath = `${pathname}${search}${hash}`;
   const meetingsPath = workspacePath(workspaceId, "/meetings");
   const [joinUrl, setJoinUrl] = useState("");
-  const [meetingTitleInput, setMeetingTitleInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitMessage, setSubmitMessage] = useState("");
   const [error, setError] = useState<string | null>(null);
   const submitInFlightRef = useRef(false);
   const inFlightJoinUrlRef = useRef("");
@@ -65,12 +63,10 @@ export default function MeetingNewPage() {
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const normalizedJoinUrl = normalizeMeetingUrlForClient(joinUrl);
-    const userInputTitle = meetingTitleInput.trim();
     const createdByEmail = user?.email?.trim() || "";
     meetingStartDebug("meeting-start", "meetingUrl input submitted", {
       hasJoinUrl: Boolean(normalizedJoinUrl),
       host: safeUrlHost(normalizedJoinUrl),
-      hasUserInputTitle: Boolean(userInputTitle),
       hasCreatedByEmail: Boolean(createdByEmail),
     });
 
@@ -88,7 +84,6 @@ export default function MeetingNewPage() {
       return;
     }
     setError(null);
-    setSubmitMessage("");
 
     const validationError = validateTeamsJoinUrl(normalizedJoinUrl);
     if (validationError) {
@@ -110,14 +105,12 @@ export default function MeetingNewPage() {
     submitInFlightRef.current = true;
     inFlightJoinUrlRef.current = normalizedJoinUrl;
     setIsSubmitting(true);
-    setSubmitMessage("Join request送信中...");
     meetingStartDebug("meeting-start", "join request started", {
       host: safeUrlHost(normalizedJoinUrl),
     });
     try {
       meetingStartDebug("meeting-start", "POST /api/v1/meeting-sessions started");
       const session = await createMeetingSession(normalizedJoinUrl, {
-        userProvidedTitle: userInputTitle || undefined,
         candidateUserPrincipalNames: createdByEmail ? [createdByEmail] : undefined,
         createdByEmail: createdByEmail || undefined,
       });
@@ -139,7 +132,7 @@ export default function MeetingNewPage() {
         sessionId: session.sessionId,
         workspaceId,
         title: displayTitle,
-        titleSource: session.titleSource ?? (userInputTitle ? "user_input" : "fallback"),
+        titleSource: session.titleSource ?? "fallback",
         status: session.status,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
@@ -158,7 +151,6 @@ export default function MeetingNewPage() {
         sessionId: session.sessionId,
         path: meetingPath,
       });
-      setSubmitMessage("会議画面へ移動します...");
       meetingStartDebug("meeting-start", "navigating to meeting page", {
         source: "meeting-start",
         reason: "session_created_or_reused",
@@ -194,7 +186,6 @@ export default function MeetingNewPage() {
       submitInFlightRef.current = false;
       inFlightJoinUrlRef.current = "";
       setIsSubmitting(false);
-      setSubmitMessage("");
     }
   }
 
@@ -213,20 +204,6 @@ export default function MeetingNewPage() {
             onChange={(event) => setJoinUrl(event.currentTarget.value)}
           />
 
-          <DsInput
-            label="会議名（任意・取得できない場合の表示名）"
-            placeholder="例: 定例プロジェクト会議"
-            value={meetingTitleInput}
-            disabled={isSubmitting}
-            onChange={(event) => setMeetingTitleInput(event.currentTarget.value)}
-          />
-
-          {submitMessage && !error && (
-            <p className="rounded-(--ds-radius-control) border px-3 py-2 text-[12px]">
-              {submitMessage}
-            </p>
-          )}
-
           {error && (
             <p className="rounded-(--ds-radius-control) border px-3 py-2 text-[12px] text-red-600">
               {error}
@@ -235,7 +212,7 @@ export default function MeetingNewPage() {
 
           <DsButton type="submit" disabled={isSubmitting} fullWidth>
             <HiVideoCamera className="h-3.5 w-3.5" />
-            {isSubmitting ? submitMessage || "入室中..." : "会議に入室"}
+            {isSubmitting ? "会議に接続中…" : "会議に入室"}
           </DsButton>
         </div>
       </section>

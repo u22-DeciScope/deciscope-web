@@ -39,6 +39,9 @@ export type MeetingSessionDto = {
   botCallId?: string;
   createdAt?: string;
   updatedAt?: string;
+  requestedAt?: string;
+  commandSentAt?: string;
+  joinedAt?: string;
   endedAt?: string;
   endReason?: string;
   lastBotStatusAt?: string;
@@ -227,6 +230,10 @@ function normalizeMeetingSession(value: unknown): MeetingSessionDto | null {
   const botCallId = optionalString(source.botCallId) ?? optionalString(source.bot_call_id);
   const createdAt = optionalString(source.createdAt) ?? optionalString(source.created_at);
   const updatedAt = optionalString(source.updatedAt) ?? optionalString(source.updated_at);
+  const requestedAt = optionalString(source.requestedAt) ?? optionalString(source.requested_at);
+  const commandSentAt =
+    optionalString(source.commandSentAt) ?? optionalString(source.command_sent_at);
+  const joinedAt = optionalString(source.joinedAt) ?? optionalString(source.joined_at);
   const endedAt = optionalString(source.endedAt) ?? optionalString(source.ended_at);
   const endReason = optionalString(source.endReason) ?? optionalString(source.end_reason);
   const lastBotStatusAt =
@@ -260,6 +267,9 @@ function normalizeMeetingSession(value: unknown): MeetingSessionDto | null {
     ...(botCallId ? { botCallId } : {}),
     ...(createdAt ? { createdAt } : {}),
     ...(updatedAt ? { updatedAt } : {}),
+    ...(requestedAt ? { requestedAt } : {}),
+    ...(commandSentAt ? { commandSentAt } : {}),
+    ...(joinedAt ? { joinedAt } : {}),
     ...(endedAt ? { endedAt } : {}),
     ...(endReason ? { endReason } : {}),
     ...(lastBotStatusAt ? { lastBotStatusAt } : {}),

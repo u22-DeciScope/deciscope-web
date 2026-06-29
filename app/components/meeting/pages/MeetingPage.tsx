@@ -45,6 +45,7 @@ export default function Meeting() {
   const [isEndingSession, setIsEndingSession] = useState(false);
   const [sessionEndStatusOverride, setSessionEndStatusOverride] =
     useState<MeetingSessionStatus | null>(null);
+  const [sessionEndedAtOverride, setSessionEndedAtOverride] = useState("");
   const [sessionEndError, setSessionEndError] = useState<string | null>(null);
   const summaryPath = workspaceMeetingSummaryPath(workspaceId, runtimeMeetingId ?? "");
   const meetingTitle = runtime.meeting?.title?.trim()
@@ -86,6 +87,7 @@ export default function Meeting() {
   useEffect(() => {
     setIsEndingSession(false);
     setSessionEndStatusOverride(null);
+    setSessionEndedAtOverride("");
     setSessionEndError(null);
   }, [sessionId]);
 
@@ -128,7 +130,10 @@ export default function Meeting() {
     workspaceId,
   ]);
 
-  const partials = useMemo(() => Object.values(runtime.partials), [runtime.partials]);
+  const partials = useMemo(
+    () => [...Object.values(runtime.partials), ...transcriptSession.partials],
+    [runtime.partials, transcriptSession.partials],
+  );
   const segments = useMemo(
     () => mergeDisplaySegments(runtime.segments, transcriptSession.segments),
     [runtime.segments, transcriptSession.segments],
@@ -143,13 +148,11 @@ export default function Meeting() {
   const isEndedStatus = isTerminalMeetingSessionStatus(statusLabel);
   const isEndingMeeting = runtime.isEnding || isEndingSession;
   const canEndMeeting = Boolean(sessionId || runtimeMeetingId);
-  const elapsedLabel = formatDuration(
-    Math.max(
-      0,
-      ...segments.map((segment) => segment.end_ms),
-      ...partials.map((partial) => partial.start_ms ?? 0),
-    ),
-  );
+  const sessionEndedAt = sessionEndedAtOverride || transcriptSession.sessionEndedAt;
+  const elapsedStartAt =
+    transcriptSession.sessionJoinedAt ||
+    (isElapsedMeetingStatus(statusLabel) ? transcriptSession.sessionCreatedAt : "");
+  const elapsedLabel = useMeetingElapsedTime(elapsedStartAt, sessionEndedAt, isEndedStatus);
   const transcriptNotice = transcriptSession.error
     ? transcriptSession.error
     : sessionId &&
@@ -169,6 +172,7 @@ export default function Meeting() {
       try {
         const session = await endMeetingSession(sessionId);
         setSessionEndStatusOverride(session.status);
+        setSessionEndedAtOverride(session.endedAt ?? new Date().toISOString());
         upsertMeetingSessionRecord({
           sessionId: session.sessionId,
           workspaceId,
@@ -207,9 +211,7 @@ export default function Meeting() {
     () => ({
       header: {
         title: meetingTitle,
-        subtitle: sessionId
-          ? `経過 ${elapsedLabel} / ${shortSessionId(sessionId)}`
-          : `経過 ${elapsedLabel} / seq ${runtime.lastSeq}`,
+        subtitle: `経過 ${elapsedLabel ?? "--:--"}`,
         status: <LiveStatusBadge status={statusLabel} label={displayStatus} />,
         actions: (
           <div className="flex flex-wrap items-center justify-end gap-1.5">
@@ -232,8 +234,6 @@ export default function Meeting() {
       isEndedStatus,
       isEndingMeeting,
       meetingTitle,
-      runtime.lastSeq,
-      sessionId,
       statusLabel,
     ],
   );
@@ -283,9 +283,61 @@ function mergeDisplaySegments(
   });
 }
 
+function useMeetingElapsedTime(startAt: string, endAt: string, isEnded: boolean) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    setNowMs(Date.now());
+    if (!startAt || isEnded) {
+      return;
+    }
+
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [isEnded, startAt]);
+
+  return useMemo(() => {
+    const startMs = parseTimestampMs(startAt);
+    if (startMs === null) {
+      return null;
+    }
+    const endMs = parseTimestampMs(endAt) ?? nowMs;
+    return formatElapsedDuration(Math.max(0, endMs - startMs));
+  }, [endAt, nowMs, startAt]);
+}
+
+function parseTimestampMs(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+function formatElapsedDuration(durationMs: number) {
+  const totalSeconds = Math.floor(durationMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const paddedSeconds = String(seconds).padStart(2, "0");
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${paddedSeconds}`;
+  }
+  return `${minutes}:${paddedSeconds}`;
+}
+
+function isElapsedMeetingStatus(status: string) {
+  return status === "joined" || status === "active" || status === "recording";
+}
+
 function LiveStatusBadge({ label, status }: { label: string; status: string }) {
   const ended = status === "ended" || status === "closed";
-  const live = status === "started" || status === "connected";
+  const live =
+    status === "started" ||
+    status === "connected" ||
+    status === "joined" ||
+    status === "active" ||
+    status === "recording";
 
   return (
     <span
@@ -371,17 +423,6 @@ function formatTranscriptConnectionStatus(status: string) {
     default:
       return status;
   }
-}
-
-function formatDuration(ms: number) {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
-
-function shortSessionId(sessionId: string) {
-  return sessionId.length > 18 ? `${sessionId.slice(0, 18)}...` : sessionId;
 }
 
 function errorMessage(cause: unknown) {

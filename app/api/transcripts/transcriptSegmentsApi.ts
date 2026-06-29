@@ -16,6 +16,7 @@ export type TranscriptSegment = {
   durationTicks?: number;
   text: string;
   duplicate?: boolean;
+  isFinal: boolean;
 };
 
 export type TranscriptSegmentEvent = {
@@ -48,6 +49,7 @@ export type MeetingSessionStatusChange = {
   titleResolutionErrorCode?: string;
   titleResolutionErrorMessage?: string;
   botCallId?: string;
+  joinedAt?: string;
   endedAt?: string;
   endReason?: string;
   lastError?: string;
@@ -313,6 +315,7 @@ function normalizeTranscriptSegment(value: unknown): TranscriptSegment | null {
   const durationTicks =
     optionalNumber(source.durationTicks) ?? optionalNumber(source.duration_ticks);
   const duplicate = optionalBoolean(source.duplicate);
+  const isFinal = optionalBoolean(source.isFinal) ?? optionalBoolean(source.is_final) ?? true;
 
   if (!text) {
     return null;
@@ -331,6 +334,7 @@ function normalizeTranscriptSegment(value: unknown): TranscriptSegment | null {
     ...(durationTicks !== undefined ? { durationTicks } : {}),
     text,
     ...(duplicate !== undefined ? { duplicate } : {}),
+    isFinal,
   };
 }
 
@@ -365,6 +369,7 @@ function normalizeMeetingSessionStatusChange(value: unknown): MeetingSessionStat
     optionalString(source.titleResolutionErrorMessage) ??
     optionalString(source.title_resolution_error_message);
   const botCallId = optionalString(source.botCallId) ?? optionalString(source.bot_call_id);
+  const joinedAt = optionalString(source.joinedAt) ?? optionalString(source.joined_at);
   const endedAt = optionalString(source.endedAt) ?? optionalString(source.ended_at);
   const endReason = optionalString(source.endReason) ?? optionalString(source.end_reason);
   const lastError = optionalString(source.lastError) ?? optionalString(source.last_error);
@@ -389,6 +394,7 @@ function normalizeMeetingSessionStatusChange(value: unknown): MeetingSessionStat
     ...(titleResolutionErrorCode ? { titleResolutionErrorCode } : {}),
     ...(titleResolutionErrorMessage ? { titleResolutionErrorMessage } : {}),
     ...(botCallId ? { botCallId } : {}),
+    ...(joinedAt ? { joinedAt } : {}),
     ...(endedAt ? { endedAt } : {}),
     ...(endReason ? { endReason } : {}),
     ...(lastError ? { lastError } : {}),

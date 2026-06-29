@@ -105,7 +105,7 @@ export function MeetingChatPanel({ partials, segments }: MeetingChatPanelProps) 
             partial
             speaker={partial.speaker_label ?? "Speaker"}
             text={partial.text ?? ""}
-            time={formatDuration(partial.start_ms ?? 0)}
+            time={formatPartialTime(partial)}
           />
         ))}
       </div>
@@ -188,7 +188,7 @@ function EmptyTranscript() {
         まだ発言はありません
       </p>
       <p className="mt-1 leading-5" style={{ color: "var(--text-muted)" }}>
-        会議の音声やテストデータ再生が届くと、ここに文字起こしが流れます。
+        会議の音声が届くと、ここに文字起こしが流れます。
       </p>
     </div>
   );
@@ -212,6 +212,18 @@ function formatSegmentTime(segment: MeetingSegmentDto) {
     });
   }
   return formatDuration(segment.start_ms);
+}
+
+function formatPartialTime(partial: RuntimePartial) {
+  if (partial.ts_ms > 0) {
+    return new Date(partial.ts_ms).toLocaleTimeString("ja-JP", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+  }
+  return formatDuration(partial.start_ms ?? 0);
 }
 
 function segmentSpeakerName(segment: MeetingSegmentDto) {
