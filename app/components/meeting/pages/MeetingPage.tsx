@@ -1,14 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
-import {
-  HiArrowPath,
-  HiChatBubbleLeftRight,
-  HiPause,
-  HiPlay,
-  HiSparkles,
-  HiStop,
-  HiUserGroup,
-} from "react-icons/hi2";
 
 import { DsButton } from "~/components/DsButton";
 import { DiscussionTree } from "~/components/meeting/parts/DiscussionTree";
@@ -19,7 +10,12 @@ import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { useMeetingTranscriptSession } from "~/hooks/useMeetingTranscriptSession";
 import { useMeetingRuntime } from "~/hooks/useMeetingRuntime";
 import {
+  endMeetingSession,
+  type MeetingSessionStatus,
+} from "~/api/meetingSessions/meetingSessionsApi";
+import {
   findMeetingSessionRecord,
+  isTerminalMeetingSessionStatus,
   upsertMeetingSessionRecord,
 } from "~/api/meetingSessions/meetingSessionRegistry";
 import { clearPendingMeetingNavigation } from "~/api/meetingSessions/pendingMeetingNavigation";
@@ -46,9 +42,11 @@ export default function Meeting() {
     workspaceId,
   );
   const clearedPendingSessionRef = useRef("");
-  const [selectedFixture, setSelectedFixture] = useState("");
+  const [isEndingSession, setIsEndingSession] = useState(false);
+  const [sessionEndStatusOverride, setSessionEndStatusOverride] =
+    useState<MeetingSessionStatus | null>(null);
+  const [sessionEndError, setSessionEndError] = useState<string | null>(null);
   const summaryPath = workspaceMeetingSummaryPath(workspaceId, runtimeMeetingId ?? "");
-  const fixtureName = selectedFixture || runtime.fixtures[0]?.name || "";
   const meetingTitle = runtime.meeting?.title?.trim()
     ? getMeetingDisplayTitle(
         {
@@ -84,6 +82,12 @@ export default function Meeting() {
     }
     document.title = `${meetingTitle} | DeciScope`;
   }, [meetingTitle]);
+
+  useEffect(() => {
+    setIsEndingSession(false);
+    setSessionEndStatusOverride(null);
+    setSessionEndError(null);
+  }, [sessionId]);
 
   useEffect(() => {
     if (
@@ -129,12 +133,16 @@ export default function Meeting() {
     () => mergeDisplaySegments(runtime.segments, transcriptSession.segments),
     [runtime.segments, transcriptSession.segments],
   );
+  const meetingSessionStatus = sessionEndStatusOverride ?? transcriptSession.sessionStatus;
   const statusLabel =
-    transcriptSession.sessionStatus ??
+    meetingSessionStatus ??
     runtime.meetingState.status ??
     runtime.meeting?.status ??
     runtime.connectionStatus;
   const displayStatus = formatStatus(statusLabel);
+  const isEndedStatus = isTerminalMeetingSessionStatus(statusLabel);
+  const isEndingMeeting = runtime.isEnding || isEndingSession;
+  const canEndMeeting = Boolean(sessionId || runtimeMeetingId);
   const elapsedLabel = formatDuration(
     Math.max(
       0,
@@ -142,28 +150,58 @@ export default function Meeting() {
       ...partials.map((partial) => partial.start_ms ?? 0),
     ),
   );
-  const participantCount = runtime.meetingState.participants?.length ?? 0;
-  const topicCount = runtime.tree?.nodes?.length ?? 0;
-  const visibleInsightCount = runtime.analysisItems.filter(
-    (insight) => insight.status !== "dismissed",
-  ).length;
   const transcriptNotice = transcriptSession.error
     ? transcriptSession.error
     : sessionId &&
+        !isEndedStatus &&
         transcriptSession.connectionStatus !== "idle" &&
         transcriptSession.connectionStatus !== "connected"
       ? `文字起こしWebSocket: ${formatTranscriptConnectionStatus(
           transcriptSession.connectionStatus,
         )}`
       : null;
-  const pageNotice = runtime.error ?? transcriptNotice;
+  const pageNotice = runtime.error ?? sessionEndError ?? transcriptNotice;
 
   const finishMeeting = useCallback(async () => {
+    setSessionEndError(null);
+    if (sessionId) {
+      setIsEndingSession(true);
+      try {
+        const session = await endMeetingSession(sessionId);
+        setSessionEndStatusOverride(session.status);
+        upsertMeetingSessionRecord({
+          sessionId: session.sessionId,
+          workspaceId,
+          meetingId: isSessionOnlyRoute ? null : (runtimeMeetingId ?? null),
+          title: session.title ?? meetingTitle,
+          titleSource: session.titleSource ?? null,
+          status: session.status,
+          createdAt: session.createdAt,
+          updatedAt: session.updatedAt,
+          endedAt: session.endedAt ?? null,
+        });
+      } catch (cause) {
+        setSessionEndError(`会議を終了できませんでした: ${errorMessage(cause)}`);
+      } finally {
+        setIsEndingSession(false);
+      }
+      return;
+    }
+
     const report = await runtime.finishMeeting();
     if (report) {
       navigate(summaryPath);
     }
-  }, [navigate, runtime, summaryPath]);
+  }, [
+    isSessionOnlyRoute,
+    meetingTitle,
+    navigate,
+    runtime,
+    runtimeMeetingId,
+    sessionId,
+    summaryPath,
+    workspaceId,
+  ]);
 
   const chrome = useMemo(
     () => ({
@@ -175,86 +213,40 @@ export default function Meeting() {
         status: <LiveStatusBadge status={statusLabel} label={displayStatus} />,
         actions: (
           <div className="flex flex-wrap items-center justify-end gap-1.5">
-            <select
-              className="h-8 rounded-(--ds-radius-control) px-2 text-[11px] outline-none"
-              style={{
-                background: "var(--input-bg)",
-                border: "1px solid var(--input-border)",
-                color: "var(--text-main)",
-              }}
-              value={fixtureName}
-              onChange={(event) => setSelectedFixture(event.currentTarget.value)}
-            >
-              {runtime.fixtures.length === 0 ? (
-                <option value="">テストデータなし</option>
-              ) : (
-                runtime.fixtures.map((fixture) => (
-                  <option key={fixture.name} value={fixture.name}>
-                    {fixture.name}
-                  </option>
-                ))
-              )}
-            </select>
-            <IconButton
-              label="開始"
-              disabled={!fixtureName}
-              onClick={() => runtime.startReplay(fixtureName)}
-            >
-              <HiPlay className="h-3.5 w-3.5" />
-            </IconButton>
-            <IconButton label="一時停止" onClick={runtime.pauseReplay}>
-              <HiPause className="h-3.5 w-3.5" />
-            </IconButton>
-            <IconButton label="再開" onClick={runtime.resumeReplay}>
-              <HiArrowPath className="h-3.5 w-3.5" />
-            </IconButton>
-            <IconButton label="リセット" onClick={runtime.resetReplay}>
-              <HiStop className="h-3.5 w-3.5" />
-            </IconButton>
             <DsButton
-              disabled={!runtimeMeetingId || runtime.isEnding || statusLabel === "ended"}
+              disabled={!canEndMeeting || isEndingMeeting || isEndedStatus}
               variant="secondary"
               onClick={finishMeeting}
             >
-              終了
+              {isEndingMeeting ? "終了中" : "終了"}
             </DsButton>
           </div>
         ),
       },
     }),
-    [finishMeeting, fixtureName, meetingTitle, runtime, runtimeMeetingId, sessionId, statusLabel],
+    [
+      canEndMeeting,
+      displayStatus,
+      elapsedLabel,
+      finishMeeting,
+      isEndedStatus,
+      isEndingMeeting,
+      meetingTitle,
+      runtime.lastSeq,
+      sessionId,
+      statusLabel,
+    ],
   );
   useWorkspaceChrome(chrome);
 
   return (
     <section className="flex h-full min-w-0 flex-col gap-2 overflow-hidden">
-      <div className="grid shrink-0 gap-2 md:grid-cols-4">
-        <RuntimeMetric
-          icon={<HiChatBubbleLeftRight className="h-4 w-4" />}
-          label="発言"
-          value={`${segments.length} 件`}
-        />
-        <RuntimeMetric
-          icon={<HiUserGroup className="h-4 w-4" />}
-          label="参加者"
-          value={participantCount > 0 ? `${participantCount} 人` : "未取得"}
-        />
-        <RuntimeMetric
-          icon={<HiSparkles className="h-4 w-4" />}
-          label="AIメモ"
-          value={`${visibleInsightCount} 件`}
-        />
-        <RuntimeMetric label="議論ノード" value={`${topicCount} 件`} />
-      </div>
-
-      {(pageNotice || runtime.replayStatus) && (
+      {pageNotice && (
         <div
           className="rounded-(--ds-radius-control) border px-3 py-2 text-[11px]"
           style={{ borderColor: "var(--ds-border)", color: "var(--text-sub)" }}
         >
-          {pageNotice
-            ? pageNotice
-            : `再生状態: ${formatReplayStatus(runtime.replayStatus?.status)}`}
+          {pageNotice}
         </div>
       )}
 
@@ -291,25 +283,6 @@ function mergeDisplaySegments(
   });
 }
 
-function RuntimeMetric({ icon, label, value }: { icon?: ReactNode; label: string; value: string }) {
-  return (
-    <div
-      className="flex min-w-0 items-center gap-2 rounded-(--ds-radius-control) border px-3 py-2"
-      style={{ background: "var(--ds-surface-muted)", borderColor: "var(--ds-border)" }}
-    >
-      {icon ? <span className="shrink-0 text-(--brand)">{icon}</span> : null}
-      <div className="min-w-0">
-        <p className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>
-          {label}
-        </p>
-        <p className="truncate text-[13px] font-bold" style={{ color: "var(--text-main)" }}>
-          {value}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function LiveStatusBadge({ label, status }: { label: string; status: string }) {
   const ended = status === "ended" || status === "closed";
   const live = status === "started" || status === "connected";
@@ -331,37 +304,6 @@ function LiveStatusBadge({ label, status }: { label: string; status: string }) {
       />
       {label}
     </span>
-  );
-}
-
-function IconButton({
-  children,
-  disabled,
-  label,
-  onClick,
-}: {
-  children: ReactNode;
-  disabled?: boolean;
-  label: string;
-  onClick: () => void | Promise<void>;
-}) {
-  return (
-    <button
-      type="button"
-      title={label}
-      disabled={disabled}
-      className="flex h-8 w-8 items-center justify-center rounded-(--ds-radius-control) border text-[11px] disabled:opacity-50"
-      style={{
-        background: "var(--ds-surface)",
-        borderColor: "var(--ds-border)",
-        color: "var(--text-sub)",
-      }}
-      onClick={() => {
-        void onClick();
-      }}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -431,19 +373,6 @@ function formatTranscriptConnectionStatus(status: string) {
   }
 }
 
-function formatReplayStatus(status?: string) {
-  switch (status) {
-    case "running":
-      return "再生中";
-    case "paused":
-      return "一時停止中";
-    case "completed":
-      return "完了";
-    default:
-      return status ?? "不明";
-  }
-}
-
 function formatDuration(ms: number) {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -453,4 +382,8 @@ function formatDuration(ms: number) {
 
 function shortSessionId(sessionId: string) {
   return sessionId.length > 18 ? `${sessionId.slice(0, 18)}...` : sessionId;
+}
+
+function errorMessage(cause: unknown) {
+  return cause instanceof Error ? cause.message : "unknown error";
 }

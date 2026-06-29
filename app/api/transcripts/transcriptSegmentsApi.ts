@@ -47,6 +47,10 @@ export type MeetingSessionStatusChange = {
   organizerEmail?: string;
   titleResolutionErrorCode?: string;
   titleResolutionErrorMessage?: string;
+  botCallId?: string;
+  endedAt?: string;
+  endReason?: string;
+  lastError?: string;
   status: MeetingSessionStatus;
 };
 
@@ -360,6 +364,10 @@ function normalizeMeetingSessionStatusChange(value: unknown): MeetingSessionStat
   const titleResolutionErrorMessage =
     optionalString(source.titleResolutionErrorMessage) ??
     optionalString(source.title_resolution_error_message);
+  const botCallId = optionalString(source.botCallId) ?? optionalString(source.bot_call_id);
+  const endedAt = optionalString(source.endedAt) ?? optionalString(source.ended_at);
+  const endReason = optionalString(source.endReason) ?? optionalString(source.end_reason);
+  const lastError = optionalString(source.lastError) ?? optionalString(source.last_error);
   const status = source.status;
   if (!sessionId || !isMeetingSessionStatus(status)) {
     return null;
@@ -380,6 +388,10 @@ function normalizeMeetingSessionStatusChange(value: unknown): MeetingSessionStat
     ...(organizerEmail ? { organizerEmail } : {}),
     ...(titleResolutionErrorCode ? { titleResolutionErrorCode } : {}),
     ...(titleResolutionErrorMessage ? { titleResolutionErrorMessage } : {}),
+    ...(botCallId ? { botCallId } : {}),
+    ...(endedAt ? { endedAt } : {}),
+    ...(endReason ? { endReason } : {}),
+    ...(lastError ? { lastError } : {}),
     status,
   };
 }

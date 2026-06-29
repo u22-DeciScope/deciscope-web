@@ -137,6 +137,37 @@ export async function getMeetingSession(sessionId: string): Promise<MeetingSessi
   return session;
 }
 
+export async function endMeetingSession(
+  sessionId: string,
+  reason = "manual_end_requested",
+): Promise<MeetingSessionDto> {
+  const response = await fetch(
+    apiUrl(`${MEETING_SESSIONS_PATH}/${encodeURIComponent(sessionId)}/end`),
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify({ reason }),
+    },
+  );
+
+  const payload = await readJsonBody(response);
+  if (!response.ok) {
+    throw new Error(
+      errorMessageFromPayload(payload) || `${response.status} ${response.statusText}`,
+    );
+  }
+
+  const session = normalizeMeetingSession(payload);
+  if (!session) {
+    throw new Error("Go APIの会議セッション終了レスポンスを解析できませんでした。");
+  }
+  return session;
+}
+
 export function isMeetingSessionStatus(value: unknown): value is MeetingSessionStatus {
   return (
     typeof value === "string" && meetingSessionStatuses.includes(value as MeetingSessionStatus)

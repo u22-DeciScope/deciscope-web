@@ -315,6 +315,7 @@ export function useMeetingTranscriptSession(
                 {
                   title: parsed.sessionStatus.title,
                   titleSource: parsed.sessionStatus.titleSource ?? null,
+                  endedAt: parsed.sessionStatus.endedAt ?? null,
                 },
               );
             }
