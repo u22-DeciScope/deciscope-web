@@ -145,7 +145,7 @@ export default function UpcomingMeetingsPage() {
             >
               <span className="mr-2 h-2 w-2 shrink-0 rounded-full bg-(--brand)" />
               <span className="text-[13px] font-semibold" style={{ color: "var(--text-main)" }}>
-                今後の Teams 会議
+                今後の会議
               </span>
             </div>
             <div className="divide-y" style={{ borderColor: "var(--ds-border)" }}>
@@ -192,7 +192,7 @@ function NotConnectedCard({ integrationPath }: { integrationPath: string }) {
           Teams 連携が未接続です
         </p>
         <p className="mt-1 text-[12px]" style={{ color: "var(--text-muted)" }}>
-          Microsoft アカウントを接続すると、予定された Teams 会議の一覧を表示し、Bot
+          Microsoft アカウントを接続すると、予定された会議の一覧を表示し、Bot
           を参加させられるようになります。
         </p>
       </div>

@@ -1,4 +1,8 @@
-import type { MeetingSessionStatus } from "~/api/meetingSessions/meetingSessionsApi";
+import type {
+  MeetingSessionDto,
+  MeetingSessionStatus,
+} from "~/api/meetingSessions/meetingSessionsApi";
+import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
 
 const storageKey = "deciscope:meetingSessions:v1";
 const legacyLastSessionStorageKey = "deciscope:lastSessionId";
@@ -8,9 +12,11 @@ export type MeetingSessionRecord = {
   workspaceId: string;
   meetingId?: string | null;
   title: string;
+  titleSource?: string | null;
   status: MeetingSessionStatus;
   createdAt: string;
   updatedAt: string;
+  endedAt?: string | null;
 };
 
 type MeetingSessionRecordInput = {
@@ -18,7 +24,11 @@ type MeetingSessionRecordInput = {
   workspaceId: string;
   meetingId?: string | null;
   title?: string;
+  titleSource?: string | null;
   status: MeetingSessionStatus;
+  createdAt?: string;
+  updatedAt?: string;
+  endedAt?: string | null;
 };
 
 export function listMeetingSessionRecords(workspaceId: string): MeetingSessionRecord[] {
@@ -57,10 +67,19 @@ export function upsertMeetingSessionRecord(input: MeetingSessionRecordInput) {
     sessionId,
     workspaceId,
     meetingId: input.meetingId ?? previous?.meetingId ?? null,
-    title: input.title?.trim() || previous?.title || "Teams 会議",
+    title: getMeetingDisplayTitle(
+      {
+        sessionId,
+        title: input.title?.trim() || previous?.title || null,
+        titleSource: input.titleSource ?? previous?.titleSource ?? null,
+      },
+      { component: "meeting-session-registry" },
+    ),
+    titleSource: input.titleSource ?? previous?.titleSource ?? null,
     status: input.status,
-    createdAt: previous?.createdAt ?? now,
-    updatedAt: now,
+    createdAt: input.createdAt ?? previous?.createdAt ?? now,
+    updatedAt: input.updatedAt ?? now,
+    endedAt: input.endedAt ?? previous?.endedAt ?? null,
   };
 
   if (index >= 0) {
@@ -77,14 +96,35 @@ export function updateMeetingSessionRecordStatus(
   workspaceId: string,
   sessionId: string,
   status: MeetingSessionStatus,
+  details?: {
+    title?: string;
+    titleSource?: string | null;
+    createdAt?: string;
+    updatedAt?: string;
+    endedAt?: string | null;
+  },
 ) {
   const existing = findMeetingSessionRecord(workspaceId, sessionId);
   upsertMeetingSessionRecord({
     sessionId,
     workspaceId,
     meetingId: existing?.meetingId ?? null,
-    title: existing?.title,
+    title: details?.title ?? existing?.title,
+    titleSource: details?.titleSource ?? existing?.titleSource ?? null,
     status,
+    createdAt: details?.createdAt,
+    updatedAt: details?.updatedAt,
+    endedAt: details?.endedAt,
+  });
+}
+
+export function updateMeetingSessionRecordFromDto(workspaceId: string, session: MeetingSessionDto) {
+  updateMeetingSessionRecordStatus(workspaceId, session.sessionId, session.status, {
+    title: session.title,
+    titleSource: session.titleSource ?? null,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+    endedAt: session.endedAt ?? null,
   });
 }
 
@@ -97,7 +137,14 @@ export function deleteMeetingSessionRecord(sessionId: string) {
 }
 
 export function isTerminalMeetingSessionStatus(status: string) {
-  return status === "ended" || status === "failed" || status === "stale" || status === "timeout";
+  return (
+    status === "ended" ||
+    status === "completed" ||
+    status === "finished" ||
+    status === "failed" ||
+    status === "stale" ||
+    status === "timeout"
+  );
 }
 
 function readRecords() {

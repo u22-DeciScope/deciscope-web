@@ -25,6 +25,7 @@ import {
 import { clearPendingMeetingNavigation } from "~/api/meetingSessions/pendingMeetingNavigation";
 import type { MeetingSegmentDto } from "~/api/meetings/meetingEventsApi";
 import { workspaceMeetingSummaryPath } from "~/routing/workspacePaths";
+import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
 import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
 export default function Meeting() {
@@ -48,7 +49,25 @@ export default function Meeting() {
   const [selectedFixture, setSelectedFixture] = useState("");
   const summaryPath = workspaceMeetingSummaryPath(workspaceId, runtimeMeetingId ?? "");
   const fixtureName = selectedFixture || runtime.fixtures[0]?.name || "";
-  const meetingTitle = runtime.meeting?.title ?? (sessionId ? "Teams 会議" : "会議");
+  const meetingTitle = runtime.meeting?.title?.trim()
+    ? getMeetingDisplayTitle(
+        {
+          id: runtime.meeting.id,
+          title: runtime.meeting.title,
+          titleSource: runtime.meeting.source,
+        },
+        { component: "meeting-page-runtime" },
+      )
+    : sessionId
+      ? getMeetingDisplayTitle(
+          {
+            sessionId,
+            title: transcriptSession.sessionTitle,
+            titleSource: transcriptSession.sessionTitleSource,
+          },
+          { component: "meeting-page-header" },
+        )
+      : "会議";
 
   useEffect(() => {
     meetingStartDebug("meeting-page", "mounted or route changed", {
@@ -58,6 +77,13 @@ export default function Meeting() {
       isSessionOnlyRoute,
     });
   }, [id, isSessionOnlyRoute, runtimeMeetingId, sessionId, workspaceId]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    document.title = `${meetingTitle} | DeciScope`;
+  }, [meetingTitle]);
 
   useEffect(() => {
     if (
@@ -85,6 +111,7 @@ export default function Meeting() {
       workspaceId,
       meetingId: isSessionOnlyRoute ? null : (runtimeMeetingId ?? null),
       title: meetingTitle,
+      titleSource: transcriptSession.sessionTitleSource || null,
       status: transcriptSession.sessionStatus,
     });
   }, [
@@ -93,6 +120,7 @@ export default function Meeting() {
     runtimeMeetingId,
     sessionId,
     transcriptSession.sessionStatus,
+    transcriptSession.sessionTitleSource,
     workspaceId,
   ]);
 
@@ -358,6 +386,8 @@ function formatStatus(status: string) {
     case "started":
       return "進行中";
     case "ended":
+    case "completed":
+    case "finished":
       return "終了";
     case "requested":
       return "参加要求済み";

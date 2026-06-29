@@ -117,7 +117,7 @@ export default function TeamsIntegrationPage() {
         {!connected && (
           <>
             <p className="mb-4 text-[12px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
-              Microsoft アカウントを接続すると、予定された Teams 会議の一覧を取得し、会議に分析 Bot
+              Microsoft アカウントを接続すると、予定された会議の一覧を取得し、会議に分析 Bot
               を参加させられるようになります。
             </p>
             <DsButton

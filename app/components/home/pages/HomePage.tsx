@@ -8,7 +8,7 @@ import {
   isTerminalMeetingSessionStatus,
   listMeetingSessionRecords,
   type MeetingSessionRecord,
-  updateMeetingSessionRecordStatus,
+  updateMeetingSessionRecordFromDto,
 } from "~/api/meetingSessions/meetingSessionRegistry";
 import { listMeetings, type MeetingDto } from "~/api/meetings/meetingsApi";
 import { DsButton } from "~/components/DsButton";
@@ -19,8 +19,10 @@ import {
   workspaceMeetingSummaryPath,
   workspacePath,
 } from "~/routing/workspacePaths";
+import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
+import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
-const staleActiveSessionMs = 12 * 60 * 60 * 1000;
+const staleActiveSessionMs = 2 * 60 * 60 * 1000;
 
 export default function Home() {
   const { today, user, workspaceId } = useAuthenticatedLayout();
@@ -42,6 +44,12 @@ export default function Home() {
         }
         setMeetings(result.meetings);
         setMeetingSessions(sessions);
+        meetingStartDebug("dashboard", "dashboard fetched sessions", {
+          meetingCount: result.meetings.length,
+          sessionCount: sessions.length,
+          activeSessions: sessions.filter((session) => isActiveMeetingStatus(session.status, true))
+            .length,
+        });
         setError(null);
       })
       .catch((cause: unknown) => {
@@ -63,10 +71,15 @@ export default function Home() {
     () => buildMeetingItems(meetings, meetingSessions, workspaceId),
     [meetingSessions, meetings, workspaceId],
   );
-  const allActiveMeetings = useMemo(
-    () => sortByCreatedAtDesc(meetingItems.filter(isActiveMeetingItem)),
-    [meetingItems],
-  );
+  const allActiveMeetings = useMemo(() => {
+    const active = meetingItems.filter(isActiveMeetingItem);
+    meetingStartDebug("dashboard", "activeSessions filtering result", {
+      total: meetingItems.length,
+      active: active.length,
+      inactive: meetingItems.length - active.length,
+    });
+    return sortByCreatedAtDesc(active);
+  }, [meetingItems]);
   const activeMeetings = useMemo(() => allActiveMeetings.slice(0, 3), [allActiveMeetings]);
   const recentMeetings = useMemo(
     () => meetingItems.filter((meeting) => !isActiveMeetingItem(meeting)).slice(0, 5),
@@ -270,7 +283,7 @@ async function refreshMeetingSessionRecords(workspaceId: string) {
     records.map(async (record) => {
       try {
         const session = await getMeetingSession(record.sessionId);
-        updateMeetingSessionRecordStatus(workspaceId, record.sessionId, session.status);
+        updateMeetingSessionRecordFromDto(workspaceId, session);
       } catch (cause) {
         if (isMissingMeetingSessionError(cause)) {
           deleteMeetingSessionRecord(record.sessionId);
@@ -337,7 +350,15 @@ function meetingToListItem(
   const meetingPath = `${workspaceMeetingPath(workspaceId, meeting.id)}${sessionQuery}`;
   return {
     id: meeting.id,
-    title: meeting.title,
+    title: getMeetingDisplayTitle(
+      {
+        id: meeting.id,
+        sessionId: session?.sessionId,
+        title: session?.title ?? meeting.title,
+        titleSource: session?.titleSource ?? meeting.source,
+      },
+      { component: session ? "dashboard-linked-session" : "dashboard-meeting" },
+    ),
     status,
     source: meeting.source,
     created_at: meeting.created_at,
@@ -360,18 +381,21 @@ function sessionToListItem(session: MeetingSessionRecord, workspaceId: string): 
     workspaceId,
     session.sessionId,
   )}?sessionId=${encodeURIComponent(session.sessionId)}`;
+  const status = displaySessionStatus(session);
   return {
     id: session.sessionId,
-    title: session.title,
-    status: session.status,
+    title: getMeetingDisplayTitle(session, { component: "dashboard-session-card" }),
+    status,
     source: "teams_bot",
     created_at: session.createdAt,
     updated_at: session.updatedAt,
-    ended_at: isTerminalMeetingSessionStatus(session.status) ? session.updatedAt : undefined,
+    ended_at: isTerminalMeetingSessionStatus(session.status)
+      ? (session.endedAt ?? session.updatedAt)
+      : undefined,
     detailId: session.sessionId,
     to: meetingPath,
     recentTo: meetingPath,
-    actionLabel: isActiveMeetingStatus(session.status, true) ? "開く" : "記録を見る",
+    actionLabel: isActiveMeetingStatus(status, true) ? "開く" : "記録を見る",
     isTeamsSession: true,
   };
 }
@@ -383,7 +407,19 @@ function isActiveMeetingItem(item: MeetingListItem) {
   if (!item.isTeamsSession) {
     return true;
   }
-  return Date.now() - Date.parse(item.updated_at) <= staleActiveSessionMs;
+  const activeAgeMs = Date.now() - Date.parse(item.updated_at);
+  const isFresh = activeAgeMs <= staleActiveSessionMs;
+  if (!isFresh) {
+    meetingStartDebug("dashboard", "active session excluded as stale on dashboard", {
+      sessionId: item.detailId,
+      title: item.title,
+      status: item.status,
+      updatedAt: item.updated_at,
+      activeAgeMs,
+      staleActiveSessionMs,
+    });
+  }
+  return isFresh;
 }
 
 function isActiveMeetingStatus(status: string, isTeamsSession: boolean) {
@@ -444,6 +480,8 @@ function formatStatus(status: string) {
     case "started":
       return "進行中";
     case "ended":
+    case "completed":
+    case "finished":
       return "終了";
     case "requested":
       return "参加要求済み";
@@ -459,6 +497,8 @@ function formatStatus(status: string) {
       return "進行中";
     case "recording":
       return "録音中";
+    case "transcribing":
+      return "文字起こし中";
     case "failed":
       return "失敗";
     case "stale":
@@ -470,12 +510,36 @@ function formatStatus(status: string) {
   }
 }
 
+function displaySessionStatus(session: MeetingSessionRecord) {
+  if (
+    isActiveMeetingStatus(session.status, true) &&
+    Date.now() - Date.parse(session.updatedAt) > staleActiveSessionMs
+  ) {
+    meetingStartDebug("dashboard", "session card status overridden", {
+      reason: "stale_active_session",
+      sessionId: session.sessionId,
+      title: session.title,
+      titleSource: session.titleSource ?? null,
+      originalStatus: session.status,
+      updatedAt: session.updatedAt,
+    });
+    return "stale";
+  }
+  meetingStartDebug("dashboard", "session card title source", {
+    sessionId: session.sessionId,
+    title: session.title,
+    titleSource: session.titleSource ?? null,
+    status: session.status,
+  });
+  return session.status;
+}
+
 function formatSource(source: string) {
   switch (source) {
     case "fixture_replay":
       return "テストデータ";
     case "teams_bot":
-      return "Teams会議";
+      return "Teams";
     case "upload":
       return "ファイル";
     default:

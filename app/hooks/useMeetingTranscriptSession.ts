@@ -39,6 +39,8 @@ export function useMeetingTranscriptSession(
   const normalizedSessionId = sessionId?.trim() ?? "";
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [sessionStatus, setSessionStatus] = useState<MeetingSessionStatus | null>(null);
+  const [sessionTitle, setSessionTitle] = useState("");
+  const [sessionTitleSource, setSessionTitleSource] = useState("");
   const [connectionStatus, setConnectionStatus] =
     useState<TranscriptSessionConnectionStatus>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -131,6 +133,8 @@ export function useMeetingTranscriptSession(
       seenKeysRef.current.clear();
       setSegments([]);
       setSessionStatus(null);
+      setSessionTitle("");
+      setSessionTitleSource("");
       setConnectionStatus("idle");
       setError(null);
       return;
@@ -142,6 +146,8 @@ export function useMeetingTranscriptSession(
     seenKeysRef.current.clear();
     setSegments([]);
     setSessionStatus(null);
+    setSessionTitle("");
+    setSessionTitleSource("");
     setConnectionStatus("loading");
     setError(null);
 
@@ -165,15 +171,25 @@ export function useMeetingTranscriptSession(
           return;
         }
         setSessionStatus(session.status);
+        setSessionTitle(session.title ?? "");
+        setSessionTitleSource(session.titleSource ?? "");
         const statusError = sessionStatusErrorMessage(session.status);
         if (statusError) {
           setError(statusError);
         }
         if (workspaceId) {
-          updateMeetingSessionRecordStatus(workspaceId, normalizedSessionId, session.status);
+          updateMeetingSessionRecordStatus(workspaceId, normalizedSessionId, session.status, {
+            title: session.title,
+            titleSource: session.titleSource ?? null,
+            createdAt: session.createdAt,
+            updatedAt: session.updatedAt,
+            endedAt: session.endedAt ?? null,
+          });
         }
         meetingStartDebug("meeting-page", "session data loaded", {
           sessionId: normalizedSessionId,
+          title: session.title ?? null,
+          titleSource: session.titleSource ?? null,
           meetingUrlHash: session.meetingUrlHash ?? null,
           status: session.status,
         });
@@ -271,8 +287,24 @@ export function useMeetingTranscriptSession(
           const parsed = parseTranscriptWebSocketEvent(raw);
           if (parsed.sessionStatus && parsed.sessionStatus.sessionId === activeSessionRef.current) {
             setSessionStatus(parsed.sessionStatus.status);
+            if (parsed.sessionStatus.title) {
+              setSessionTitle(parsed.sessionStatus.title);
+            }
+            if (parsed.sessionStatus.titleSource) {
+              setSessionTitleSource(parsed.sessionStatus.titleSource);
+            }
             meetingStartDebug("meeting-page", "session status received", {
               sessionId: parsed.sessionStatus.sessionId,
+              title: parsed.sessionStatus.title ?? null,
+              titleSource: parsed.sessionStatus.titleSource ?? null,
+              provider: parsed.sessionStatus.provider ?? null,
+              externalMeetingId: parsed.sessionStatus.externalMeetingId ?? null,
+              joinMeetingId: parsed.sessionStatus.joinMeetingId ?? null,
+              joinWebUrl: parsed.sessionStatus.joinWebUrl ?? null,
+              threadId: parsed.sessionStatus.threadId ?? null,
+              organizerId: parsed.sessionStatus.organizerId ?? null,
+              titleResolutionErrorCode: parsed.sessionStatus.titleResolutionErrorCode ?? null,
+              titleResolutionErrorMessage: parsed.sessionStatus.titleResolutionErrorMessage ?? null,
               status: parsed.sessionStatus.status,
             });
             if (workspaceId) {
@@ -280,6 +312,10 @@ export function useMeetingTranscriptSession(
                 workspaceId,
                 parsed.sessionStatus.sessionId,
                 parsed.sessionStatus.status,
+                {
+                  title: parsed.sessionStatus.title,
+                  titleSource: parsed.sessionStatus.titleSource ?? null,
+                },
               );
             }
             const statusError = sessionStatusErrorMessage(parsed.sessionStatus.status);
@@ -389,6 +425,8 @@ export function useMeetingTranscriptSession(
   return useMemo(
     () => ({
       sessionId: normalizedSessionId,
+      sessionTitle,
+      sessionTitleSource,
       sessionStatus,
       connectionStatus,
       error,
@@ -397,7 +435,16 @@ export function useMeetingTranscriptSession(
         transcriptSegmentToMeetingSegment(segment, meetingId, normalizedSessionId),
       ),
     }),
-    [connectionStatus, error, meetingId, normalizedSessionId, segments, sessionStatus],
+    [
+      connectionStatus,
+      error,
+      meetingId,
+      normalizedSessionId,
+      segments,
+      sessionStatus,
+      sessionTitle,
+      sessionTitleSource,
+    ],
   );
 }
 

@@ -33,6 +33,20 @@ export type TranscriptSubscriptionInput = string | TranscriptSubscriptionFilters
 
 export type MeetingSessionStatusChange = {
   sessionId: string;
+  title?: string;
+  displayTitle?: string;
+  titleSource?: string;
+  provider?: string;
+  externalMeetingId?: string;
+  joinMeetingId?: string;
+  joinWebUrl?: string;
+  canonicalJoinWebUrl?: string;
+  threadId?: string;
+  organizerId?: string;
+  organizerName?: string;
+  organizerEmail?: string;
+  titleResolutionErrorCode?: string;
+  titleResolutionErrorMessage?: string;
   status: MeetingSessionStatus;
 };
 
@@ -322,11 +336,52 @@ function normalizeMeetingSessionStatusChange(value: unknown): MeetingSessionStat
   }
   const source = value as Record<string, unknown>;
   const sessionId = optionalString(source.sessionId) ?? optionalString(source.session_id);
+  const displayTitle = optionalString(source.displayTitle) ?? optionalString(source.display_title);
+  const title =
+    displayTitle ?? optionalString(source.title) ?? optionalString(source.meeting_title);
+  const titleSource = optionalString(source.titleSource) ?? optionalString(source.title_source);
+  const provider = optionalString(source.provider);
+  const externalMeetingId =
+    optionalString(source.externalMeetingId) ?? optionalString(source.external_meeting_id);
+  const joinMeetingId =
+    optionalString(source.joinMeetingId) ?? optionalString(source.join_meeting_id);
+  const joinWebUrl = optionalString(source.joinWebUrl) ?? optionalString(source.join_web_url);
+  const canonicalJoinWebUrl =
+    optionalString(source.canonicalJoinWebUrl) ?? optionalString(source.canonical_join_web_url);
+  const threadId = optionalString(source.threadId) ?? optionalString(source.thread_id);
+  const organizerId = optionalString(source.organizerId) ?? optionalString(source.organizer_id);
+  const organizerName =
+    optionalString(source.organizerName) ?? optionalString(source.organizer_name);
+  const organizerEmail =
+    optionalString(source.organizerEmail) ?? optionalString(source.organizer_email);
+  const titleResolutionErrorCode =
+    optionalString(source.titleResolutionErrorCode) ??
+    optionalString(source.title_resolution_error_code);
+  const titleResolutionErrorMessage =
+    optionalString(source.titleResolutionErrorMessage) ??
+    optionalString(source.title_resolution_error_message);
   const status = source.status;
   if (!sessionId || !isMeetingSessionStatus(status)) {
     return null;
   }
-  return { sessionId, status };
+  return {
+    sessionId,
+    ...(title ? { title } : {}),
+    ...(displayTitle ? { displayTitle } : {}),
+    ...(titleSource ? { titleSource } : {}),
+    ...(provider ? { provider } : {}),
+    ...(externalMeetingId ? { externalMeetingId } : {}),
+    ...(joinMeetingId ? { joinMeetingId } : {}),
+    ...(joinWebUrl ? { joinWebUrl } : {}),
+    ...(canonicalJoinWebUrl ? { canonicalJoinWebUrl } : {}),
+    ...(threadId ? { threadId } : {}),
+    ...(organizerId ? { organizerId } : {}),
+    ...(organizerName ? { organizerName } : {}),
+    ...(organizerEmail ? { organizerEmail } : {}),
+    ...(titleResolutionErrorCode ? { titleResolutionErrorCode } : {}),
+    ...(titleResolutionErrorMessage ? { titleResolutionErrorMessage } : {}),
+    status,
+  };
 }
 
 function normalizeTranscriptFilters(

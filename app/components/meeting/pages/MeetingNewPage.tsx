@@ -13,16 +13,20 @@ import { DsButton } from "~/components/DsButton";
 import { DsInput } from "~/components/DsInput";
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
+import { useAuthenticatedSession } from "~/hooks/useAuthenticatedSession";
 import { workspaceMeetingPath, workspacePath } from "~/routing/workspacePaths";
+import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
 import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
 export default function MeetingNewPage() {
   const navigate = useNavigate();
   const { hash, pathname, search } = useLocation();
   const { workspaceId } = useAuthenticatedLayout();
+  const { user } = useAuthenticatedSession();
   const currentPath = `${pathname}${search}${hash}`;
   const meetingsPath = workspacePath(workspaceId, "/meetings");
   const [joinUrl, setJoinUrl] = useState("");
+  const [meetingTitleInput, setMeetingTitleInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -32,8 +36,8 @@ export default function MeetingNewPage() {
   const chrome = useMemo(
     () => ({
       header: {
-        title: "Teams 会議に入室",
-        breadcrumbs: [{ label: "ホーム", to: meetingsPath }, { label: "Teams 会議に入室" }],
+        title: "会議に入室",
+        breadcrumbs: [{ label: "ホーム", to: meetingsPath }, { label: "会議に入室" }],
       },
     }),
     [meetingsPath],
@@ -61,9 +65,13 @@ export default function MeetingNewPage() {
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const normalizedJoinUrl = normalizeMeetingUrlForClient(joinUrl);
+    const userInputTitle = meetingTitleInput.trim();
+    const createdByEmail = user?.email?.trim() || "";
     meetingStartDebug("meeting-start", "meetingUrl input submitted", {
       hasJoinUrl: Boolean(normalizedJoinUrl),
       host: safeUrlHost(normalizedJoinUrl),
+      hasUserInputTitle: Boolean(userInputTitle),
+      hasCreatedByEmail: Boolean(createdByEmail),
     });
 
     if (submitInFlightRef.current && inFlightJoinUrlRef.current === normalizedJoinUrl) {
@@ -108,9 +116,20 @@ export default function MeetingNewPage() {
     });
     try {
       meetingStartDebug("meeting-start", "POST /api/v1/meeting-sessions started");
-      const session = await createMeetingSession(normalizedJoinUrl);
+      const session = await createMeetingSession(normalizedJoinUrl, {
+        userProvidedTitle: userInputTitle || undefined,
+        candidateUserPrincipalNames: createdByEmail ? [createdByEmail] : undefined,
+        createdByEmail: createdByEmail || undefined,
+      });
+      const displayTitle = getMeetingDisplayTitle(session, {
+        component: "meeting-start-response",
+      });
       meetingStartDebug("meeting-start", "join request completed", {
         sessionId: session.sessionId,
+        title: session.title ?? null,
+        titleSource: session.titleSource ?? null,
+        userProvidedTitle: session.userProvidedTitle ?? null,
+        graphTitle: session.graphTitle ?? null,
         meetingUrlHash: session.meetingUrlHash ?? null,
         status: session.status,
         reused: session.reused ?? false,
@@ -119,8 +138,12 @@ export default function MeetingNewPage() {
       upsertMeetingSessionRecord({
         sessionId: session.sessionId,
         workspaceId,
-        title: "Teams 会議",
+        title: displayTitle,
+        titleSource: session.titleSource ?? (userInputTitle ? "user_input" : "fallback"),
         status: session.status,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        endedAt: session.endedAt ?? null,
       });
       meetingStartDebug("meeting-start", "recent session persisted", {
         sessionId: session.sessionId,
@@ -183,11 +206,19 @@ export default function MeetingNewPage() {
       >
         <div className="flex flex-col gap-4">
           <DsInput
-            label="Teams 会議URL"
+            label="会議URL"
             placeholder="https://teams.microsoft.com/l/meetup-join/..."
             value={joinUrl}
             disabled={isSubmitting}
             onChange={(event) => setJoinUrl(event.currentTarget.value)}
+          />
+
+          <DsInput
+            label="会議名（任意・取得できない場合の表示名）"
+            placeholder="例: 定例プロジェクト会議"
+            value={meetingTitleInput}
+            disabled={isSubmitting}
+            onChange={(event) => setMeetingTitleInput(event.currentTarget.value)}
           />
 
           {submitMessage && !error && (
