@@ -44,6 +44,7 @@ npm run dev
 
 ```text
 http://localhost:5193/test
+http://localhost:5193/test?sessionId=session_...
 ```
 
 テストページは `VITE_DECISCOPE_WS_URL` を接続先として使います。未設定の場合は、ブラウザ同一オリジンの次のURLへ接続します。
@@ -52,15 +53,63 @@ http://localhost:5193/test
 ws://localhost:5193/api/v1/ws/transcript-segments
 ```
 
-`callId` を入力すると、WebSocket URLに `?callId=<callId>` を付与します。`VITE_DECISCOPE_WS_CLIENT_TOKEN` が設定されている場合は `token` も付与しますが、画面表示ではマスクされます。`DECISCOPE_INGEST_API_KEY` などのバックエンド秘密値はフロントエンド環境変数に入れないでください。
+`sessionId` または `callId` を入力すると、WebSocket URLに `?sessionId=<sessionId>` / `?callId=<callId>` を付与します。両方指定した場合は両方のqueryを付与して絞り込みます。`VITE_DECISCOPE_WS_CLIENT_TOKEN` が設定されている場合は `token` も付与しますが、画面表示ではマスクされます。`DECISCOPE_INGEST_API_KEY` などのバックエンド秘密値はフロントエンド環境変数に入れないでください。
 
 Connect時に履歴取得APIも確認します。
 
 ```text
-GET /api/v1/transcript-segments?callId=<callId>&limit=100&token=<client-token>
+GET /api/v1/transcript-segments?sessionId=<sessionId>&callId=<callId>&limit=100&token=<client-token>
 ```
 
-履歴APIが未実装の場合、画面にその旨を表示し、WebSocket受信は継続します。履歴とWebSocketで同じデータが届いた場合は、`eventId` または `callId + sequenceNo` で重複排除します。
+履歴APIが未実装の場合、画面にその旨を表示し、WebSocket受信は継続します。履歴とWebSocketで同じデータが届いた場合は、`eventId` または `callId + sequenceNo`、もしくは `sessionId + sequenceNo` で重複排除します。
+
+Transcript segmentには任意で `speakerId` / `speakerName` が含まれます。`/test` では最新表示と一覧でspeaker情報を確認できます。過去データや手動POSTにはspeaker情報が無い場合があり、その場合は画面上で `話者不明`、または `speakerId` だけがある場合は `話者 <speakerId>` として表示します。`text` が空文字、またはtrim後に空の場合はフロントエンドでは表示しません。
+
+## 会議URLからBot参加
+
+workspace配下の「Teams 会議に入室」画面でTeams会議URLを貼って `会議に入室` を押すと、フロントエンドはGo APIへ次のリクエストを送ります。
+
+```text
+POST /api/v1/meeting-sessions
+```
+
+```json
+{
+  "joinUrl": "https://teams.microsoft.com/l/meetup-join/..."
+}
+```
+
+レスポンスの `sessionId` を受け取ったら、フロントエンドは `sessionId` をURLに含めて会議画面へ遷移します。
+
+```text
+/w/<workspaceId>/meetings/<sessionId>?sessionId=<sessionId>
+```
+
+会議URL送信時の流れは、`POST /api/v1/meeting-sessions`、`sessionId` の `localStorage` 保存、`sessionId` 付きURLへの遷移の順です。`sessionId` をURLに持たせることで、認証状態の再確認、ページ再読み込み、React stateの破棄を挟んでも会議セッションを復元できます。送信中はボタンをdisabledにし、同じsubmitの二重実行を防ぎます。
+
+ホームの進行中一覧では、フロントエンドが保存した `sessionId` とGo APIの `GET /api/v1/meeting-sessions/{sessionId}` のstatusを使ってTeams会議を表示します。`ended` または `failed` のTeams sessionは進行中一覧から外れ、最近の会議側に表示されます。Teams会議の「開く」「記録を見る」は必ず `?sessionId=<sessionId>` 付きで会議画面へ遷移するため、既存meetingレコードだけを開いて空の会議画面になることを避けます。
+
+`sessionId` は `localStorage` の `deciscope:meetingSessions:v1` に保持します。旧実装の `deciscope:lastSessionId` は最後に作成したsessionの控えとしてのみ更新し、ホーム一覧へは自動移行しません。存在しないsessionIdが保存されている場合は、ホーム表示時の再取得で削除します。
+
+認証状態が `loading` の間は未認証扱いでredirectせず、「認証状態を確認しています...」を表示します。WebSocketの一時切断や再接続中も会議画面は維持し、画面内の接続状態として表示します。
+
+開発時は `VITE_DECISCOPE_DEBUG_MEETING_START=true`、またはVite dev modeで、次のdebugログを確認できます。joinUrl全文は出力しません。
+
+```text
+[meeting-start] session created
+[meeting-start] navigating to meeting page
+[auth-guard] state
+[meeting-page] mounted or route changed
+[meeting-page] WebSocket connected
+```
+
+`/test` で同じセッションの文字起こしを確認する場合は、次のように `sessionId` を指定します。
+
+```text
+/api/v1/ws/transcript-segments?sessionId=<sessionId>
+```
+
+フロントエンドが直接VM Botを叩くことはありません。正しい流れは `Frontend -> Go API -> VM Bot` です。`DECISCOPE_BOT_CONTROL_URL`、`DECISCOPE_BOT_CONTROL_TOKEN`、`DECISCOPE_INGEST_API_KEY` はフロントエンド環境変数に設定しないでください。
 
 ## APIプロキシ
 
@@ -69,6 +118,7 @@ GET /api/v1/transcript-segments?callId=<callId>&limit=100&token=<client-token>
 テストページ用に、Vite は次のパスを Go API へ転送します。
 
 ```text
+/api/v1/meeting-sessions
 /api/v1/transcript-segments
 /api/v1/ws/transcript-segments
 ```
@@ -104,6 +154,7 @@ docker compose up --build frontend
 
 ```text
 http://localhost:5193/test
+http://localhost:5193/test?sessionId=session_...
 ```
 
 このcomposeは、Go APIがホスト公開ポート `localhost:9090` で動いている前提で、frontendコンテナから `host.docker.internal:9090` へproxyします。
@@ -132,12 +183,32 @@ API_PROXY_TARGET=http://host.docker.internal:9090 WS_PROXY_TARGET=ws://host.dock
 
 1. Go APIを起動します。
 2. フロントエンドを `npm run dev` または `docker compose up --build frontend` で起動します。
-3. `http://localhost:5193/test` を開きます。
-4. 必要なら `callId` を入力して Connect します。
-5. VM Bot、またはバックエンド手順に沿った手動POSTで `POST /api/v1/transcript-segments` へ文字起こしを投入します。
-6. `/test` の接続状態が `connected` になり、最新の文字起こしと一覧に受信データが表示されることを確認します。
+3. workspace配下の「Teams 会議に入室」画面でTeams会議URLを入力して `会議に入室` を押します。
+4. 既存の会議画面へ遷移することを確認します。
+5. 必要ならGo APIレスポンスの `sessionId` を使って `http://localhost:5193/test?sessionId=<sessionId>` を開き、同じsessionIdで Connect します。
+6. VM Bot、またはバックエンド手順に沿った手動POSTで `POST /api/v1/transcript-segments` へ文字起こしを投入します。
+7. 会議作成画面または `/test` の接続状態が `connected` になり、最新の文字起こしと一覧に受信データが表示されることを確認します。
 
 `/test` は既存の公開ページやworkspace配下のルートとは分離しており、確認用UIとして追加されています。
+
+speaker情報つきの手動POST例:
+
+```json
+{
+  "sessionId": "manual-speaker-session",
+  "eventId": "manual-speaker-test-12345",
+  "callId": "manual-speaker-call",
+  "sequenceNo": 12345,
+  "recognizedAtUtc": "2026-06-27T07:00:00Z",
+  "offsetTicks": 0,
+  "durationTicks": 10000000,
+  "text": "話者情報つきの手動テストです",
+  "speakerId": "manual-speaker-001",
+  "speakerName": "手動テスト太郎"
+}
+```
+
+このpayloadを送信すると、会議中画面のタイムラインと `/test` に `手動テスト太郎` が表示されます。`/test` の一覧では `speakerId` も確認できます。
 
 ## ビルド
 

@@ -25,11 +25,11 @@ export function MeetingAssistantPanel({ insights, speakerSummaries }: MeetingAss
 
   return (
     <div
-      className="flex min-h-0 w-full flex-col overflow-hidden rounded-(--ds-radius-panel)"
-      style={{ background: "var(--ds-surface)", boxShadow: "var(--ds-shadow)" }}
+      className="flex min-h-0 w-full flex-col overflow-hidden rounded-(--ds-radius-panel) border"
+      style={{ background: "var(--ds-surface)", borderColor: "var(--ds-border)" }}
     >
       <header
-        className="flex h-10 shrink-0 items-center border-b px-3"
+        className="flex h-11 shrink-0 items-center border-b px-3"
         style={{ borderColor: "var(--node-border)" }}
       >
         <span
@@ -38,12 +38,14 @@ export function MeetingAssistantPanel({ insights, speakerSummaries }: MeetingAss
         >
           <HiSparkles className="h-3.5 w-3.5" />
         </span>
-        <span
-          className="ml-2 flex-1 text-[12px] font-semibold"
-          style={{ color: "var(--text-main)" }}
-        >
-          AI アシスタント
-        </span>
+        <div className="ml-2 min-w-0 flex-1">
+          <p className="text-[12px] font-bold" style={{ color: "var(--text-main)" }}>
+            AI アシスタント
+          </p>
+          <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+            論点・リスク・次の一手
+          </p>
+        </div>
         <span
           className="flex h-4.5 w-4.5 items-center justify-center rounded-full text-[10px] font-bold text-white"
           style={{ background: "var(--brand)" }}
@@ -53,7 +55,7 @@ export function MeetingAssistantPanel({ insights, speakerSummaries }: MeetingAss
       </header>
 
       <div
-        className="flex h-8.5 shrink-0 items-center gap-1 border-b px-2"
+        className="flex h-9 shrink-0 items-center gap-1 border-b px-2"
         style={{ borderColor: "var(--node-border)" }}
       >
         {["すべて", "リスク", "論点", "質問"].map((label, index) => (
@@ -72,19 +74,25 @@ export function MeetingAssistantPanel({ insights, speakerSummaries }: MeetingAss
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
+      <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-2.5">
         {speakerSummaries.length > 0 && (
-          <section className="rounded-(--ds-radius-control) border p-3" style={{ borderColor: "var(--ds-border)" }}>
-            <h2 className="mb-2 text-[11px] font-semibold" style={{ color: "var(--text-main)" }}>
+          <section
+            className="rounded-(--ds-radius-control) border p-3"
+            style={{ background: "var(--ds-surface-muted)", borderColor: "var(--ds-border)" }}
+          >
+            <h2 className="mb-2 text-[11px] font-bold" style={{ color: "var(--text-main)" }}>
               話者ごとの要約
             </h2>
             <div className="space-y-2">
               {speakerSummaries.map((summary) => (
-                <div key={summary.speaker_label}>
+                <div key={summary.speaker_label} className="min-w-0">
                   <p className="text-[10px] font-semibold" style={{ color: "var(--text-sub)" }}>
                     {summary.speaker_label}
                   </p>
-                  <p className="text-[10px] leading-4" style={{ color: "var(--text-muted)" }}>
+                  <p
+                    className="mt-0.5 text-[11px] leading-5"
+                    style={{ color: "var(--text-muted)" }}
+                  >
                     {[...summary.claims, ...summary.questions, ...summary.todos].join(" / ") ||
                       "要約はまだありません。"}
                   </p>
@@ -94,9 +102,17 @@ export function MeetingAssistantPanel({ insights, speakerSummaries }: MeetingAss
           </section>
         )}
         {visibleInsights.length === 0 && (
-          <p className="px-2 py-3 text-[11px]" style={{ color: "var(--text-muted)" }}>
-            テストデータ再生の進行に合わせて分析カードが表示されます。
-          </p>
+          <div
+            className="rounded-(--ds-radius-control) border px-3 py-4 text-[12px]"
+            style={{ background: "var(--ds-surface-muted)", borderColor: "var(--ds-border)" }}
+          >
+            <p className="font-semibold" style={{ color: "var(--text-main)" }}>
+              まだAIメモはありません
+            </p>
+            <p className="mt-1 leading-5" style={{ color: "var(--text-muted)" }}>
+              分析イベントが届くと、リスクや質問がここへカード表示されます。
+            </p>
+          </div>
         )}
         {visibleInsights.map((insight) => {
           const Icon = insightIcons[insight.kind as keyof typeof insightIcons] ?? HiLightBulb;
@@ -107,17 +123,28 @@ export function MeetingAssistantPanel({ insights, speakerSummaries }: MeetingAss
               className="rounded-(--ds-radius-control) border p-3"
               style={{ background: style.background, borderColor: style.border }}
             >
-              <div
-                className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold"
-                style={{ color: style.color }}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {insight.kind} / {insight.severity}
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div
+                  className="flex items-center gap-1.5 text-[10px] font-bold"
+                  style={{ color: style.color }}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {insight.kind}
+                </div>
+                <span
+                  className="rounded-full px-2 py-0.5 text-[10px] font-bold"
+                  style={{
+                    background: "var(--reaction-bg)",
+                    color: severityColor(insight.severity),
+                  }}
+                >
+                  {insight.severity}
+                </span>
               </div>
-              <h2 className="text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>
+              <h2 className="text-[13px] font-bold leading-5" style={{ color: "var(--text-main)" }}>
                 {insight.title}
               </h2>
-              <p className="mt-2 text-[11px] leading-4" style={{ color: "var(--text-sub)" }}>
+              <p className="mt-2 text-[12px] leading-5" style={{ color: "var(--text-sub)" }}>
                 {insight.body}
               </p>
               <div className="mt-3 flex items-center justify-between gap-1">
@@ -145,6 +172,16 @@ export function MeetingAssistantPanel({ insights, speakerSummaries }: MeetingAss
       </div>
     </div>
   );
+}
+
+function severityColor(severity: string) {
+  if (severity === "high") {
+    return "var(--priority-high)";
+  }
+  if (severity === "medium") {
+    return "var(--priority-medium)";
+  }
+  return "var(--priority-low)";
 }
 
 function insightStyle(kind: string) {

@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
-import { Navigate } from "react-router";
+import { Navigate, useLocation } from "react-router";
 import { fetchMe } from "~/api/auth/authApi";
 import { WorkspaceStatus } from "~/components/shared/layout/WorkspaceStatus";
 import { workspacePath } from "~/routing/workspacePaths";
+import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
 export default function WorkspaceResolver() {
   const [destination, setDestination] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const { hash, pathname, search } = useLocation();
+  const currentPath = `${pathname}${search}${hash}`;
 
   useEffect(() => {
     fetchMe()
@@ -16,10 +19,35 @@ export default function WorkspaceResolver() {
           session.workspaces[0]?.id;
         setDestination(workspaceId ? workspacePath(workspaceId, "/meetings") : "/login");
       })
-      .catch(() => setFailed(true));
-  }, []);
+      .catch((cause) => {
+        meetingStartDebug("workspace-resolver", "workspace fetch failed", {
+          source: "workspace-resolver",
+          reason: "fetch_me_failed",
+          currentPath,
+          targetPath: "/login",
+          message: cause instanceof Error ? cause.message : String(cause),
+        });
+        setFailed(true);
+      });
+  }, [currentPath]);
 
-  if (failed) return <Navigate to="/login" replace />;
-  if (destination) return <Navigate to={destination} replace />;
+  if (failed) {
+    meetingStartDebug("workspace-resolver", "redirecting to login", {
+      source: "workspace-resolver",
+      reason: "fetch_me_failed",
+      currentPath,
+      targetPath: "/login",
+    });
+    return <Navigate to="/login" replace />;
+  }
+  if (destination) {
+    meetingStartDebug("workspace-resolver", "redirecting to workspace", {
+      source: "workspace-resolver",
+      reason: "workspace_resolved",
+      currentPath,
+      targetPath: destination,
+    });
+    return <Navigate to={destination} replace />;
+  }
   return <WorkspaceStatus message="Workspaceを確認しています..." />;
 }

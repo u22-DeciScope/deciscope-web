@@ -1,18 +1,66 @@
+import {
+  isMeetingSessionStatus,
+  type MeetingSessionStatus,
+} from "~/api/meetingSessions/meetingSessionsApi";
+
 export type TranscriptSegment = {
   eventId?: string;
+  sessionId?: string;
   callId: string;
   sequenceNo: number;
+  speakerLabel?: string;
+  speakerId?: string | null;
+  speakerName?: string | null;
   recognizedAtUtc: string;
   offsetTicks?: number;
   durationTicks?: number;
   text: string;
   duplicate?: boolean;
+  isFinal: boolean;
 };
 
 export type TranscriptSegmentEvent = {
   type: string;
   sentAtUtc?: string;
   data?: unknown;
+};
+
+export type TranscriptSubscriptionFilters = {
+  callId?: string;
+  sessionId?: string;
+};
+
+export type TranscriptSubscriptionInput = string | TranscriptSubscriptionFilters;
+
+export type MeetingSessionStatusChange = {
+  sessionId: string;
+  title?: string;
+  displayTitle?: string;
+  titleSource?: string;
+  provider?: string;
+  externalMeetingId?: string;
+  joinMeetingId?: string;
+  joinWebUrl?: string;
+  canonicalJoinWebUrl?: string;
+  threadId?: string;
+  organizerId?: string;
+  organizerName?: string;
+  organizerEmail?: string;
+  titleResolutionErrorCode?: string;
+  titleResolutionErrorMessage?: string;
+  botCallId?: string;
+  joinedAt?: string;
+  endedAt?: string;
+  endReason?: string;
+  lastError?: string;
+  status: MeetingSessionStatus;
+};
+
+export type ParsedTranscriptWebSocketEvent = {
+  type: string;
+  sentAtUtc?: string;
+  segment: TranscriptSegment | null;
+  sessionStatus: MeetingSessionStatusChange | null;
 };
 
 type TranscriptHistoryResult = {
@@ -28,10 +76,14 @@ export function transcriptWebSocketToken() {
   return token || null;
 }
 
-export function buildTranscriptWebSocketUrl(callId: string, token = transcriptWebSocketToken()) {
+export function buildTranscriptWebSocketUrl(
+  input: TranscriptSubscriptionInput = {},
+  token = transcriptWebSocketToken(),
+) {
   const configured = String(import.meta.env.VITE_DECISCOPE_WS_URL ?? "").trim();
   const source = configured || TRANSCRIPT_WS_PATH;
   const url = resolveBrowserUrl(source);
+  const filters = normalizeTranscriptFilters(input);
 
   if (url.protocol === "http:") {
     url.protocol = "ws:";
@@ -41,11 +93,15 @@ export function buildTranscriptWebSocketUrl(callId: string, token = transcriptWe
     url.protocol = defaultWebSocketProtocol();
   }
 
-  const trimmedCallId = callId.trim();
-  if (trimmedCallId) {
-    url.searchParams.set("callId", trimmedCallId);
+  if (filters.callId) {
+    url.searchParams.set("callId", filters.callId);
   } else {
     url.searchParams.delete("callId");
+  }
+  if (filters.sessionId) {
+    url.searchParams.set("sessionId", filters.sessionId);
+  } else {
+    url.searchParams.delete("sessionId");
   }
 
   if (token) {
@@ -70,11 +126,40 @@ export function maskWebSocketUrl(value: string) {
 }
 
 export async function fetchTranscriptSegmentHistory(
-  callId: string,
+  input: TranscriptSubscriptionInput = {},
   limit = 100,
   token = transcriptWebSocketToken(),
 ): Promise<TranscriptHistoryResult> {
-  const url = buildTranscriptHistoryUrl(callId, limit, token);
+  const url = buildTranscriptHistoryUrl(input, limit, token);
+  return fetchTranscriptHistoryUrl(url);
+}
+
+export async function fetchMeetingSessionTranscriptSegmentHistory(
+  sessionId: string,
+  limit = 100,
+  token = transcriptWebSocketToken(),
+): Promise<TranscriptHistoryResult> {
+  const url = buildMeetingSessionTranscriptHistoryUrl(sessionId, limit, token);
+  return fetchTranscriptHistoryUrl(url);
+}
+
+export function buildTranscriptHistoryDebugUrl(
+  input: TranscriptSubscriptionInput = {},
+  limit = 100,
+  token = transcriptWebSocketToken(),
+) {
+  return maskWebSocketUrl(buildTranscriptHistoryUrl(input, limit, token));
+}
+
+export function buildMeetingSessionTranscriptHistoryDebugUrl(
+  sessionId: string,
+  limit = 100,
+  token = transcriptWebSocketToken(),
+) {
+  return maskWebSocketUrl(buildMeetingSessionTranscriptHistoryUrl(sessionId, limit, token));
+}
+
+async function fetchTranscriptHistoryUrl(url: string): Promise<TranscriptHistoryResult> {
   const response = await fetch(url, {
     headers: { Accept: "application/json" },
     credentials: "include",
@@ -93,13 +178,34 @@ export async function fetchTranscriptSegmentHistory(
   return { segments: extractTranscriptSegments(payload), unavailable: false };
 }
 
-export function parseTranscriptSegmentEvent(raw: string) {
+export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebSocketEvent {
   const payload = JSON.parse(raw) as TranscriptSegmentEvent;
-  if (payload.type !== "transcript_segment.created") {
-    return { type: payload.type || "unknown", segment: null };
+  const type = payload.type || "unknown";
+
+  if (type === "meeting_session.status_changed") {
+    return {
+      type,
+      sentAtUtc: payload.sentAtUtc,
+      segment: null,
+      sessionStatus: normalizeMeetingSessionStatusChange(payload.data),
+    };
   }
 
-  return { type: payload.type, segment: normalizeTranscriptSegment(payload.data) };
+  if (type === "transcript_segment.created") {
+    return {
+      type,
+      sentAtUtc: payload.sentAtUtc,
+      segment: normalizeTranscriptSegment(payload.data),
+      sessionStatus: null,
+    };
+  }
+
+  return { type, sentAtUtc: payload.sentAtUtc, segment: null, sessionStatus: null };
+}
+
+export function parseTranscriptSegmentEvent(raw: string) {
+  const parsed = parseTranscriptWebSocketEvent(raw);
+  return { type: parsed.type, segment: parsed.segment };
 }
 
 export function transcriptSegmentKey(segment: TranscriptSegment) {
@@ -109,23 +215,51 @@ export function transcriptSegmentKey(segment: TranscriptSegment) {
   if (segment.callId && Number.isFinite(segment.sequenceNo)) {
     return `${segment.callId}:${segment.sequenceNo}`;
   }
+  if (segment.sessionId && Number.isFinite(segment.sequenceNo)) {
+    return `${segment.sessionId}:${segment.sequenceNo}`;
+  }
   return `${segment.callId}:${segment.recognizedAtUtc}:${segment.text}`;
 }
 
-function buildTranscriptHistoryUrl(callId: string, limit: number, token: string | null) {
+function buildTranscriptHistoryUrl(
+  input: TranscriptSubscriptionInput,
+  limit: number,
+  token: string | null,
+) {
   const configured = String(import.meta.env.VITE_DECISCOPE_API_BASE_URL ?? "").trim();
   const base = configured || browserOrigin();
   const url = new URL(TRANSCRIPT_HISTORY_PATH, base);
-  const trimmedCallId = callId.trim();
+  const filters = normalizeTranscriptFilters(input);
 
-  if (trimmedCallId) {
-    url.searchParams.set("callId", trimmedCallId);
+  if (filters.callId) {
+    url.searchParams.set("callId", filters.callId);
+  }
+  if (filters.sessionId) {
+    url.searchParams.set("sessionId", filters.sessionId);
   }
   url.searchParams.set("limit", String(limit));
   if (token) {
     url.searchParams.set("token", token);
   }
 
+  return url.toString();
+}
+
+function buildMeetingSessionTranscriptHistoryUrl(
+  sessionId: string,
+  limit: number,
+  token: string | null,
+) {
+  const configured = String(import.meta.env.VITE_DECISCOPE_API_BASE_URL ?? "").trim();
+  const base = configured || browserOrigin();
+  const url = new URL(
+    `/api/v1/meeting-sessions/${encodeURIComponent(sessionId.trim())}/transcript-segments`,
+    base,
+  );
+  url.searchParams.set("limit", String(limit));
+  if (token) {
+    url.searchParams.set("token", token);
+  }
   return url.toString();
 }
 
@@ -156,25 +290,127 @@ function normalizeTranscriptSegment(value: unknown): TranscriptSegment | null {
 
   const source = value as Record<string, unknown>;
   const eventId = optionalString(source.eventId) ?? optionalString(source.event_id);
+  const sessionId = optionalString(source.sessionId) ?? optionalString(source.session_id);
   const callId = optionalString(source.callId) ?? optionalString(source.call_id) ?? "";
+  const speakerId =
+    optionalString(source.speakerId) ??
+    optionalString(source.speakerID) ??
+    optionalString(source.speaker_id);
+  const speakerName =
+    optionalString(source.speakerName) ??
+    optionalString(source.speaker_name) ??
+    optionalString(source.displayName) ??
+    optionalString(source.display_name);
+  const speakerLabel =
+    optionalString(source.speakerLabel) ??
+    optionalString(source.speaker_label) ??
+    optionalString(source.speakerDisplayName) ??
+    optionalString(source.participantName) ??
+    optionalString(source.userName);
   const recognizedAtUtc =
     optionalString(source.recognizedAtUtc) ?? optionalString(source.recognized_at_utc) ?? "";
-  const text = optionalString(source.text) ?? "";
+  const text = (optionalString(source.text) ?? "").trim();
   const sequenceNo = optionalNumber(source.sequenceNo) ?? optionalNumber(source.sequence_no) ?? 0;
   const offsetTicks = optionalNumber(source.offsetTicks) ?? optionalNumber(source.offset_ticks);
   const durationTicks =
     optionalNumber(source.durationTicks) ?? optionalNumber(source.duration_ticks);
   const duplicate = optionalBoolean(source.duplicate);
+  const isFinal = optionalBoolean(source.isFinal) ?? optionalBoolean(source.is_final) ?? true;
+
+  if (!text) {
+    return null;
+  }
 
   return {
     ...(eventId ? { eventId } : {}),
+    ...(sessionId ? { sessionId } : {}),
     callId,
     sequenceNo,
+    ...(speakerLabel ? { speakerLabel } : {}),
+    ...(speakerId ? { speakerId } : {}),
+    ...(speakerName ? { speakerName } : {}),
     recognizedAtUtc,
     ...(offsetTicks !== undefined ? { offsetTicks } : {}),
     ...(durationTicks !== undefined ? { durationTicks } : {}),
     text,
     ...(duplicate !== undefined ? { duplicate } : {}),
+    isFinal,
+  };
+}
+
+function normalizeMeetingSessionStatusChange(value: unknown): MeetingSessionStatusChange | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const source = value as Record<string, unknown>;
+  const sessionId = optionalString(source.sessionId) ?? optionalString(source.session_id);
+  const displayTitle = optionalString(source.displayTitle) ?? optionalString(source.display_title);
+  const title =
+    displayTitle ?? optionalString(source.title) ?? optionalString(source.meeting_title);
+  const titleSource = optionalString(source.titleSource) ?? optionalString(source.title_source);
+  const provider = optionalString(source.provider);
+  const externalMeetingId =
+    optionalString(source.externalMeetingId) ?? optionalString(source.external_meeting_id);
+  const joinMeetingId =
+    optionalString(source.joinMeetingId) ?? optionalString(source.join_meeting_id);
+  const joinWebUrl = optionalString(source.joinWebUrl) ?? optionalString(source.join_web_url);
+  const canonicalJoinWebUrl =
+    optionalString(source.canonicalJoinWebUrl) ?? optionalString(source.canonical_join_web_url);
+  const threadId = optionalString(source.threadId) ?? optionalString(source.thread_id);
+  const organizerId = optionalString(source.organizerId) ?? optionalString(source.organizer_id);
+  const organizerName =
+    optionalString(source.organizerName) ?? optionalString(source.organizer_name);
+  const organizerEmail =
+    optionalString(source.organizerEmail) ?? optionalString(source.organizer_email);
+  const titleResolutionErrorCode =
+    optionalString(source.titleResolutionErrorCode) ??
+    optionalString(source.title_resolution_error_code);
+  const titleResolutionErrorMessage =
+    optionalString(source.titleResolutionErrorMessage) ??
+    optionalString(source.title_resolution_error_message);
+  const botCallId = optionalString(source.botCallId) ?? optionalString(source.bot_call_id);
+  const joinedAt = optionalString(source.joinedAt) ?? optionalString(source.joined_at);
+  const endedAt = optionalString(source.endedAt) ?? optionalString(source.ended_at);
+  const endReason = optionalString(source.endReason) ?? optionalString(source.end_reason);
+  const lastError = optionalString(source.lastError) ?? optionalString(source.last_error);
+  const status = source.status;
+  if (!sessionId || !isMeetingSessionStatus(status)) {
+    return null;
+  }
+  return {
+    sessionId,
+    ...(title ? { title } : {}),
+    ...(displayTitle ? { displayTitle } : {}),
+    ...(titleSource ? { titleSource } : {}),
+    ...(provider ? { provider } : {}),
+    ...(externalMeetingId ? { externalMeetingId } : {}),
+    ...(joinMeetingId ? { joinMeetingId } : {}),
+    ...(joinWebUrl ? { joinWebUrl } : {}),
+    ...(canonicalJoinWebUrl ? { canonicalJoinWebUrl } : {}),
+    ...(threadId ? { threadId } : {}),
+    ...(organizerId ? { organizerId } : {}),
+    ...(organizerName ? { organizerName } : {}),
+    ...(organizerEmail ? { organizerEmail } : {}),
+    ...(titleResolutionErrorCode ? { titleResolutionErrorCode } : {}),
+    ...(titleResolutionErrorMessage ? { titleResolutionErrorMessage } : {}),
+    ...(botCallId ? { botCallId } : {}),
+    ...(joinedAt ? { joinedAt } : {}),
+    ...(endedAt ? { endedAt } : {}),
+    ...(endReason ? { endReason } : {}),
+    ...(lastError ? { lastError } : {}),
+    status,
+  };
+}
+
+function normalizeTranscriptFilters(
+  input: TranscriptSubscriptionInput,
+): Required<TranscriptSubscriptionFilters> {
+  if (typeof input === "string") {
+    return { callId: input.trim(), sessionId: "" };
+  }
+  return {
+    callId: input.callId?.trim() ?? "",
+    sessionId: input.sessionId?.trim() ?? "",
   };
 }
 
