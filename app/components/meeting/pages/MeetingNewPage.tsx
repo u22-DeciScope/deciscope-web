@@ -2,12 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { HiVideoCamera } from "react-icons/hi2";
 
-import { createMeetingSession } from "~/api/meetingSessions/meetingSessionsApi";
+import { canManageMeetingSessions } from "~/api/auth/authApi";
+import { createWorkspaceMeetingSession } from "~/api/meetingSessions/meetingSessionsApi";
 import {
   readPendingMeetingNavigation,
   savePendingMeetingNavigation,
 } from "~/api/meetingSessions/pendingMeetingNavigation";
-import { upsertMeetingSessionRecord } from "~/api/meetingSessions/meetingSessionRegistry";
 import { validateTeamsJoinUrl } from "~/api/teams/teamsIntegrationApi";
 import { DsButton } from "~/components/DsButton";
 import { DsInput } from "~/components/DsInput";
@@ -15,19 +15,27 @@ import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeCo
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { useAuthenticatedSession } from "~/hooks/useAuthenticatedSession";
 import { workspaceMeetingPath, workspacePath } from "~/routing/workspacePaths";
-import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
 import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
 export default function MeetingNewPage() {
   const navigate = useNavigate();
   const { hash, pathname, search } = useLocation();
-  const { workspaceId } = useAuthenticatedLayout();
+  const { workspace, workspaceId } = useAuthenticatedLayout();
   const { user } = useAuthenticatedSession();
   const currentPath = `${pathname}${search}${hash}`;
   const meetingsPath = workspacePath(workspaceId, "/meetings");
   const [joinUrl, setJoinUrl] = useState("");
+  const [title, setTitle] = useState("");
+  const [purpose, setPurpose] = useState("");
+  const [context, setContext] = useState("");
+  const [agenda, setAgenda] = useState("");
+  const [decisionPoints, setDecisionPoints] = useState("");
+  const [concerns, setConcerns] = useState("");
+  const [expectedOutput, setExpectedOutput] = useState("");
+  const [customInstruction, setCustomInstruction] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const canCreateMeeting = canManageMeetingSessions(workspace.role);
   const submitInFlightRef = useRef(false);
   const inFlightJoinUrlRef = useRef("");
 
@@ -62,6 +70,10 @@ export default function MeetingNewPage() {
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canCreateMeeting) {
+      setError("閲覧者権限のため、Botを会議に参加させることはできません。");
+      return;
+    }
     const normalizedJoinUrl = normalizeMeetingUrlForClient(joinUrl);
     const createdByEmail = user?.email?.trim() || "";
     meetingStartDebug("meeting-start", "meetingUrl input submitted", {
@@ -109,13 +121,21 @@ export default function MeetingNewPage() {
       host: safeUrlHost(normalizedJoinUrl),
     });
     try {
-      meetingStartDebug("meeting-start", "POST /api/v1/meeting-sessions started");
-      const session = await createMeetingSession(normalizedJoinUrl, {
+      meetingStartDebug("meeting-start", "POST workspace-scoped meeting-sessions started", {
+        workspaceId,
+      });
+      const session = await createWorkspaceMeetingSession(workspaceId, normalizedJoinUrl, {
+        title,
+        userProvidedTitle: title,
         candidateUserPrincipalNames: createdByEmail ? [createdByEmail] : undefined,
         createdByEmail: createdByEmail || undefined,
-      });
-      const displayTitle = getMeetingDisplayTitle(session, {
-        component: "meeting-start-response",
+        purpose,
+        context,
+        agenda,
+        decisionPoints,
+        concerns,
+        expectedOutput,
+        customInstruction,
       });
       meetingStartDebug("meeting-start", "join request completed", {
         sessionId: session.sessionId,
@@ -128,26 +148,10 @@ export default function MeetingNewPage() {
         reused: session.reused ?? false,
       });
 
-      upsertMeetingSessionRecord({
-        sessionId: session.sessionId,
-        workspaceId,
-        title: displayTitle,
-        titleSource: session.titleSource ?? "fallback",
-        status: session.status,
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
-        endedAt: session.endedAt ?? null,
-      });
-      meetingStartDebug("meeting-start", "recent session persisted", {
-        sessionId: session.sessionId,
-        meetingUrlHash: session.meetingUrlHash ?? null,
-        status: session.status,
-      });
-      const meetingPath = `${workspaceMeetingPath(workspaceId, session.sessionId)}?sessionId=${encodeURIComponent(
-        session.sessionId,
-      )}`;
+      const targetWorkspaceId = session.workspaceId || workspaceId;
+      const meetingPath = workspaceMeetingPath(targetWorkspaceId, session.sessionId);
       savePendingMeetingNavigation({
-        workspaceId,
+        workspaceId: targetWorkspaceId,
         sessionId: session.sessionId,
         path: meetingPath,
       });
@@ -200,9 +204,68 @@ export default function MeetingNewPage() {
             label="会議URL"
             placeholder="https://teams.microsoft.com/l/meetup-join/..."
             value={joinUrl}
-            disabled={isSubmitting}
+            disabled={isSubmitting || !canCreateMeeting}
             onChange={(event) => setJoinUrl(event.currentTarget.value)}
           />
+          <DsInput
+            label="会議名"
+            placeholder="例: 週次定例"
+            value={title}
+            disabled={isSubmitting || !canCreateMeeting}
+            onChange={(event) => setTitle(event.currentTarget.value)}
+          />
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <TextArea
+              label="目的"
+              value={purpose}
+              disabled={isSubmitting || !canCreateMeeting}
+              onChange={setPurpose}
+            />
+            <TextArea
+              label="前提・背景"
+              value={context}
+              disabled={isSubmitting || !canCreateMeeting}
+              onChange={setContext}
+            />
+            <TextArea
+              label="アジェンダ"
+              value={agenda}
+              disabled={isSubmitting || !canCreateMeeting}
+              onChange={setAgenda}
+            />
+            <TextArea
+              label="決定したいこと"
+              value={decisionPoints}
+              disabled={isSubmitting || !canCreateMeeting}
+              onChange={setDecisionPoints}
+            />
+            <TextArea
+              label="懸念点"
+              value={concerns}
+              disabled={isSubmitting || !canCreateMeeting}
+              onChange={setConcerns}
+            />
+            <TextArea
+              label="期待するアウトプット"
+              value={expectedOutput}
+              disabled={isSubmitting || !canCreateMeeting}
+              onChange={setExpectedOutput}
+            />
+          </div>
+
+          <TextArea
+            label="補足指示"
+            value={customInstruction}
+            disabled={isSubmitting || !canCreateMeeting}
+            onChange={setCustomInstruction}
+          />
+
+          {!canCreateMeeting && (
+            <p className="rounded-(--ds-radius-control) border px-3 py-2 text-[12px] text-(--text-muted)">
+              閲覧者権限のため、Botを会議に参加させることはできません。
+            </p>
+          )}
 
           {error && (
             <p className="rounded-(--ds-radius-control) border px-3 py-2 text-[12px] text-red-600">
@@ -210,7 +273,7 @@ export default function MeetingNewPage() {
             </p>
           )}
 
-          <DsButton type="submit" disabled={isSubmitting} fullWidth>
+          <DsButton type="submit" disabled={isSubmitting || !canCreateMeeting} fullWidth>
             <HiVideoCamera className="h-3.5 w-3.5" />
             {isSubmitting ? "会議に接続中…" : "会議に入室"}
           </DsButton>
@@ -235,6 +298,37 @@ function normalizeMeetingUrlForClient(value: string) {
   } catch {
     return trimmed.replace(/\/+$/, "");
   }
+}
+
+function TextArea({
+  label,
+  value,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1.5">
+      <span className="text-[12px] font-semibold" style={{ color: "var(--text-sub)" }}>
+        {label}
+      </span>
+      <textarea
+        className="min-h-20 w-full resize-y rounded-(--ds-radius-control) px-3 py-2.5 text-[13px] outline-none transition"
+        style={{
+          background: "var(--input-bg)",
+          border: "1px solid var(--input-border)",
+          color: "var(--text-main)",
+        }}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.currentTarget.value)}
+      />
+    </label>
+  );
 }
 
 function safeUrlHost(value: string) {

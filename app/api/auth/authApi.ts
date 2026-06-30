@@ -11,10 +11,36 @@ export type BackendUser = {
 export type WorkspaceDto = {
   id: string;
   name: string;
-  role: "owner" | "member";
+  role: WorkspaceRole;
   created_at: string;
   updated_at: string;
 };
+
+export type WorkspaceRole = "owner" | "admin" | "viewer" | "member";
+
+export function normalizeWorkspaceRole(role: WorkspaceRole | string | undefined) {
+  switch (role) {
+    case "owner":
+      return "owner";
+    case "admin":
+    case "member":
+      return "admin";
+    case "viewer":
+      return "viewer";
+    default:
+      return "viewer";
+  }
+}
+
+export function canManageMeetingSessions(role: WorkspaceRole | string | undefined) {
+  const normalized = normalizeWorkspaceRole(role);
+  return normalized === "owner" || normalized === "admin";
+}
+
+export function canManageWorkspace(role: WorkspaceRole | string | undefined) {
+  const normalized = normalizeWorkspaceRole(role);
+  return normalized === "owner" || normalized === "admin";
+}
 
 export type BackendSession = {
   user: BackendUser;
@@ -24,13 +50,25 @@ export type BackendSession = {
 };
 
 function normalizeSession(session: BackendSession): BackendSession {
+  const workspaces = Array.isArray(session.workspaces)
+    ? session.workspaces.map(normalizeWorkspaceDto)
+    : [];
   return {
     ...session,
+    workspaces,
+    current_workspace_id: session.current_workspace_id || workspaces[0]?.id || "",
     user: {
       ...session.user,
       displayName: session.user.display_name,
       photoURL: null,
     },
+  };
+}
+
+function normalizeWorkspaceDto(workspace: WorkspaceDto): WorkspaceDto {
+  return {
+    ...workspace,
+    role: normalizeWorkspaceRole(workspace.role),
   };
 }
 
