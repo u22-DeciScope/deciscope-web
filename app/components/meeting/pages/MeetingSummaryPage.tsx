@@ -6,10 +6,18 @@ import {
   getWorkspaceMeetingSession,
   type MeetingSessionDto,
 } from "~/api/meetingSessions/meetingSessionsApi";
-import type { MeetingSegmentDto } from "~/api/meetings/meetingEventsApi";
+import { listMeetingEvents, type MeetingSegmentDto } from "~/api/meetings/meetingEventsApi";
 import { getMeetingReport, getMeetingReportMarkdown } from "~/api/meetings/meetingReportsApi";
 import { createMeetingJoinToken, getMeeting, type MeetingDto } from "~/api/meetings/meetingsApi";
-import type { RuntimePartial } from "~/api/meetings/meetingRuntimeTypes";
+import {
+  initialMeetingRuntimeState,
+  meetingRuntimeReducer,
+} from "~/api/meetings/meetingRuntimeReducer";
+import type {
+  AnalysisItem,
+  RuntimePartial,
+  TreeUpdatePayload,
+} from "~/api/meetings/meetingRuntimeTypes";
 import type { MeetingReportDto } from "~/api/meetings/meetingReportsApi";
 import {
   fetchWorkspaceMeetingSessionTranscriptSegmentHistory,
@@ -37,6 +45,8 @@ export default function MeetingSummary() {
   const [report, setReport] = useState<MeetingReportDto | null>(null);
   const [markdown, setMarkdown] = useState("");
   const [shareToken, setShareToken] = useState("");
+  const [tree, setTree] = useState<TreeUpdatePayload | null>(null);
+  const [analysisItems, setAnalysisItems] = useState<AnalysisItem[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -50,17 +60,25 @@ export default function MeetingSummary() {
     setReport(null);
     setMarkdown("");
     setTranscriptSegments([]);
+    setTree(null);
+    setAnalysisItems([]);
     if (id.startsWith("session_")) {
-      Promise.all([
-        getWorkspaceMeetingSession(workspaceId, id),
-        fetchWorkspaceMeetingSessionTranscriptSegmentHistory(workspaceId, id, 300),
-      ])
-        .then(([sessionResult, transcriptResult]) => {
+      getWorkspaceMeetingSession(workspaceId, id)
+        .then(async (sessionResult) => {
           if (!active) {
             return;
           }
           setSession(sessionResult);
+          const [transcriptResult, analysis] = await Promise.all([
+            fetchWorkspaceMeetingSessionTranscriptSegmentHistory(workspaceId, id, 300),
+            loadMeetingAnalysis(sessionResult.meetingId),
+          ]);
+          if (!active) {
+            return;
+          }
           setTranscriptSegments(transcriptResult.segments);
+          setTree(analysis.tree);
+          setAnalysisItems(analysis.analysisItems);
         })
         .catch((cause: unknown) => {
           if (active) {
@@ -180,7 +198,12 @@ export default function MeetingSummary() {
         <>
           <SessionSummaryHeader summary={summary} />
           {hasPreMeetingContext(session) && <PreMeetingContextPanel session={session} />}
-          <SessionReviewWorkspace session={session} segments={transcriptSegments} />
+          <SessionReviewWorkspace
+            session={session}
+            segments={transcriptSegments}
+            tree={tree}
+            analysisItems={analysisItems}
+          />
         </>
       ) : (
         <>
@@ -297,9 +320,13 @@ function PreMeetingContextPanel({ session }: { session: MeetingSessionDto }) {
 function SessionReviewWorkspace({
   segments,
   session,
+  tree,
+  analysisItems,
 }: {
   segments: TranscriptSegment[];
   session: MeetingSessionDto;
+  tree: TreeUpdatePayload | null;
+  analysisItems: AnalysisItem[];
 }) {
   const finalSegments = useMemo(
     () => transcriptSegmentsToMeetingSegments(session, segments),
@@ -310,10 +337,31 @@ function SessionReviewWorkspace({
   return (
     <section className="grid min-h-[560px] shrink-0 gap-2 pb-1 lg:grid-cols-[minmax(250px,0.85fr)_minmax(420px,1.65fr)_minmax(280px,0.95fr)]">
       <MeetingChatPanel partials={partials} segments={finalSegments} />
-      <DiscussionTree nodes={[]} edges={[]} />
-      <MeetingAssistantPanel insights={[]} speakerSummaries={[]} />
+      <DiscussionTree nodes={tree?.nodes ?? []} edges={tree?.edges ?? []} />
+      <MeetingAssistantPanel insights={analysisItems} speakerSummaries={[]} />
     </section>
   );
+}
+
+// セッションに紐づく会議(meeting_id)の durable イベントを取得し、議論ツリーと分析カードへ整形する。
+// meeting_id が無い、または取得に失敗した場合は空（従来どおりの表示）にフォールバックする。
+async function loadMeetingAnalysis(
+  meetingId?: string,
+): Promise<{ tree: TreeUpdatePayload | null; analysisItems: AnalysisItem[] }> {
+  const id = meetingId?.trim();
+  if (!id) {
+    return { tree: null, analysisItems: [] };
+  }
+  try {
+    const { events } = await listMeetingEvents(id, 0);
+    let state = initialMeetingRuntimeState;
+    for (const event of events) {
+      state = meetingRuntimeReducer(state, { type: "event", event });
+    }
+    return { tree: state.tree, analysisItems: state.analysisItems };
+  } catch {
+    return { tree: null, analysisItems: [] };
+  }
 }
 
 function StatusPanel({ message }: { message: string }) {
