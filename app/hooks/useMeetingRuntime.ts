@@ -11,22 +11,11 @@ import {
   initialMeetingRuntimeState,
   meetingRuntimeReducer,
 } from "~/api/meetings/meetingRuntimeReducer";
-import {
-  listReplayFixtures,
-  pauseFixtureReplay,
-  resetFixtureReplay,
-  resumeFixtureReplay,
-  startFixtureReplay,
-  type FixtureInfoDto,
-  type FixtureReplayStatusDto,
-} from "~/api/replay/fixtureReplayApi";
 
 const reconnectDelayMs = 1200;
 
 export function useMeetingRuntime(meetingId: string | undefined) {
   const [state, dispatch] = useReducer(meetingRuntimeReducer, initialMeetingRuntimeState);
-  const [fixtures, setFixtures] = useState<FixtureInfoDto[]>([]);
-  const [replayStatus, setReplayStatus] = useState<FixtureReplayStatusDto | null>(null);
   const [isEnding, setIsEnding] = useState(false);
   const lastSeqRef = useRef(0);
   const socketRef = useRef<WebSocket | null>(null);
@@ -50,16 +39,14 @@ export function useMeetingRuntime(meetingId: string | undefined) {
 
     async function load() {
       try {
-        const [meeting, eventsResult, segmentsResult, fixturesResult] = await Promise.all([
+        const [meeting, eventsResult, segmentsResult] = await Promise.all([
           getMeeting(currentMeetingId),
           listMeetingEvents(currentMeetingId, 0),
           listMeetingSegments(currentMeetingId, 0),
-          listReplayFixtures(),
         ]);
         if (!active) {
           return;
         }
-        setFixtures(fixturesResult.fixtures);
         dispatch({
           type: "loaded",
           meeting,
@@ -135,52 +122,6 @@ export function useMeetingRuntime(meetingId: string | undefined) {
     };
   }, [meetingId]);
 
-  const startReplay = useCallback(
-    async (fixture: string) => {
-      if (!meetingId) {
-        return;
-      }
-      const status = await startFixtureReplay(meetingId, fixture);
-      setReplayStatus(status);
-    },
-    [meetingId],
-  );
-
-  const pauseReplay = useCallback(async () => {
-    if (!meetingId) {
-      return;
-    }
-    const status = await pauseFixtureReplay(meetingId);
-    setReplayStatus(status);
-  }, [meetingId]);
-
-  const resumeReplay = useCallback(async () => {
-    if (!meetingId) {
-      return;
-    }
-    const status = await resumeFixtureReplay(meetingId);
-    setReplayStatus(status);
-  }, [meetingId]);
-
-  const resetReplay = useCallback(async () => {
-    if (!meetingId) {
-      return;
-    }
-    await resetFixtureReplay(meetingId);
-    setReplayStatus(null);
-    const [meeting, eventsResult, segmentsResult] = await Promise.all([
-      getMeeting(meetingId),
-      listMeetingEvents(meetingId, 0),
-      listMeetingSegments(meetingId, 0),
-    ]);
-    dispatch({
-      type: "loaded",
-      meeting,
-      events: eventsResult.events,
-      segments: segmentsResult.segments,
-    });
-  }, [meetingId]);
-
   const finishMeeting = useCallback(async () => {
     if (!meetingId) {
       return null;
@@ -200,26 +141,10 @@ export function useMeetingRuntime(meetingId: string | undefined) {
   return useMemo(
     () => ({
       ...state,
-      fixtures,
-      replayStatus,
       isEnding,
-      startReplay,
-      pauseReplay,
-      resumeReplay,
-      resetReplay,
       finishMeeting,
     }),
-    [
-      state,
-      fixtures,
-      replayStatus,
-      isEnding,
-      startReplay,
-      pauseReplay,
-      resumeReplay,
-      resetReplay,
-      finishMeeting,
-    ],
+    [state, isEnding, finishMeeting],
   );
 }
 
