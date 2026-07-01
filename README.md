@@ -26,6 +26,11 @@ VITE_FIREBASE_API_KEY=...
 VITE_FIREBASE_AUTH_DOMAIN=deciscope-app.firebaseapp.com
 VITE_FIREBASE_PROJECT_ID=deciscope-app
 VITE_FIREBASE_APP_ID=...
+# 任意
+VITE_FIREBASE_STORAGE_BUCKET=deciscope-app.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+# 任意。trueにすると会議開始まわりのdebugログを出力します
+VITE_DECISCOPE_DEBUG_MEETING_START=true
 ```
 
 開発時、ブラウザは同一オリジンの `/api` と `/ws` に接続し、Vite が上記のプロキシ先へ転送します。

@@ -145,14 +145,6 @@ export async function fetchWorkspaceMeetingSessionTranscriptSegmentHistory(
   return fetchTranscriptHistoryUrl(url);
 }
 
-export function buildTranscriptHistoryDebugUrl(
-  input: TranscriptSubscriptionInput = {},
-  limit = 100,
-  token = transcriptWebSocketToken(),
-) {
-  return maskWebSocketUrl(buildTranscriptHistoryUrl(input, limit, token));
-}
-
 export function buildMeetingSessionTranscriptHistoryDebugUrl(
   sessionId: string,
   limit = 100,
@@ -233,11 +225,6 @@ export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebS
   }
 
   return { type, sentAtUtc: payload.sentAtUtc, segment: null, sessionStatus: null };
-}
-
-export function parseTranscriptSegmentEvent(raw: string) {
-  const parsed = parseTranscriptWebSocketEvent(raw);
-  return { type: parsed.type, segment: parsed.segment };
 }
 
 export function transcriptSegmentKey(segment: TranscriptSegment) {

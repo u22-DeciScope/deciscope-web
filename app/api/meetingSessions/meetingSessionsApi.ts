@@ -151,34 +151,6 @@ export async function endWorkspaceMeetingSession(
   return session;
 }
 
-export async function createMeetingSession(
-  joinUrl: string,
-  input: CreateMeetingSessionInput = {},
-): Promise<MeetingSessionDto> {
-  const response = await fetch(apiUrl(MEETING_SESSIONS_PATH), {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    credentials: "include",
-    body: JSON.stringify(createMeetingSessionBody(joinUrl, input)),
-  });
-
-  const payload = await readJsonBody(response);
-  if (!response.ok) {
-    throw new Error(
-      errorMessageFromPayload(payload) || `${response.status} ${response.statusText}`,
-    );
-  }
-
-  const session = normalizeMeetingSession(payload);
-  if (!session) {
-    throw new Error("Go APIの会議セッション作成レスポンスを解析できませんでした。");
-  }
-  return session;
-}
-
 export async function getMeetingSession(sessionId: string): Promise<MeetingSessionDto> {
   const response = await fetch(
     apiUrl(`${MEETING_SESSIONS_PATH}/${encodeURIComponent(sessionId)}`),
@@ -198,37 +170,6 @@ export async function getMeetingSession(sessionId: string): Promise<MeetingSessi
   const session = normalizeMeetingSession(payload);
   if (!session) {
     throw new Error("Go APIの会議セッション取得レスポンスを解析できませんでした。");
-  }
-  return session;
-}
-
-export async function endMeetingSession(
-  sessionId: string,
-  reason = "manual_end_requested",
-): Promise<MeetingSessionDto> {
-  const response = await fetch(
-    apiUrl(`${MEETING_SESSIONS_PATH}/${encodeURIComponent(sessionId)}/end`),
-    {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      credentials: "include",
-      body: JSON.stringify({ reason }),
-    },
-  );
-
-  const payload = await readJsonBody(response);
-  if (!response.ok) {
-    throw new Error(
-      errorMessageFromPayload(payload) || `${response.status} ${response.statusText}`,
-    );
-  }
-
-  const session = normalizeMeetingSession(payload);
-  if (!session) {
-    throw new Error("Go APIの会議セッション終了レスポンスを解析できませんでした。");
   }
   return session;
 }
