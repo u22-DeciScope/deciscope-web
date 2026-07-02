@@ -2,14 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
 import { DsButton } from "~/components/DsButton";
-import { DiscussionTree } from "~/components/meeting/parts/DiscussionTree";
-import { MeetingAssistantPanel } from "~/components/meeting/parts/MeetingAssistantPanel";
-import { MeetingChatPanel } from "~/components/meeting/parts/MeetingChatPanel";
+import { LiveStatusBadge } from "~/components/meeting/parts/LiveStatusBadge";
+import { MeetingEndedModal } from "~/components/meeting/parts/MeetingEndedModal";
+import { MeetingWorkspaceGrid } from "~/components/meeting/parts/MeetingWorkspaceGrid";
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
-import { AppModalFrame } from "~/components/shared/modal/AppModalFrame";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { useMeetingTranscriptSession } from "~/hooks/useMeetingTranscriptSession";
 import { useMeetingRuntime } from "~/hooks/useMeetingRuntime";
+import { useMeetingElapsedTime } from "~/hooks/useMeetingElapsedTime";
 import { canManageMeetingSessions } from "~/api/auth/authApi";
 import {
   endWorkspaceMeetingSession,
@@ -20,10 +20,16 @@ import {
   isTerminalMeetingSessionStatus,
 } from "~/api/meetingSessions/meetingSessionRegistry";
 import { clearPendingMeetingNavigation } from "~/api/meetingSessions/pendingMeetingNavigation";
-import type { MeetingSegmentDto } from "~/api/meetings/meetingEventsApi";
 import { workspaceMeetingSummaryPath, workspacePath } from "~/routing/workspacePaths";
 import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
 import { meetingStartDebug } from "~/utils/meetingStartDebug";
+import { mergeDisplaySegments } from "~/utils/meetingSegments";
+import {
+  formatStatus,
+  formatTranscriptConnectionStatus,
+  isCompletedMeetingStatus,
+  isElapsedMeetingStatus,
+} from "~/utils/meetingStatusLabels";
 
 export default function Meeting() {
   const navigate = useNavigate();
@@ -239,14 +245,15 @@ export default function Meeting() {
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 gap-2 lg:grid-cols-[minmax(250px,0.85fr)_minmax(420px,1.65fr)_minmax(280px,0.95fr)]">
-        <MeetingChatPanel partials={partials} segments={segments} />
-        <DiscussionTree nodes={runtime.tree?.nodes ?? []} edges={runtime.tree?.edges ?? []} />
-        <MeetingAssistantPanel
-          insights={runtime.analysisItems}
-          speakerSummaries={runtime.speakerSummaries}
-        />
-      </div>
+      <MeetingWorkspaceGrid
+        className="min-h-0 flex-1"
+        partials={partials}
+        segments={segments}
+        treeNodes={runtime.tree?.nodes ?? []}
+        treeEdges={runtime.tree?.edges ?? []}
+        insights={runtime.analysisItems}
+        speakerSummaries={runtime.speakerSummaries}
+      />
 
       {endOverlayMode && (
         <MeetingEndedModal
@@ -257,241 +264,6 @@ export default function Meeting() {
       )}
     </section>
   );
-}
-
-function mergeDisplaySegments(
-  runtimeSegments: MeetingSegmentDto[],
-  transcriptSegments: MeetingSegmentDto[],
-) {
-  const byId = new Map<string, MeetingSegmentDto>();
-  for (const segment of runtimeSegments) {
-    byId.set(segment.segment_id, segment);
-  }
-  for (const segment of transcriptSegments) {
-    byId.set(segment.segment_id, segment);
-  }
-  return [...byId.values()].sort((a, b) => {
-    const timeA = Date.parse(a.created_at);
-    const timeB = Date.parse(b.created_at);
-    if (!Number.isNaN(timeA) && !Number.isNaN(timeB) && timeA !== timeB) {
-      return timeA - timeB;
-    }
-    return a.seq - b.seq;
-  });
-}
-
-function useMeetingElapsedTime(startAt: string, endAt: string, isEnded: boolean) {
-  const [nowMs, setNowMs] = useState(() => Date.now());
-
-  useEffect(() => {
-    setNowMs(Date.now());
-    if (!startAt || isEnded) {
-      return;
-    }
-
-    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [isEnded, startAt]);
-
-  return useMemo(() => {
-    const startMs = parseTimestampMs(startAt);
-    if (startMs === null) {
-      return null;
-    }
-    const endMs = parseTimestampMs(endAt) ?? nowMs;
-    return formatElapsedDuration(Math.max(0, endMs - startMs));
-  }, [endAt, nowMs, startAt]);
-}
-
-function parseTimestampMs(value: string | null | undefined) {
-  if (!value) {
-    return null;
-  }
-  const timestamp = Date.parse(value);
-  return Number.isNaN(timestamp) ? null : timestamp;
-}
-
-function formatElapsedDuration(durationMs: number) {
-  const totalSeconds = Math.floor(durationMs / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  const paddedSeconds = String(seconds).padStart(2, "0");
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, "0")}:${paddedSeconds}`;
-  }
-  return `${minutes}:${paddedSeconds}`;
-}
-
-function isElapsedMeetingStatus(status: string) {
-  return status === "joined" || status === "active" || status === "recording";
-}
-
-function isCompletedMeetingStatus(status: string) {
-  return (
-    status === "ended" || status === "completed" || status === "closed" || status === "finished"
-  );
-}
-
-function MeetingEndedModal({
-  mode,
-  onGoHome,
-  onGoSummary,
-}: {
-  mode: "ending" | "ended";
-  onGoHome: () => void;
-  onGoSummary: () => void;
-}) {
-  const ending = mode === "ending";
-
-  return (
-    <AppModalFrame
-      ariaLabelledBy="meeting-ended-dialog-title"
-      onClose={() => {}}
-      className="w-full max-w-md overflow-hidden rounded-(--ds-radius-dialog) border p-5 outline-none"
-      style={{
-        background: "var(--ds-surface-raised)",
-        borderColor: "var(--ds-border)",
-        boxShadow: "0 24px 80px rgba(15, 38, 56, 0.32)",
-      }}
-    >
-      <div className="flex flex-col gap-4">
-        <div>
-          <h2
-            id="meeting-ended-dialog-title"
-            className="text-base font-bold"
-            style={{ color: "var(--text-main)" }}
-          >
-            {ending ? "会議を終了しています..." : "会議が終了しました"}
-          </h2>
-          <p
-            className="mt-2 whitespace-pre-line text-sm leading-relaxed"
-            style={{ color: "var(--text-sub)" }}
-          >
-            {ending
-              ? "Botの退出処理を実行しています。"
-              : "BotはTeams会議から退出しました。\n文字起こしの内容は会議詳細画面から確認できます。"}
-          </p>
-        </div>
-
-        {ending ? (
-          <div
-            className="h-1.5 overflow-hidden rounded-full"
-            style={{ background: "var(--input-bg)" }}
-          >
-            <div
-              className="h-full w-1/2 animate-pulse rounded-full"
-              style={{ background: "var(--brand)" }}
-            />
-          </div>
-        ) : (
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <DsButton type="button" variant="secondary" onClick={onGoHome}>
-              メイン画面へ戻る
-            </DsButton>
-            <DsButton type="button" onClick={onGoSummary}>
-              会議詳細を見る
-            </DsButton>
-          </div>
-        )}
-      </div>
-    </AppModalFrame>
-  );
-}
-
-function LiveStatusBadge({ label, status }: { label: string; status: string }) {
-  const ended = status === "ended" || status === "closed";
-  const live =
-    status === "started" ||
-    status === "connected" ||
-    status === "joined" ||
-    status === "active" ||
-    status === "recording";
-
-  return (
-    <span
-      className="inline-flex h-8 items-center gap-2 rounded-(--ds-radius-control) border px-3 text-[12px] font-bold"
-      style={{
-        background: live ? "var(--ai-risk-bg)" : "var(--input-bg)",
-        borderColor: live ? "var(--ai-risk-border)" : "var(--input-border)",
-        color: ended ? "var(--text-muted)" : live ? "var(--ai-risk-fg)" : "var(--text-sub)",
-      }}
-    >
-      <span
-        className="h-2.5 w-2.5 rounded-full"
-        style={{
-          background: ended ? "var(--text-muted)" : live ? "var(--status-live)" : "var(--warning)",
-        }}
-      />
-      {label}
-    </span>
-  );
-}
-
-function formatStatus(status: string) {
-  switch (status) {
-    case "idle":
-      return "待機中";
-    case "loading":
-      return "読み込み中";
-    case "connecting":
-      return "接続中";
-    case "connected":
-      return "接続済み";
-    case "reconnecting":
-      return "再接続中";
-    case "closed":
-      return "切断";
-    case "error":
-      return "エラー";
-    case "created":
-      return "作成済み";
-    case "started":
-      return "進行中";
-    case "ended":
-    case "completed":
-    case "finished":
-      return "終了";
-    case "requested":
-      return "参加要求済み";
-    case "pending_join":
-      return "参加待機";
-    case "command_sent":
-      return "Bot参加命令済み";
-    case "joining":
-      return "Bot参加中";
-    case "joined":
-      return "Bot参加済み";
-    case "active":
-      return "進行中";
-    case "recording":
-      return "録音中";
-    case "failed":
-      return "失敗";
-    case "stale":
-      return "停止扱い";
-    case "timeout":
-      return "タイムアウト";
-    default:
-      return status;
-  }
-}
-
-function formatTranscriptConnectionStatus(status: string) {
-  switch (status) {
-    case "loading":
-      return "履歴取得中";
-    case "connecting":
-      return "接続中";
-    case "reconnecting":
-      return "再接続中";
-    case "closed":
-      return "切断";
-    case "error":
-      return "エラー";
-    default:
-      return status;
-  }
 }
 
 function errorMessageSuffix(cause: unknown) {
