@@ -2,15 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObjec
 
 import {
   getMeetingSession,
+  getWorkspaceMeetingSession,
   type MeetingSessionStatus,
 } from "~/api/meetingSessions/meetingSessionsApi";
-import { updateMeetingSessionRecordStatus } from "~/api/meetingSessions/meetingSessionRegistry";
 import type { MeetingSegmentDto } from "~/api/meetings/meetingEventsApi";
 import type { RuntimePartial } from "~/api/meetings/meetingRuntimeTypes";
 import {
   buildMeetingSessionTranscriptHistoryDebugUrl,
   buildTranscriptWebSocketUrl,
+  buildWorkspaceMeetingSessionTranscriptHistoryDebugUrl,
+  buildWorkspaceMeetingSessionTranscriptWebSocketUrl,
   fetchMeetingSessionTranscriptSegmentHistory,
+  fetchWorkspaceMeetingSessionTranscriptSegmentHistory,
   maskWebSocketUrl,
   parseTranscriptWebSocketEvent,
   transcriptSegmentKey,
@@ -29,6 +32,7 @@ export type TranscriptSessionConnectionStatus =
 
 const reconnectDelaysMs = [1000, 2000, 5000];
 const historyRetryDelaysMs = [2000, 5000, 10000];
+const websocketConnectTimeoutMs = 10000;
 const transcriptHistoryRetryMessage = "文字起こし履歴を取得中/再試行中です。";
 const ticksPerMillisecond = 10_000;
 const partialBubbleGapThresholdMs = 3000;
@@ -47,8 +51,10 @@ export function useMeetingTranscriptSession(
   meetingId: string | undefined,
   sessionId: string | null | undefined,
   workspaceId?: string,
+  options: { connectWebSocket?: boolean } = {},
 ) {
   const normalizedSessionId = sessionId?.trim() ?? "";
+  const connectWebSocket = options.connectWebSocket ?? true;
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [partials, setPartials] = useState<Record<string, TranscriptPartialEntry>>({});
   const [sessionStatus, setSessionStatus] = useState<MeetingSessionStatus | null>(null);
@@ -63,6 +69,7 @@ export function useMeetingTranscriptSession(
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const historyRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptRef = useRef(0);
   const seenKeysRef = useRef(new Set<string>());
   const activeSessionRef = useRef("");
@@ -200,6 +207,7 @@ export function useMeetingTranscriptSession(
     if (!normalizedSessionId) {
       clearReconnectTimer(reconnectTimerRef);
       clearReconnectTimer(historyRetryTimerRef);
+      clearReconnectTimer(connectTimeoutRef);
       shouldReconnectRef.current = false;
       socketRef.current?.close();
       socketRef.current = null;
@@ -235,8 +243,12 @@ export function useMeetingTranscriptSession(
     setError(null);
 
     let active = true;
-    const historyDebugUrl = buildMeetingSessionTranscriptHistoryDebugUrl(normalizedSessionId, 100);
-    const websocketUrl = buildTranscriptWebSocketUrl({ sessionId: normalizedSessionId });
+    const historyDebugUrl = workspaceId
+      ? buildWorkspaceMeetingSessionTranscriptHistoryDebugUrl(workspaceId, normalizedSessionId, 100)
+      : buildMeetingSessionTranscriptHistoryDebugUrl(normalizedSessionId, 100);
+    const websocketUrl = workspaceId
+      ? buildWorkspaceMeetingSessionTranscriptWebSocketUrl(workspaceId, normalizedSessionId)
+      : buildTranscriptWebSocketUrl({ sessionId: normalizedSessionId });
 
     meetingStartDebug("meeting-page", "transcript subscription started", {
       sessionId: normalizedSessionId,
@@ -249,7 +261,9 @@ export function useMeetingTranscriptSession(
         meetingStartDebug("meeting-page", "session data loading started", {
           sessionId: normalizedSessionId,
         });
-        const session = await getMeetingSession(normalizedSessionId);
+        const session = workspaceId
+          ? await getWorkspaceMeetingSession(workspaceId, normalizedSessionId)
+          : await getMeetingSession(normalizedSessionId);
         if (!active) {
           return;
         }
@@ -266,15 +280,6 @@ export function useMeetingTranscriptSession(
         const statusError = sessionStatusErrorMessage(session.status);
         if (statusError) {
           setError(statusError);
-        }
-        if (workspaceId) {
-          updateMeetingSessionRecordStatus(workspaceId, normalizedSessionId, session.status, {
-            title: session.title,
-            titleSource: session.titleSource ?? null,
-            createdAt: session.createdAt,
-            updatedAt: session.updatedAt,
-            endedAt: session.endedAt ?? null,
-          });
         }
         meetingStartDebug("meeting-page", "session data loaded", {
           sessionId: normalizedSessionId,
@@ -303,7 +308,13 @@ export function useMeetingTranscriptSession(
           historyUrl: historyDebugUrl,
           attempt,
         });
-        const history = await fetchMeetingSessionTranscriptSegmentHistory(normalizedSessionId, 100);
+        const history = workspaceId
+          ? await fetchWorkspaceMeetingSessionTranscriptSegmentHistory(
+              workspaceId,
+              normalizedSessionId,
+              100,
+            )
+          : await fetchMeetingSessionTranscriptSegmentHistory(normalizedSessionId, 100);
         if (!active) {
           return;
         }
@@ -341,6 +352,7 @@ export function useMeetingTranscriptSession(
 
     function connect(reconnecting = false) {
       clearReconnectTimer(reconnectTimerRef);
+      clearReconnectTimer(connectTimeoutRef);
       socketRef.current?.close();
 
       const socket = new WebSocket(websocketUrl);
@@ -352,14 +364,30 @@ export function useMeetingTranscriptSession(
         url: maskWebSocketUrl(websocketUrl),
       });
 
+      connectTimeoutRef.current = setTimeout(() => {
+        if (!active || socketRef.current !== socket || socket.readyState !== WebSocket.CONNECTING) {
+          return;
+        }
+        setConnectionStatus("error");
+        meetingStartDebug("meeting-page", "WebSocket connect timeout", {
+          sessionId: normalizedSessionId,
+          timeoutMs: websocketConnectTimeoutMs,
+          url: maskWebSocketUrl(websocketUrl),
+          readyState: socket.readyState,
+        });
+        socket.close();
+      }, websocketConnectTimeoutMs);
+
       socket.addEventListener("open", () => {
         if (!active || socketRef.current !== socket) {
           return;
         }
+        clearReconnectTimer(connectTimeoutRef);
         reconnectAttemptRef.current = 0;
         setConnectionStatus("connected");
         meetingStartDebug("meeting-page", "WebSocket connected", {
           sessionId: normalizedSessionId,
+          url: maskWebSocketUrl(websocketUrl),
         });
       });
 
@@ -371,6 +399,7 @@ export function useMeetingTranscriptSession(
           const raw = String(event.data);
           meetingStartDebug("meeting-page", "transcript WebSocket message received", {
             sessionId: normalizedSessionId,
+            url: maskWebSocketUrl(websocketUrl),
             length: raw.length,
             payload: truncateForLog(raw),
           });
@@ -405,18 +434,6 @@ export function useMeetingTranscriptSession(
               titleResolutionErrorMessage: parsed.sessionStatus.titleResolutionErrorMessage ?? null,
               status: parsed.sessionStatus.status,
             });
-            if (workspaceId) {
-              updateMeetingSessionRecordStatus(
-                workspaceId,
-                parsed.sessionStatus.sessionId,
-                parsed.sessionStatus.status,
-                {
-                  title: parsed.sessionStatus.title,
-                  titleSource: parsed.sessionStatus.titleSource ?? null,
-                  endedAt: parsed.sessionStatus.endedAt ?? null,
-                },
-              );
-            }
             const statusError = sessionStatusErrorMessage(parsed.sessionStatus.status);
             if (statusError) {
               setError(statusError);
@@ -472,10 +489,12 @@ export function useMeetingTranscriptSession(
         if (!active || socketRef.current !== socket) {
           return;
         }
+        clearReconnectTimer(connectTimeoutRef);
         setConnectionStatus("error");
-        setError("文字起こしWebSocketでエラーが発生しました。");
         meetingStartDebug("meeting-page", "WebSocket error", {
           sessionId: normalizedSessionId,
+          url: maskWebSocketUrl(websocketUrl),
+          readyState: socket.readyState,
         });
       });
 
@@ -483,13 +502,16 @@ export function useMeetingTranscriptSession(
         if (!active || socketRef.current !== socket) {
           return;
         }
+        clearReconnectTimer(connectTimeoutRef);
         socketRef.current = null;
         if (!shouldReconnectRef.current) {
           setConnectionStatus("closed");
           meetingStartDebug("meeting-page", "WebSocket closed", {
             sessionId: normalizedSessionId,
+            url: maskWebSocketUrl(websocketUrl),
             code: event.code,
             reason: event.reason || null,
+            wasClean: event.wasClean,
           });
           return;
         }
@@ -500,9 +522,11 @@ export function useMeetingTranscriptSession(
         setConnectionStatus("reconnecting");
         meetingStartDebug("meeting-page", "WebSocket reconnect scheduled", {
           sessionId: normalizedSessionId,
+          url: maskWebSocketUrl(websocketUrl),
           delay,
           code: event.code,
           reason: event.reason || null,
+          wasClean: event.wasClean,
         });
         reconnectTimerRef.current = setTimeout(() => connect(true), delay);
       });
@@ -517,6 +541,7 @@ export function useMeetingTranscriptSession(
       shouldReconnectRef.current = false;
       clearReconnectTimer(reconnectTimerRef);
       clearReconnectTimer(historyRetryTimerRef);
+      clearReconnectTimer(connectTimeoutRef);
       socketRef.current?.close();
       socketRef.current = null;
       meetingStartDebug("meeting-page", "transcript subscription closed", {
@@ -525,6 +550,25 @@ export function useMeetingTranscriptSession(
       });
     };
   }, [appendSegments, applyPartial, normalizedSessionId, workspaceId]);
+
+  useEffect(() => {
+    if (connectWebSocket) {
+      return;
+    }
+    shouldReconnectRef.current = false;
+    clearReconnectTimer(reconnectTimerRef);
+    clearReconnectTimer(historyRetryTimerRef);
+    clearReconnectTimer(connectTimeoutRef);
+    if (socketRef.current) {
+      meetingStartDebug("meeting-page", "WebSocket closed by meeting UI state", {
+        sessionId: normalizedSessionId,
+        reason: "meeting_ended_modal_opened",
+      });
+      socketRef.current.close(1000, "meeting ended");
+      socketRef.current = null;
+    }
+    setConnectionStatus((current) => (current === "idle" ? current : "closed"));
+  }, [connectWebSocket, normalizedSessionId]);
 
   return useMemo(
     () => ({

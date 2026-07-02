@@ -1,5 +1,5 @@
 {
-  "name": "deciscope-frontend",
+  "name": "deciscope-web",
   "private": true,
   "type": "module",
   "scripts": {

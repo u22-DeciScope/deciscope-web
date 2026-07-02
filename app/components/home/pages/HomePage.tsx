@@ -2,15 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { HiChevronRight, HiPlus, HiUserGroup } from "react-icons/hi2";
 
-import { getMeetingSession } from "~/api/meetingSessions/meetingSessionsApi";
+import { canManageMeetingSessions } from "~/api/auth/authApi";
 import {
-  deleteMeetingSessionRecord,
-  isTerminalMeetingSessionStatus,
-  listMeetingSessionRecords,
-  type MeetingSessionRecord,
-  updateMeetingSessionRecordFromDto,
-} from "~/api/meetingSessions/meetingSessionRegistry";
-import { listMeetings, type MeetingDto } from "~/api/meetings/meetingsApi";
+  listWorkspaceMeetingSessions,
+  type MeetingSessionDto,
+} from "~/api/meetingSessions/meetingSessionsApi";
+import { isTerminalMeetingSessionStatus } from "~/api/meetingSessions/meetingSessionRegistry";
 import { DsButton } from "~/components/DsButton";
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
@@ -25,27 +22,25 @@ import { meetingStartDebug } from "~/utils/meetingStartDebug";
 const staleActiveSessionMs = 2 * 60 * 60 * 1000;
 
 export default function Home() {
-  const { today, user, workspaceId } = useAuthenticatedLayout();
+  const { today, user, workspace, workspaceId } = useAuthenticatedLayout();
   const displayName = user.displayName?.split(" ")[0] ?? "ゲスト";
-  const [meetings, setMeetings] = useState<MeetingDto[]>([]);
-  const [meetingSessions, setMeetingSessions] = useState<MeetingSessionRecord[]>([]);
+  const [meetingSessions, setMeetingSessions] = useState<MeetingSessionDto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const canCreateMeeting = canManageMeetingSessions(workspace.role);
   const newMeetingPath = workspacePath(workspaceId, "/meetings/new");
 
   useEffect(() => {
     let active = true;
     setIsLoading(true);
 
-    Promise.all([listMeetings(workspaceId), refreshMeetingSessionRecords(workspaceId)])
-      .then(([result, sessions]) => {
+    listWorkspaceMeetingSessions(workspaceId)
+      .then((sessions) => {
         if (!active) {
           return;
         }
-        setMeetings(result.meetings);
         setMeetingSessions(sessions);
         meetingStartDebug("dashboard", "dashboard fetched sessions", {
-          meetingCount: result.meetings.length,
           sessionCount: sessions.length,
           activeSessions: sessions.filter((session) => isActiveMeetingStatus(session.status, true))
             .length,
@@ -68,8 +63,8 @@ export default function Home() {
   }, [workspaceId]);
 
   const meetingItems = useMemo(
-    () => buildMeetingItems(meetings, meetingSessions, workspaceId),
-    [meetingSessions, meetings, workspaceId],
+    () => buildMeetingItems(meetingSessions, workspaceId),
+    [meetingSessions, workspaceId],
   );
   const allActiveMeetings = useMemo(() => {
     const active = meetingItems.filter(isActiveMeetingItem);
@@ -91,17 +86,22 @@ export default function Home() {
       header: {
         title: `こんにちは、${displayName}さん`,
         subtitle: today,
-        actions: (
+        actions: canCreateMeeting ? (
           <Link to={newMeetingPath}>
             <DsButton>
               <HiPlus className="h-3.5 w-3.5" />
               会議を開始
             </DsButton>
           </Link>
+        ) : (
+          <DsButton disabled variant="secondary">
+            <HiPlus className="h-3.5 w-3.5" />
+            閲覧のみ
+          </DsButton>
         ),
       },
     }),
-    [displayName, newMeetingPath, today],
+    [canCreateMeeting, displayName, newMeetingPath, today],
   );
   useWorkspaceChrome(chrome);
 
@@ -138,6 +138,9 @@ export default function Home() {
       >
         <SectionHeader title="進行中の会議" />
         <div className="divide-y" style={{ borderColor: "var(--ds-border)" }}>
+          {!canCreateMeeting && (
+            <EmptyRow label="閲覧者権限のため、Botを会議に参加させることはできません。" />
+          )}
           {isLoading && <EmptyRow label="会議を読み込んでいます..." />}
           {!isLoading && error && <EmptyRow label={error} />}
           {!isLoading && !error && activeMeetings.length === 0 && (
@@ -277,124 +280,31 @@ function EmptyRow({ label }: { label: string }) {
   );
 }
 
-async function refreshMeetingSessionRecords(workspaceId: string) {
-  const records = listMeetingSessionRecords(workspaceId);
-  await Promise.all(
-    records.map(async (record) => {
-      try {
-        const session = await getMeetingSession(record.sessionId);
-        updateMeetingSessionRecordFromDto(workspaceId, session);
-      } catch (cause) {
-        if (isMissingMeetingSessionError(cause)) {
-          deleteMeetingSessionRecord(record.sessionId);
-        }
-      }
-    }),
-  );
-  return listMeetingSessionRecords(workspaceId);
+function buildMeetingItems(sessions: MeetingSessionDto[], workspaceId: string) {
+  const items = sessions.map((session) => sessionToListItem(session, workspaceId));
+  return items.sort((a, b) => dateValue(b.updated_at) - dateValue(a.updated_at));
 }
 
-function buildMeetingItems(
-  meetings: MeetingDto[],
-  sessions: MeetingSessionRecord[],
-  workspaceId: string,
-) {
-  const sessionByMeetingId = new Map<string, MeetingSessionRecord>();
-  const sessionById = new Map<string, MeetingSessionRecord>();
-  for (const session of sessions) {
-    sessionById.set(session.sessionId, session);
-    if (session.meetingId) {
-      sessionByMeetingId.set(session.meetingId, session);
-    }
-  }
-
-  const usedSessionIds = new Set<string>();
-  const items: MeetingListItem[] = [];
-
-  for (const meeting of meetings) {
-    const linkedSession = sessionByMeetingId.get(meeting.id) ?? sessionById.get(meeting.id);
-
-    if (meeting.source === "teams_bot") {
-      if (!linkedSession) {
-        if (meeting.status === "ended") {
-          items.push(meetingToListItem(meeting, workspaceId));
-        }
-        continue;
-      }
-
-      usedSessionIds.add(linkedSession.sessionId);
-      items.push(meetingToListItem(meeting, workspaceId, linkedSession));
-      continue;
-    }
-
-    items.push(meetingToListItem(meeting, workspaceId));
-  }
-
-  for (const session of sessions) {
-    if (!usedSessionIds.has(session.sessionId)) {
-      items.push(sessionToListItem(session, workspaceId));
-    }
-  }
-
-  return items.sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
-}
-
-function meetingToListItem(
-  meeting: MeetingDto,
-  workspaceId: string,
-  session?: MeetingSessionRecord,
-): MeetingListItem {
-  const meetingEnded = meeting.status === "ended" || Boolean(meeting.ended_at);
-  const status = meetingEnded ? "ended" : (session?.status ?? meeting.status);
-  const sessionQuery = session ? `?sessionId=${encodeURIComponent(session.sessionId)}` : "";
-  const meetingPath = `${workspaceMeetingPath(workspaceId, meeting.id)}${sessionQuery}`;
-  return {
-    id: meeting.id,
-    title: getMeetingDisplayTitle(
-      {
-        id: meeting.id,
-        sessionId: session?.sessionId,
-        title: session?.title ?? meeting.title,
-        titleSource: session?.titleSource ?? meeting.source,
-      },
-      { component: session ? "dashboard-linked-session" : "dashboard-meeting" },
-    ),
-    status,
-    source: meeting.source,
-    created_at: meeting.created_at,
-    updated_at: meetingEnded ? meeting.updated_at : (session?.updatedAt ?? meeting.updated_at),
-    ended_at: meetingEnded
-      ? (meeting.ended_at ?? meeting.updated_at)
-      : isTerminalMeetingSessionStatus(status)
-        ? (session?.updatedAt ?? meeting.ended_at)
-        : meeting.ended_at,
-    detailId: session?.sessionId ?? meeting.id,
-    to: meetingPath,
-    recentTo: session ? meetingPath : workspaceMeetingSummaryPath(workspaceId, meeting.id),
-    actionLabel: isActiveMeetingStatus(status, Boolean(session)) ? "開く" : "記録を見る",
-    isTeamsSession: Boolean(session),
-  };
-}
-
-function sessionToListItem(session: MeetingSessionRecord, workspaceId: string): MeetingListItem {
-  const meetingPath = `${workspaceMeetingPath(
-    workspaceId,
-    session.sessionId,
-  )}?sessionId=${encodeURIComponent(session.sessionId)}`;
+function sessionToListItem(session: MeetingSessionDto, workspaceId: string): MeetingListItem {
+  const meetingPath = workspaceMeetingPath(workspaceId, session.sessionId);
   const status = displaySessionStatus(session);
+  const createdAt = session.createdAt ?? session.requestedAt ?? session.updatedAt ?? "";
+  const updatedAt = session.updatedAt ?? session.lastBotStatusAt ?? createdAt;
+  const endedAt =
+    session.endedAt ?? (isTerminalMeetingSessionStatus(session.status) ? updatedAt : undefined);
   return {
     id: session.sessionId,
     title: getMeetingDisplayTitle(session, { component: "dashboard-session-card" }),
     status,
     source: "teams_bot",
-    created_at: session.createdAt,
-    updated_at: session.updatedAt,
-    ended_at: isTerminalMeetingSessionStatus(session.status)
-      ? (session.endedAt ?? session.updatedAt)
-      : undefined,
+    created_at: createdAt,
+    updated_at: updatedAt,
+    ended_at: endedAt,
     detailId: session.sessionId,
     to: meetingPath,
-    recentTo: meetingPath,
+    recentTo: isTerminalMeetingSessionStatus(status)
+      ? workspaceMeetingSummaryPath(workspaceId, session.sessionId)
+      : meetingPath,
     actionLabel: isActiveMeetingStatus(status, true) ? "開く" : "記録を見る",
     isTeamsSession: true,
   };
@@ -447,14 +357,6 @@ function dateValue(value?: string) {
   }
   const time = Date.parse(value);
   return Number.isNaN(time) ? 0 : time;
-}
-
-function isMissingMeetingSessionError(cause: unknown) {
-  if (!(cause instanceof Error)) {
-    return false;
-  }
-  const message = cause.message.toLowerCase();
-  return message.includes("404") || message.includes("not found");
 }
 
 function formatShortDate(value?: string) {
@@ -510,10 +412,12 @@ function formatStatus(status: string) {
   }
 }
 
-function displaySessionStatus(session: MeetingSessionRecord) {
+function displaySessionStatus(session: MeetingSessionDto) {
+  const updatedAt = session.updatedAt ?? session.lastBotStatusAt ?? session.createdAt ?? "";
   if (
     isActiveMeetingStatus(session.status, true) &&
-    Date.now() - Date.parse(session.updatedAt) > staleActiveSessionMs
+    updatedAt &&
+    Date.now() - Date.parse(updatedAt) > staleActiveSessionMs
   ) {
     meetingStartDebug("dashboard", "session card status overridden", {
       reason: "stale_active_session",
@@ -521,7 +425,7 @@ function displaySessionStatus(session: MeetingSessionRecord) {
       title: session.title,
       titleSource: session.titleSource ?? null,
       originalStatus: session.status,
-      updatedAt: session.updatedAt,
+      updatedAt,
     });
     return "stale";
   }

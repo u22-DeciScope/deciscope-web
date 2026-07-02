@@ -19,19 +19,6 @@ export type MeetingJoinTokenDto = {
   expires_at: string;
 };
 
-export async function listMeetings(workspaceId: string) {
-  return requestJson<{ meetings: MeetingDto[] }>(
-    `/v1/workspaces/${encodeURIComponent(workspaceId)}/meetings`,
-  );
-}
-
-export async function createMeeting(workspaceId: string, title: string, source: string) {
-  return requestJson<MeetingDto>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/meetings`, {
-    method: "POST",
-    body: JSON.stringify({ title, source }),
-  });
-}
-
 export async function getMeeting(meetingId: string) {
   return requestJson<MeetingDto>(`/v1/meetings/${encodeURIComponent(meetingId)}`);
 }

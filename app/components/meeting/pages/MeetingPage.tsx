@@ -6,21 +6,22 @@ import { DiscussionTree } from "~/components/meeting/parts/DiscussionTree";
 import { MeetingAssistantPanel } from "~/components/meeting/parts/MeetingAssistantPanel";
 import { MeetingChatPanel } from "~/components/meeting/parts/MeetingChatPanel";
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
+import { AppModalFrame } from "~/components/shared/modal/AppModalFrame";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { useMeetingTranscriptSession } from "~/hooks/useMeetingTranscriptSession";
 import { useMeetingRuntime } from "~/hooks/useMeetingRuntime";
+import { canManageMeetingSessions } from "~/api/auth/authApi";
 import {
-  endMeetingSession,
+  endWorkspaceMeetingSession,
   type MeetingSessionStatus,
 } from "~/api/meetingSessions/meetingSessionsApi";
 import {
   findMeetingSessionRecord,
   isTerminalMeetingSessionStatus,
-  upsertMeetingSessionRecord,
 } from "~/api/meetingSessions/meetingSessionRegistry";
 import { clearPendingMeetingNavigation } from "~/api/meetingSessions/pendingMeetingNavigation";
 import type { MeetingSegmentDto } from "~/api/meetings/meetingEventsApi";
-import { workspaceMeetingSummaryPath } from "~/routing/workspacePaths";
+import { workspaceMeetingSummaryPath, workspacePath } from "~/routing/workspacePaths";
 import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
 import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
@@ -28,7 +29,8 @@ export default function Meeting() {
   const navigate = useNavigate();
   const { id } = useParams();
   const [searchParams] = useSearchParams();
-  const { workspaceId } = useAuthenticatedLayout();
+  const { workspace, workspaceId } = useAuthenticatedLayout();
+  const canManageSessions = canManageMeetingSessions(workspace.role);
   const registeredSession = findMeetingSessionRecord(workspaceId, id ?? "");
   const routeSessionId = id?.startsWith("session_") ? id : "";
   const sessionId =
@@ -36,10 +38,12 @@ export default function Meeting() {
   const isSessionOnlyRoute = Boolean(sessionId && id === sessionId);
   const runtimeMeetingId = isSessionOnlyRoute ? undefined : id;
   const runtime = useMeetingRuntime(runtimeMeetingId);
+  const [showEndedModal, setShowEndedModal] = useState(false);
   const transcriptSession = useMeetingTranscriptSession(
     runtimeMeetingId ?? sessionId,
     sessionId,
     workspaceId,
+    { connectWebSocket: !showEndedModal },
   );
   const clearedPendingSessionRef = useRef("");
   const [isEndingSession, setIsEndingSession] = useState(false);
@@ -47,7 +51,9 @@ export default function Meeting() {
     useState<MeetingSessionStatus | null>(null);
   const [sessionEndedAtOverride, setSessionEndedAtOverride] = useState("");
   const [sessionEndError, setSessionEndError] = useState<string | null>(null);
-  const summaryPath = workspaceMeetingSummaryPath(workspaceId, runtimeMeetingId ?? "");
+  const detailTargetId = sessionId || runtimeMeetingId || id || "";
+  const meetingsPath = workspacePath(workspaceId, "/meetings");
+  const summaryPath = workspaceMeetingSummaryPath(workspaceId, detailTargetId);
   const meetingTitle = runtime.meeting?.title?.trim()
     ? getMeetingDisplayTitle(
         {
@@ -89,7 +95,8 @@ export default function Meeting() {
     setSessionEndStatusOverride(null);
     setSessionEndedAtOverride("");
     setSessionEndError(null);
-  }, [sessionId]);
+    setShowEndedModal(false);
+  }, [runtimeMeetingId, sessionId]);
 
   useEffect(() => {
     if (
@@ -108,28 +115,6 @@ export default function Meeting() {
     });
   }, [sessionId, transcriptSession.sessionStatus, workspaceId]);
 
-  useEffect(() => {
-    if (!sessionId || !transcriptSession.sessionStatus) {
-      return;
-    }
-    upsertMeetingSessionRecord({
-      sessionId,
-      workspaceId,
-      meetingId: isSessionOnlyRoute ? null : (runtimeMeetingId ?? null),
-      title: meetingTitle,
-      titleSource: transcriptSession.sessionTitleSource || null,
-      status: transcriptSession.sessionStatus,
-    });
-  }, [
-    isSessionOnlyRoute,
-    meetingTitle,
-    runtimeMeetingId,
-    sessionId,
-    transcriptSession.sessionStatus,
-    transcriptSession.sessionTitleSource,
-    workspaceId,
-  ]);
-
   const partials = useMemo(
     () => [...Object.values(runtime.partials), ...transcriptSession.partials],
     [runtime.partials, transcriptSession.partials],
@@ -147,7 +132,8 @@ export default function Meeting() {
   const displayStatus = formatStatus(statusLabel);
   const isEndedStatus = isTerminalMeetingSessionStatus(statusLabel);
   const isEndingMeeting = runtime.isEnding || isEndingSession;
-  const canEndMeeting = Boolean(sessionId || runtimeMeetingId);
+  const canEndMeeting = Boolean((runtimeMeetingId || sessionId) && canManageSessions);
+  const endOverlayMode = isEndingMeeting ? "ending" : showEndedModal ? "ended" : null;
   const sessionEndedAt = sessionEndedAtOverride || transcriptSession.sessionEndedAt;
   const elapsedStartAt =
     transcriptSession.sessionJoinedAt ||
@@ -163,49 +149,49 @@ export default function Meeting() {
           transcriptSession.connectionStatus,
         )}`
       : null;
-  const pageNotice = runtime.error ?? sessionEndError ?? transcriptNotice;
+  const endedNotice =
+    isCompletedMeetingStatus(statusLabel) && !showEndedModal
+      ? "この会議は終了済みです。文字起こしの内容は会議詳細画面から確認できます。"
+      : null;
+  const pageNotice = runtime.error ?? sessionEndError ?? endedNotice ?? transcriptNotice;
 
   const finishMeeting = useCallback(async () => {
+    if (isEndingMeeting || isEndedStatus || showEndedModal) {
+      return;
+    }
     setSessionEndError(null);
     if (sessionId) {
       setIsEndingSession(true);
       try {
-        const session = await endMeetingSession(sessionId);
-        setSessionEndStatusOverride(session.status);
+        const session = await endWorkspaceMeetingSession(workspaceId, sessionId);
+        const endedStatus: MeetingSessionStatus = isTerminalMeetingSessionStatus(session.status)
+          ? session.status
+          : "ended";
+        setSessionEndStatusOverride(endedStatus);
         setSessionEndedAtOverride(session.endedAt ?? new Date().toISOString());
-        upsertMeetingSessionRecord({
-          sessionId: session.sessionId,
-          workspaceId,
-          meetingId: isSessionOnlyRoute ? null : (runtimeMeetingId ?? null),
-          title: session.title ?? meetingTitle,
-          titleSource: session.titleSource ?? null,
-          status: session.status,
-          createdAt: session.createdAt,
-          updatedAt: session.updatedAt,
-          endedAt: session.endedAt ?? null,
-        });
+        setShowEndedModal(true);
       } catch (cause) {
-        setSessionEndError(`会議を終了できませんでした: ${errorMessage(cause)}`);
+        setSessionEndError(
+          `会議の終了に失敗しました。時間をおいて再度お試しください。${errorMessageSuffix(cause)}`,
+        );
       } finally {
         setIsEndingSession(false);
       }
       return;
     }
 
-    const report = await runtime.finishMeeting();
-    if (report) {
-      navigate(summaryPath);
+    setSessionEndError(null);
+    try {
+      await runtime.finishMeeting();
+      setSessionEndStatusOverride("ended");
+      setSessionEndedAtOverride(new Date().toISOString());
+      setShowEndedModal(true);
+    } catch (cause) {
+      setSessionEndError(
+        `会議の終了に失敗しました。時間をおいて再度お試しください。${errorMessageSuffix(cause)}`,
+      );
     }
-  }, [
-    isSessionOnlyRoute,
-    meetingTitle,
-    navigate,
-    runtime,
-    runtimeMeetingId,
-    sessionId,
-    summaryPath,
-    workspaceId,
-  ]);
+  }, [isEndedStatus, isEndingMeeting, runtime, sessionId, showEndedModal, workspaceId]);
 
   const chrome = useMemo(
     () => ({
@@ -215,13 +201,15 @@ export default function Meeting() {
         status: <LiveStatusBadge status={statusLabel} label={displayStatus} />,
         actions: (
           <div className="flex flex-wrap items-center justify-end gap-1.5">
-            <DsButton
-              disabled={!canEndMeeting || isEndingMeeting || isEndedStatus}
-              variant="secondary"
-              onClick={finishMeeting}
-            >
-              {isEndingMeeting ? "終了中" : "終了"}
-            </DsButton>
+            {canManageSessions && (
+              <DsButton
+                disabled={!canEndMeeting || isEndingMeeting || isEndedStatus || showEndedModal}
+                variant="secondary"
+                onClick={finishMeeting}
+              >
+                {isEndingMeeting ? "終了中" : "終了"}
+              </DsButton>
+            )}
           </div>
         ),
       },
@@ -234,6 +222,7 @@ export default function Meeting() {
       isEndedStatus,
       isEndingMeeting,
       meetingTitle,
+      showEndedModal,
       statusLabel,
     ],
   );
@@ -258,6 +247,14 @@ export default function Meeting() {
           speakerSummaries={runtime.speakerSummaries}
         />
       </div>
+
+      {endOverlayMode && (
+        <MeetingEndedModal
+          mode={endOverlayMode}
+          onGoHome={() => navigate(meetingsPath)}
+          onGoSummary={() => navigate(summaryPath)}
+        />
+      )}
     </section>
   );
 }
@@ -328,6 +325,78 @@ function formatElapsedDuration(durationMs: number) {
 
 function isElapsedMeetingStatus(status: string) {
   return status === "joined" || status === "active" || status === "recording";
+}
+
+function isCompletedMeetingStatus(status: string) {
+  return (
+    status === "ended" || status === "completed" || status === "closed" || status === "finished"
+  );
+}
+
+function MeetingEndedModal({
+  mode,
+  onGoHome,
+  onGoSummary,
+}: {
+  mode: "ending" | "ended";
+  onGoHome: () => void;
+  onGoSummary: () => void;
+}) {
+  const ending = mode === "ending";
+
+  return (
+    <AppModalFrame
+      ariaLabelledBy="meeting-ended-dialog-title"
+      onClose={() => {}}
+      className="w-full max-w-md overflow-hidden rounded-(--ds-radius-dialog) border p-5 outline-none"
+      style={{
+        background: "var(--ds-surface-raised)",
+        borderColor: "var(--ds-border)",
+        boxShadow: "0 24px 80px rgba(15, 38, 56, 0.32)",
+      }}
+    >
+      <div className="flex flex-col gap-4">
+        <div>
+          <h2
+            id="meeting-ended-dialog-title"
+            className="text-base font-bold"
+            style={{ color: "var(--text-main)" }}
+          >
+            {ending ? "会議を終了しています..." : "会議が終了しました"}
+          </h2>
+          <p
+            className="mt-2 whitespace-pre-line text-sm leading-relaxed"
+            style={{ color: "var(--text-sub)" }}
+          >
+            {ending
+              ? "Botの退出処理を実行しています。"
+              : "BotはTeams会議から退出しました。\n文字起こしの内容は会議詳細画面から確認できます。"}
+          </p>
+        </div>
+
+        {ending ? (
+          <div
+            className="h-1.5 overflow-hidden rounded-full"
+            style={{ background: "var(--input-bg)" }}
+          >
+            <div
+              className="h-full w-1/2 animate-pulse rounded-full"
+              style={{ background: "var(--brand)" }}
+            />
+          </div>
+        ) : (
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <DsButton type="button" variant="secondary" onClick={onGoHome}>
+              メイン画面へ戻る
+            </DsButton>
+            <DsButton type="button" onClick={onGoSummary}>
+              会議詳細を見る
+            </DsButton>
+          </div>
+        )}
+      </div>
+    </AppModalFrame>
+  );
 }
 
 function LiveStatusBadge({ label, status }: { label: string; status: string }) {
@@ -425,6 +494,7 @@ function formatTranscriptConnectionStatus(status: string) {
   }
 }
 
-function errorMessage(cause: unknown) {
-  return cause instanceof Error ? cause.message : "unknown error";
+function errorMessageSuffix(cause: unknown) {
+  const message = cause instanceof Error ? cause.message : "";
+  return message ? ` (${message})` : "";
 }

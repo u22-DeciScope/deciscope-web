@@ -37,15 +37,18 @@ export default defineConfig(({ mode }) => {
         "/api/v1/meeting-sessions": {
           target: apiProxyTarget,
           changeOrigin: true,
+          ws: true,
         },
         "/api": {
           target: apiProxyTarget,
           changeOrigin: true,
+          ws: true,
           rewrite: (path) => path.replace(/^\/api/, ""),
         },
         "/v1": {
           target: apiProxyTarget,
           changeOrigin: true,
+          ws: true,
         },
         "/ws": {
           target: wsProxyTarget,

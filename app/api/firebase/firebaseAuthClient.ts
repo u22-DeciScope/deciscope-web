@@ -37,20 +37,6 @@ export async function signOutOfFirebase() {
   await signOut(auth);
 }
 
-export async function getCurrentIdToken(): Promise<string | null> {
-  const auth = await getFirebaseAuth();
-  if (!auth.currentUser) {
-    return null;
-  }
-  return auth.currentUser.getIdToken();
-}
-
-export async function onFirebaseUserChanged(onChange: (user: User | null) => void) {
-  const auth = await getFirebaseAuth();
-  const { onAuthStateChanged } = await import("firebase/auth");
-  return onAuthStateChanged(auth, onChange);
-}
-
 async function getFirebaseAuth() {
   if (typeof window === "undefined") {
     throw new Error("Firebase Auth is only available in the browser.");

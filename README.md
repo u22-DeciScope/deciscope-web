@@ -17,6 +17,8 @@
 ```env
 API_PROXY_TARGET=http://127.0.0.1:9090
 WS_PROXY_TARGET=ws://127.0.0.1:9090
+VITE_API_BASE_URL=/api
+VITE_WS_BASE_URL=/ws
 VITE_DECISCOPE_WS_URL=ws://localhost:5193/api/v1/ws/transcript-segments
 VITE_DECISCOPE_API_BASE_URL=http://localhost:5193
 VITE_DECISCOPE_WS_CLIENT_TOKEN=dev-ws-token
@@ -24,11 +26,17 @@ VITE_FIREBASE_API_KEY=...
 VITE_FIREBASE_AUTH_DOMAIN=deciscope-app.firebaseapp.com
 VITE_FIREBASE_PROJECT_ID=deciscope-app
 VITE_FIREBASE_APP_ID=...
+# 任意
+VITE_FIREBASE_STORAGE_BUCKET=deciscope-app.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+# 任意。trueにすると会議開始まわりのdebugログを出力します
+VITE_DECISCOPE_DEBUG_MEETING_START=true
 ```
 
 開発時、ブラウザは同一オリジンの `/api` と `/ws` に接続し、Vite が上記のプロキシ先へ転送します。
-本番環境でブラウザから別オリジンの API に直接接続する場合のみ、`VITE_API_BASE_URL` と
-`VITE_WS_BASE_URL` を設定してください。
+会議画面のworkspace-scoped APIは `VITE_API_BASE_URL`、文字起こしWebSocketは
+`VITE_WS_BASE_URL` を使います。本番環境でブラウザから別オリジンの API に直接接続する場合のみ、
+この2つを公開ホストに合わせて設定してください。
 
 Firebase Console の Authentication で Microsoft プロバイダーを有効化し、承認済みドメインに `localhost` が含まれていることを確認してください。
 
@@ -121,6 +129,9 @@ POST /api/v1/meeting-sessions
 /api/v1/meeting-sessions
 /api/v1/transcript-segments
 /api/v1/ws/transcript-segments
+/api/v1/workspaces/.../meeting-sessions/.../transcript-stream
+/v1/workspaces/.../meeting-sessions/.../transcript-stream
+/ws/v1/workspaces/.../meeting-sessions/.../transcript-stream
 ```
 
 Docker Compose内では、proxy先は既定で次になります。

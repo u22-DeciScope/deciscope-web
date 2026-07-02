@@ -2,6 +2,7 @@ import {
   isMeetingSessionStatus,
   type MeetingSessionStatus,
 } from "~/api/meetingSessions/meetingSessionsApi";
+import { apiBaseUrl as coreApiBaseUrl, websocketBaseUrl } from "~/api/core/apiConfig";
 
 export type TranscriptSegment = {
   eventId?: string;
@@ -82,16 +83,8 @@ export function buildTranscriptWebSocketUrl(
 ) {
   const configured = String(import.meta.env.VITE_DECISCOPE_WS_URL ?? "").trim();
   const source = configured || TRANSCRIPT_WS_PATH;
-  const url = resolveBrowserUrl(source);
+  const url = toWebSocketUrl(source);
   const filters = normalizeTranscriptFilters(input);
-
-  if (url.protocol === "http:") {
-    url.protocol = "ws:";
-  } else if (url.protocol === "https:") {
-    url.protocol = "wss:";
-  } else if (url.protocol !== "ws:" && url.protocol !== "wss:") {
-    url.protocol = defaultWebSocketProtocol();
-  }
 
   if (filters.callId) {
     url.searchParams.set("callId", filters.callId);
@@ -143,12 +136,13 @@ export async function fetchMeetingSessionTranscriptSegmentHistory(
   return fetchTranscriptHistoryUrl(url);
 }
 
-export function buildTranscriptHistoryDebugUrl(
-  input: TranscriptSubscriptionInput = {},
+export async function fetchWorkspaceMeetingSessionTranscriptSegmentHistory(
+  workspaceId: string,
+  sessionId: string,
   limit = 100,
-  token = transcriptWebSocketToken(),
-) {
-  return maskWebSocketUrl(buildTranscriptHistoryUrl(input, limit, token));
+): Promise<TranscriptHistoryResult> {
+  const url = buildWorkspaceMeetingSessionTranscriptHistoryUrl(workspaceId, sessionId, limit);
+  return fetchTranscriptHistoryUrl(url);
 }
 
 export function buildMeetingSessionTranscriptHistoryDebugUrl(
@@ -157,6 +151,36 @@ export function buildMeetingSessionTranscriptHistoryDebugUrl(
   token = transcriptWebSocketToken(),
 ) {
   return maskWebSocketUrl(buildMeetingSessionTranscriptHistoryUrl(sessionId, limit, token));
+}
+
+export function buildWorkspaceMeetingSessionTranscriptHistoryDebugUrl(
+  workspaceId: string,
+  sessionId: string,
+  limit = 100,
+) {
+  return maskWebSocketUrl(
+    buildWorkspaceMeetingSessionTranscriptHistoryUrl(workspaceId, sessionId, limit),
+  );
+}
+
+export function buildWorkspaceMeetingSessionTranscriptWebSocketUrl(
+  workspaceId: string,
+  sessionId: string,
+  token = transcriptWebSocketToken(),
+) {
+  const url = toWebSocketUrl(
+    joinUrlPath(
+      websocketBaseUrl(),
+      workspaceMeetingSessionTranscriptPath(workspaceId, sessionId, "transcript-stream"),
+    ),
+  );
+
+  if (token) {
+    url.searchParams.set("token", token);
+  } else {
+    url.searchParams.delete("token");
+  }
+  return url.toString();
 }
 
 async function fetchTranscriptHistoryUrl(url: string): Promise<TranscriptHistoryResult> {
@@ -203,11 +227,6 @@ export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebS
   return { type, sentAtUtc: payload.sentAtUtc, segment: null, sessionStatus: null };
 }
 
-export function parseTranscriptSegmentEvent(raw: string) {
-  const parsed = parseTranscriptWebSocketEvent(raw);
-  return { type: parsed.type, segment: parsed.segment };
-}
-
 export function transcriptSegmentKey(segment: TranscriptSegment) {
   if (segment.eventId) {
     return segment.eventId;
@@ -226,9 +245,7 @@ function buildTranscriptHistoryUrl(
   limit: number,
   token: string | null,
 ) {
-  const configured = String(import.meta.env.VITE_DECISCOPE_API_BASE_URL ?? "").trim();
-  const base = configured || browserOrigin();
-  const url = new URL(TRANSCRIPT_HISTORY_PATH, base);
+  const url = new URL(TRANSCRIPT_HISTORY_PATH, apiBaseUrl());
   const filters = normalizeTranscriptFilters(input);
 
   if (filters.callId) {
@@ -250,17 +267,37 @@ function buildMeetingSessionTranscriptHistoryUrl(
   limit: number,
   token: string | null,
 ) {
-  const configured = String(import.meta.env.VITE_DECISCOPE_API_BASE_URL ?? "").trim();
-  const base = configured || browserOrigin();
   const url = new URL(
     `/api/v1/meeting-sessions/${encodeURIComponent(sessionId.trim())}/transcript-segments`,
-    base,
+    apiBaseUrl(),
   );
   url.searchParams.set("limit", String(limit));
   if (token) {
     url.searchParams.set("token", token);
   }
   return url.toString();
+}
+
+function buildWorkspaceMeetingSessionTranscriptHistoryUrl(
+  workspaceId: string,
+  sessionId: string,
+  limit: number,
+) {
+  const url = coreApiUrl(
+    workspaceMeetingSessionTranscriptPath(workspaceId, sessionId, "transcript-segments"),
+  );
+  url.searchParams.set("limit", String(limit));
+  return url.toString();
+}
+
+function workspaceMeetingSessionTranscriptPath(
+  workspaceId: string,
+  sessionId: string,
+  suffix: "transcript-segments" | "transcript-stream",
+) {
+  return `/v1/workspaces/${encodeURIComponent(workspaceId.trim())}/meeting-sessions/${encodeURIComponent(
+    sessionId.trim(),
+  )}/${suffix}`;
 }
 
 function extractTranscriptSegments(payload: unknown) {
@@ -427,6 +464,30 @@ function browserOrigin() {
     return window.location.origin;
   }
   return "http://localhost:5193";
+}
+
+function apiBaseUrl() {
+  return String(import.meta.env.VITE_DECISCOPE_API_BASE_URL ?? "").trim() || browserOrigin();
+}
+
+function coreApiUrl(path: string) {
+  return resolveBrowserUrl(joinUrlPath(coreApiBaseUrl(), path));
+}
+
+function joinUrlPath(base: string, path: string) {
+  return `${base.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
+}
+
+function toWebSocketUrl(value: string) {
+  const url = resolveBrowserUrl(value);
+  if (url.protocol === "http:") {
+    url.protocol = "ws:";
+  } else if (url.protocol === "https:") {
+    url.protocol = "wss:";
+  } else if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+    url.protocol = defaultWebSocketProtocol();
+  }
+  return url;
 }
 
 function defaultWebSocketProtocol() {

@@ -1,3 +1,5 @@
+import { requestJson } from "~/api/core/apiClient";
+
 export type MeetingSessionStatus =
   | "requested"
   | "pending_join"
@@ -13,6 +15,9 @@ export type MeetingSessionStatus =
 
 export type MeetingSessionDto = {
   sessionId: string;
+  workspaceId?: string;
+  createdByUserId?: string;
+  meetingId?: string;
   title?: string;
   displayTitle?: string;
   titleSource?: string;
@@ -33,6 +38,13 @@ export type MeetingSessionDto = {
   titleResolutionErrorCode?: string;
   titleResolutionErrorMessage?: string;
   titleResolvedAt?: string;
+  purpose?: string;
+  context?: string;
+  agenda?: string;
+  decisionPoints?: string;
+  concerns?: string;
+  expectedOutput?: string;
+  customInstruction?: string;
   status: MeetingSessionStatus;
   meetingUrlHash?: string;
   reused?: boolean;
@@ -71,48 +83,70 @@ export type CreateMeetingSessionInput = {
   createdByMicrosoftUserId?: string;
   createdByEmail?: string;
   organizerUserId?: string;
+  purpose?: string;
+  context?: string;
+  agenda?: string;
+  decisionPoints?: string;
+  concerns?: string;
+  expectedOutput?: string;
+  customInstruction?: string;
 };
 
-export async function createMeetingSession(
+const workspaceMeetingSessionsPath = (workspaceId: string) =>
+  `/v1/workspaces/${encodeURIComponent(workspaceId)}/meeting-sessions`;
+
+export async function createWorkspaceMeetingSession(
+  workspaceId: string,
   joinUrl: string,
   input: CreateMeetingSessionInput = {},
 ): Promise<MeetingSessionDto> {
-  const userProvidedTitle = (input.userProvidedTitle ?? input.title)?.trim();
-  const candidateUserIds =
-    input.candidateUserIds?.map((value) => value.trim()).filter(Boolean) ?? [];
-  const candidateUserPrincipalNames =
-    input.candidateUserPrincipalNames?.map((value) => value.trim()).filter(Boolean) ?? [];
-  const createdByMicrosoftUserId = input.createdByMicrosoftUserId?.trim();
-  const createdByEmail = input.createdByEmail?.trim();
-  const organizerUserId = input.organizerUserId?.trim();
-  const response = await fetch(apiUrl(MEETING_SESSIONS_PATH), {
+  const payload = await requestJson<unknown>(workspaceMeetingSessionsPath(workspaceId), {
     method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    credentials: "include",
-    body: JSON.stringify({
-      joinUrl,
-      ...(userProvidedTitle ? { userProvidedTitle } : {}),
-      ...(candidateUserIds.length > 0 ? { candidateUserIds } : {}),
-      ...(candidateUserPrincipalNames.length > 0 ? { candidateUserPrincipalNames } : {}),
-      ...(createdByMicrosoftUserId ? { createdByMicrosoftUserId } : {}),
-      ...(createdByEmail ? { createdByEmail } : {}),
-      ...(organizerUserId ? { organizerUserId } : {}),
-    }),
+    body: JSON.stringify(createMeetingSessionBody(joinUrl, input)),
   });
-
-  const payload = await readJsonBody(response);
-  if (!response.ok) {
-    throw new Error(
-      errorMessageFromPayload(payload) || `${response.status} ${response.statusText}`,
-    );
-  }
-
   const session = normalizeMeetingSession(payload);
   if (!session) {
     throw new Error("Go APIの会議セッション作成レスポンスを解析できませんでした。");
+  }
+  return session;
+}
+
+export async function listWorkspaceMeetingSessions(
+  workspaceId: string,
+): Promise<MeetingSessionDto[]> {
+  const payload = await requestJson<unknown>(workspaceMeetingSessionsPath(workspaceId));
+  return extractMeetingSessions(payload);
+}
+
+export async function getWorkspaceMeetingSession(
+  workspaceId: string,
+  sessionId: string,
+): Promise<MeetingSessionDto> {
+  const payload = await requestJson<unknown>(
+    `${workspaceMeetingSessionsPath(workspaceId)}/${encodeURIComponent(sessionId)}/`,
+  );
+  const session = normalizeMeetingSession(payload);
+  if (!session) {
+    throw new Error("Go APIの会議セッション取得レスポンスを解析できませんでした。");
+  }
+  return session;
+}
+
+export async function endWorkspaceMeetingSession(
+  workspaceId: string,
+  sessionId: string,
+  reason = "manual_end_requested",
+): Promise<MeetingSessionDto> {
+  const payload = await requestJson<unknown>(
+    `${workspaceMeetingSessionsPath(workspaceId)}/${encodeURIComponent(sessionId)}/end`,
+    {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    },
+  );
+  const session = normalizeMeetingSession(payload);
+  if (!session) {
+    throw new Error("Go APIの会議セッション終了レスポンスを解析できませんでした。");
   }
   return session;
 }
@@ -140,37 +174,6 @@ export async function getMeetingSession(sessionId: string): Promise<MeetingSessi
   return session;
 }
 
-export async function endMeetingSession(
-  sessionId: string,
-  reason = "manual_end_requested",
-): Promise<MeetingSessionDto> {
-  const response = await fetch(
-    apiUrl(`${MEETING_SESSIONS_PATH}/${encodeURIComponent(sessionId)}/end`),
-    {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      credentials: "include",
-      body: JSON.stringify({ reason }),
-    },
-  );
-
-  const payload = await readJsonBody(response);
-  if (!response.ok) {
-    throw new Error(
-      errorMessageFromPayload(payload) || `${response.status} ${response.statusText}`,
-    );
-  }
-
-  const session = normalizeMeetingSession(payload);
-  if (!session) {
-    throw new Error("Go APIの会議セッション終了レスポンスを解析できませんでした。");
-  }
-  return session;
-}
-
 export function isMeetingSessionStatus(value: unknown): value is MeetingSessionStatus {
   return (
     typeof value === "string" && meetingSessionStatuses.includes(value as MeetingSessionStatus)
@@ -183,6 +186,10 @@ function normalizeMeetingSession(value: unknown): MeetingSessionDto | null {
   }
   const source = value as Record<string, unknown>;
   const sessionId = optionalString(source.sessionId) ?? optionalString(source.session_id);
+  const workspaceId = optionalString(source.workspaceId) ?? optionalString(source.workspace_id);
+  const createdByUserId =
+    optionalString(source.createdByUserId) ?? optionalString(source.created_by_user_id);
+  const meetingId = optionalString(source.meetingId) ?? optionalString(source.meeting_id);
   const status = source.status;
   if (!sessionId || !isMeetingSessionStatus(status)) {
     return null;
@@ -227,6 +234,16 @@ function normalizeMeetingSession(value: unknown): MeetingSessionDto | null {
     optionalString(source.title_resolution_error_message);
   const titleResolvedAt =
     optionalString(source.titleResolvedAt) ?? optionalString(source.title_resolved_at);
+  const purpose = optionalString(source.purpose);
+  const context = optionalString(source.context);
+  const agenda = optionalString(source.agenda);
+  const decisionPoints =
+    optionalString(source.decisionPoints) ?? optionalString(source.decision_points);
+  const concerns = optionalString(source.concerns);
+  const expectedOutput =
+    optionalString(source.expectedOutput) ?? optionalString(source.expected_output);
+  const customInstruction =
+    optionalString(source.customInstruction) ?? optionalString(source.custom_instruction);
   const botCallId = optionalString(source.botCallId) ?? optionalString(source.bot_call_id);
   const createdAt = optionalString(source.createdAt) ?? optionalString(source.created_at);
   const updatedAt = optionalString(source.updatedAt) ?? optionalString(source.updated_at);
@@ -241,6 +258,9 @@ function normalizeMeetingSession(value: unknown): MeetingSessionDto | null {
   const lastError = optionalString(source.lastError) ?? optionalString(source.last_error);
   return {
     sessionId,
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(createdByUserId ? { createdByUserId } : {}),
+    ...(meetingId ? { meetingId } : {}),
     ...(title ? { title } : {}),
     ...(displayTitle ? { displayTitle } : {}),
     ...(titleSource ? { titleSource } : {}),
@@ -261,6 +281,13 @@ function normalizeMeetingSession(value: unknown): MeetingSessionDto | null {
     ...(titleResolutionErrorCode ? { titleResolutionErrorCode } : {}),
     ...(titleResolutionErrorMessage ? { titleResolutionErrorMessage } : {}),
     ...(titleResolvedAt ? { titleResolvedAt } : {}),
+    ...(purpose ? { purpose } : {}),
+    ...(context ? { context } : {}),
+    ...(agenda ? { agenda } : {}),
+    ...(decisionPoints ? { decisionPoints } : {}),
+    ...(concerns ? { concerns } : {}),
+    ...(expectedOutput ? { expectedOutput } : {}),
+    ...(customInstruction ? { customInstruction } : {}),
     status,
     ...(meetingUrlHash ? { meetingUrlHash } : {}),
     ...(typeof source.reused === "boolean" ? { reused: source.reused } : {}),
@@ -275,6 +302,57 @@ function normalizeMeetingSession(value: unknown): MeetingSessionDto | null {
     ...(lastBotStatusAt ? { lastBotStatusAt } : {}),
     ...(lastError ? { lastError } : {}),
   };
+}
+
+function createMeetingSessionBody(joinUrl: string, input: CreateMeetingSessionInput) {
+  const userProvidedTitle = (input.userProvidedTitle ?? input.title)?.trim();
+  const candidateUserIds =
+    input.candidateUserIds?.map((value) => value.trim()).filter(Boolean) ?? [];
+  const candidateUserPrincipalNames =
+    input.candidateUserPrincipalNames?.map((value) => value.trim()).filter(Boolean) ?? [];
+  const createdByMicrosoftUserId = input.createdByMicrosoftUserId?.trim();
+  const createdByEmail = input.createdByEmail?.trim();
+  const organizerUserId = input.organizerUserId?.trim();
+  const purpose = input.purpose?.trim();
+  const context = input.context?.trim();
+  const agenda = input.agenda?.trim();
+  const decisionPoints = input.decisionPoints?.trim();
+  const concerns = input.concerns?.trim();
+  const expectedOutput = input.expectedOutput?.trim();
+  const customInstruction = input.customInstruction?.trim();
+  return {
+    joinUrl,
+    ...(userProvidedTitle ? { userProvidedTitle } : {}),
+    ...(candidateUserIds.length > 0 ? { candidateUserIds } : {}),
+    ...(candidateUserPrincipalNames.length > 0 ? { candidateUserPrincipalNames } : {}),
+    ...(createdByMicrosoftUserId ? { createdByMicrosoftUserId } : {}),
+    ...(createdByEmail ? { createdByEmail } : {}),
+    ...(organizerUserId ? { organizerUserId } : {}),
+    ...(purpose ? { purpose } : {}),
+    ...(context ? { context } : {}),
+    ...(agenda ? { agenda } : {}),
+    ...(decisionPoints ? { decisionPoints } : {}),
+    ...(concerns ? { concerns } : {}),
+    ...(expectedOutput ? { expectedOutput } : {}),
+    ...(customInstruction ? { customInstruction } : {}),
+  };
+}
+
+function extractMeetingSessions(payload: unknown) {
+  if (Array.isArray(payload)) {
+    return payload.map(normalizeMeetingSession).filter(Boolean) as MeetingSessionDto[];
+  }
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+  const body = payload as Record<string, unknown>;
+  for (const key of ["items", "meetingSessions", "meeting_sessions", "sessions"]) {
+    const value = body[key];
+    if (Array.isArray(value)) {
+      return value.map(normalizeMeetingSession).filter(Boolean) as MeetingSessionDto[];
+    }
+  }
+  return [];
 }
 
 async function readJsonBody(response: Response) {

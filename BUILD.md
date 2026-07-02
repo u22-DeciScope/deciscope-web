@@ -3,7 +3,7 @@
 ## 前提
 
 - Node.js と npm がインストール済みであること
-- プロジェクトルート: `deciscope-frontend`
+- プロジェクトルート: `deciscope-web`
 
 ## 開発
 
