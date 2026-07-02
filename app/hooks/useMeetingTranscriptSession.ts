@@ -669,11 +669,16 @@ function removeReplacedPartialEntries(
     return false;
   }
 
-  const matchedEntries = sameBaseEntries.filter(([, entry]) =>
-    partialEntryMatchesFinalSegment(entry, finalSegment),
+  // 同一話者では partial は必ず対応する final より前に発火するため、
+  // final の実時刻以前に活動が止まっている entry はすべて置き換え済みとみなす。
+  // (テキスト/オフセット一致に加えて時刻でも判定することで、finalが来ない
+  // ゴーストpartialの残留と、次発話の進行中partialの誤削除の両方を防ぐ)
+  const finalActivityMs = transcriptSegmentTimestampMs(finalSegment);
+  const entriesToRemove = sameBaseEntries.filter(
+    ([, entry]) =>
+      entry.latestActivityMs <= finalActivityMs ||
+      partialEntryMatchesFinalSegment(entry, finalSegment),
   );
-  const entriesToRemove =
-    matchedEntries.length > 0 ? matchedEntries : [latestEntryFromPairs(sameBaseEntries)];
   let changed = false;
   for (const [key] of entriesToRemove) {
     delete entries[key];
@@ -717,7 +722,13 @@ function updatePartialEntry(
 }
 
 function shouldContinuePartialEntry(entry: TranscriptPartialEntry, segment: TranscriptSegment) {
+  // offsetTicks は音声ストリーム上の位置であり、話者が沈黙している間は進まないことがある。
+  // 実時刻(recognizedAtUtc)の間隔が閾値を超えたら、オフセットが連続していても新しいバブルにする。
   const nextActivityMs = transcriptSegmentTimestampMs(segment);
+  if (nextActivityMs - entry.latestActivityMs > partialBubbleGapThresholdMs) {
+    return false;
+  }
+
   if (partialTextLooksRelated(entry.segment.text, segment.text)) {
     return true;
   }
@@ -731,7 +742,7 @@ function shouldContinuePartialEntry(entry: TranscriptPartialEntry, segment: Tran
     );
   }
 
-  return nextActivityMs - entry.latestActivityMs <= partialBubbleGapThresholdMs;
+  return true;
 }
 
 function partialEntryMatchesFinalSegment(
