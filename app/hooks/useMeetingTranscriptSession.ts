@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 
 import {
+  getWorkspaceMeetingSessionAIAnalyses,
+  type MeetingAIAnalysis,
+} from "~/api/aiAnalysis/aiAnalysisApi";
+import {
   getMeetingSession,
   getWorkspaceMeetingSession,
   type MeetingSessionStatus,
@@ -47,6 +51,27 @@ type TranscriptPartialEntry = {
   latestEndMs: number;
 };
 
+// ライブ分析の更新状態シグナル。更新チップ(AiUpdateStatusChip)の表示に使う。
+export type LiveAnalysisMeta = {
+  intervalSeconds: number;
+  lastEventAtMs: number | null;
+  lastCompletedAtMs: number | null;
+  generating: boolean;
+  failed: boolean;
+  hasNewSpeech: boolean;
+};
+
+const defaultLiveAnalysisIntervalSeconds = 10;
+
+const initialLiveAnalysisMeta: LiveAnalysisMeta = {
+  intervalSeconds: defaultLiveAnalysisIntervalSeconds,
+  lastEventAtMs: null,
+  lastCompletedAtMs: null,
+  generating: false,
+  failed: false,
+  hasNewSpeech: false,
+};
+
 export function useMeetingTranscriptSession(
   meetingId: string | undefined,
   sessionId: string | null | undefined,
@@ -63,6 +88,10 @@ export function useMeetingTranscriptSession(
   const [sessionCreatedAt, setSessionCreatedAt] = useState("");
   const [sessionJoinedAt, setSessionJoinedAt] = useState("");
   const [sessionEndedAt, setSessionEndedAt] = useState("");
+  const [liveAnalysis, setLiveAnalysis] = useState<MeetingAIAnalysis | null>(null);
+  const [finalAnalysis, setFinalAnalysis] = useState<MeetingAIAnalysis | null>(null);
+  const [liveAnalysisMeta, setLiveAnalysisMeta] =
+    useState<LiveAnalysisMeta>(initialLiveAnalysisMeta);
   const [connectionStatus, setConnectionStatus] =
     useState<TranscriptSessionConnectionStatus>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -222,6 +251,9 @@ export function useMeetingTranscriptSession(
       setSessionCreatedAt("");
       setSessionJoinedAt("");
       setSessionEndedAt("");
+      setLiveAnalysis(null);
+      setFinalAnalysis(null);
+      setLiveAnalysisMeta(initialLiveAnalysisMeta);
       setConnectionStatus("idle");
       setError(null);
       return;
@@ -239,6 +271,9 @@ export function useMeetingTranscriptSession(
     setSessionCreatedAt("");
     setSessionJoinedAt("");
     setSessionEndedAt("");
+    setLiveAnalysis(null);
+    setFinalAnalysis(null);
+    setLiveAnalysisMeta(initialLiveAnalysisMeta);
     setConnectionStatus("loading");
     setError(null);
 
@@ -350,6 +385,60 @@ export function useMeetingTranscriptSession(
       }
     }
 
+    async function loadAIAnalyses() {
+      if (!workspaceId) {
+        return;
+      }
+      try {
+        const analyses = await getWorkspaceMeetingSessionAIAnalyses(
+          workspaceId,
+          normalizedSessionId,
+        );
+        if (!active) {
+          return;
+        }
+        const live = analyses.live;
+        if (live) {
+          setLiveAnalysis((current) => (shouldReplaceAIAnalysis(current, live) ? live : current));
+        }
+        const final = analyses.final;
+        if (final) {
+          setFinalAnalysis((current) =>
+            shouldReplaceAIAnalysis(current, final) ? final : current,
+          );
+        }
+        const intervalSeconds = analyses.liveIntervalSeconds;
+        setLiveAnalysisMeta((current) => {
+          // WSイベントを既に受信済みならintervalSecondsの補完のみ行う。
+          if (current.lastEventAtMs !== null || !live) {
+            return intervalSeconds ? { ...current, intervalSeconds } : current;
+          }
+          const updatedAtMs = live.updatedAtUtc ? Date.parse(live.updatedAtUtc) : Number.NaN;
+          const eventAtMs = Number.isNaN(updatedAtMs) ? null : updatedAtMs;
+          return {
+            ...current,
+            ...(intervalSeconds ? { intervalSeconds } : {}),
+            lastEventAtMs: eventAtMs,
+            lastCompletedAtMs: live.status === "completed" ? eventAtMs : null,
+            generating: live.status === "running",
+            failed: live.status === "failed",
+          };
+        });
+        meetingStartDebug("meeting-page", "ai analyses loaded", {
+          sessionId: normalizedSessionId,
+          liveStatus: analyses.live?.status ?? null,
+          liveVersion: analyses.live?.version ?? null,
+          finalStatus: analyses.final?.status ?? null,
+          finalVersion: analyses.final?.version ?? null,
+        });
+      } catch (cause) {
+        meetingStartDebug("meeting-page", "ai analyses load failed", {
+          sessionId: normalizedSessionId,
+          message: errorMessage(cause),
+        });
+      }
+    }
+
     function connect(reconnecting = false) {
       clearReconnectTimer(reconnectTimerRef);
       clearReconnectTimer(connectTimeoutRef);
@@ -451,6 +540,56 @@ export function useMeetingTranscriptSession(
             return;
           }
 
+          if (parsed.aiAnalysis) {
+            if (parsed.aiAnalysis.sessionId !== activeSessionRef.current) {
+              meetingStartDebug("meeting-page", "ai analysis ignored", {
+                reason: "session_id_mismatch",
+                currentSessionId: activeSessionRef.current,
+                receivedSessionId: parsed.aiAnalysis.sessionId ?? null,
+                analysisType: parsed.aiAnalysis.analysisType,
+              });
+              return;
+            }
+
+            const incoming = parsed.aiAnalysis;
+            if (incoming.analysisType === "live") {
+              setLiveAnalysis((current) =>
+                shouldReplaceAIAnalysis(current, incoming)
+                  ? mergeAIAnalysisPayload(current, incoming)
+                  : current,
+              );
+              const receivedAtMs = Date.now();
+              setLiveAnalysisMeta((current) => ({
+                ...current,
+                ...(incoming.intervalSeconds ? { intervalSeconds: incoming.intervalSeconds } : {}),
+                lastEventAtMs: receivedAtMs,
+                ...(incoming.status === "completed"
+                  ? {
+                      lastCompletedAtMs: receivedAtMs,
+                      generating: false,
+                      failed: false,
+                      hasNewSpeech: false,
+                    }
+                  : incoming.status === "running"
+                    ? { generating: true, failed: false }
+                    : { generating: false, failed: true }),
+              }));
+            } else {
+              setFinalAnalysis((current) =>
+                shouldReplaceAIAnalysis(current, incoming)
+                  ? mergeAIAnalysisPayload(current, incoming)
+                  : current,
+              );
+            }
+            meetingStartDebug("meeting-page", "ai analysis received", {
+              sessionId: incoming.sessionId,
+              analysisType: incoming.analysisType,
+              status: incoming.status,
+              version: incoming.version,
+            });
+            return;
+          }
+
           if (parsed.segment) {
             meetingStartDebug("meeting-page", "transcript received", {
               sessionId: parsed.segment.sessionId ?? null,
@@ -468,6 +607,10 @@ export function useMeetingTranscriptSession(
               return;
             }
             appendSegments([parsed.segment], "websocket");
+            // 最後のcompleted以降に新しい確定発話があったことを更新チップへ伝える。
+            setLiveAnalysisMeta((current) =>
+              current.hasNewSpeech ? current : { ...current, hasNewSpeech: true },
+            );
             return;
           }
 
@@ -534,6 +677,7 @@ export function useMeetingTranscriptSession(
 
     void loadInitialData();
     void loadTranscriptHistory();
+    void loadAIAnalyses();
     connect(false);
 
     return () => {
@@ -579,6 +723,9 @@ export function useMeetingTranscriptSession(
       sessionJoinedAt,
       sessionEndedAt,
       sessionStatus,
+      liveAnalysis,
+      finalAnalysis,
+      liveAnalysisMeta,
       connectionStatus,
       error,
       rawSegments: segments,
@@ -592,6 +739,9 @@ export function useMeetingTranscriptSession(
     [
       connectionStatus,
       error,
+      finalAnalysis,
+      liveAnalysis,
+      liveAnalysisMeta,
       meetingId,
       normalizedSessionId,
       partials,
@@ -604,6 +754,30 @@ export function useMeetingTranscriptSession(
       sessionTitleSource,
     ],
   );
+}
+
+function shouldReplaceAIAnalysis(
+  current: MeetingAIAnalysis | null,
+  incoming: MeetingAIAnalysis | null,
+) {
+  if (!incoming) {
+    return false;
+  }
+  if (!current) {
+    return true;
+  }
+  return incoming.version >= current.version;
+}
+
+// running(ephemeral)イベント等でincoming.payloadがnullの場合、既存payloadを保持する防御。
+function mergeAIAnalysisPayload(
+  current: MeetingAIAnalysis | null,
+  incoming: MeetingAIAnalysis,
+): MeetingAIAnalysis {
+  if (incoming.payload === null && current?.payload) {
+    return { ...incoming, payload: current.payload };
+  }
+  return incoming;
 }
 
 function transcriptSegmentToMeetingSegment(

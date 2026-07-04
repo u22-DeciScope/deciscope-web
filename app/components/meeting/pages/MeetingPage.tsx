@@ -10,6 +10,7 @@ import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { useMeetingTranscriptSession } from "~/hooks/useMeetingTranscriptSession";
 import { useMeetingRuntime } from "~/hooks/useMeetingRuntime";
 import { useMeetingElapsedTime } from "~/hooks/useMeetingElapsedTime";
+import type { LiveAnalysisPayload } from "~/api/aiAnalysis/aiAnalysisApi";
 import { canManageMeetingSessions } from "~/api/auth/authApi";
 import {
   endWorkspaceMeetingSession,
@@ -129,6 +130,16 @@ export default function Meeting() {
     () => mergeDisplaySegments(runtime.segments, transcriptSession.segments),
     [runtime.segments, transcriptSession.segments],
   );
+  // 議論ツリーは runtime(旧経路)のtreeを優先し、無ければライブ分析のtreeで補う。
+  const liveAnalysisTree = useMemo(() => {
+    const payload = transcriptSession.liveAnalysis?.payload as LiveAnalysisPayload | null;
+    return payload?.tree ?? null;
+  }, [transcriptSession.liveAnalysis]);
+  const runtimeTreeNodes = runtime.tree?.nodes ?? [];
+  const treeNodes =
+    runtimeTreeNodes.length > 0 ? runtimeTreeNodes : (liveAnalysisTree?.nodes ?? []);
+  const treeEdges =
+    runtimeTreeNodes.length > 0 ? (runtime.tree?.edges ?? []) : (liveAnalysisTree?.edges ?? []);
   const meetingSessionStatus = sessionEndStatusOverride ?? transcriptSession.sessionStatus;
   const statusLabel =
     meetingSessionStatus ??
@@ -249,10 +260,12 @@ export default function Meeting() {
         className="min-h-0 flex-1"
         partials={partials}
         segments={segments}
-        treeNodes={runtime.tree?.nodes ?? []}
-        treeEdges={runtime.tree?.edges ?? []}
+        treeNodes={treeNodes}
+        treeEdges={treeEdges}
         insights={runtime.analysisItems}
         speakerSummaries={runtime.speakerSummaries}
+        liveAnalysis={transcriptSession.liveAnalysis}
+        liveAnalysisMeta={transcriptSession.liveAnalysisMeta}
       />
 
       {endOverlayMode && (

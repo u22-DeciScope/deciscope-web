@@ -1,3 +1,4 @@
+import { normalizeAIAnalysis, type MeetingAIAnalysis } from "~/api/aiAnalysis/aiAnalysisApi";
 import {
   isMeetingSessionStatus,
   type MeetingSessionStatus,
@@ -62,6 +63,7 @@ export type ParsedTranscriptWebSocketEvent = {
   sentAtUtc?: string;
   segment: TranscriptSegment | null;
   sessionStatus: MeetingSessionStatusChange | null;
+  aiAnalysis: MeetingAIAnalysis | null;
 };
 
 type TranscriptHistoryResult = {
@@ -212,6 +214,7 @@ export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebS
       sentAtUtc: payload.sentAtUtc,
       segment: null,
       sessionStatus: normalizeMeetingSessionStatusChange(payload.data),
+      aiAnalysis: null,
     };
   }
 
@@ -221,10 +224,27 @@ export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebS
       sentAtUtc: payload.sentAtUtc,
       segment: normalizeTranscriptSegment(payload.data),
       sessionStatus: null,
+      aiAnalysis: null,
     };
   }
 
-  return { type, sentAtUtc: payload.sentAtUtc, segment: null, sessionStatus: null };
+  if (type === "ai_analysis.updated") {
+    return {
+      type,
+      sentAtUtc: payload.sentAtUtc,
+      segment: null,
+      sessionStatus: null,
+      aiAnalysis: normalizeAIAnalysis(payload.data),
+    };
+  }
+
+  return {
+    type,
+    sentAtUtc: payload.sentAtUtc,
+    segment: null,
+    sessionStatus: null,
+    aiAnalysis: null,
+  };
 }
 
 export function transcriptSegmentKey(segment: TranscriptSegment) {

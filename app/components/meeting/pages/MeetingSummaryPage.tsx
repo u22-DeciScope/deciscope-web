@@ -3,6 +3,11 @@ import { useParams } from "react-router";
 import { HiArrowDownTray, HiShare } from "react-icons/hi2";
 
 import {
+  getWorkspaceMeetingSessionAIAnalyses,
+  type LiveAnalysisPayload,
+  type MeetingAIAnalysis,
+} from "~/api/aiAnalysis/aiAnalysisApi";
+import {
   getWorkspaceMeetingSession,
   type MeetingSessionDto,
 } from "~/api/meetingSessions/meetingSessionsApi";
@@ -23,6 +28,7 @@ import { DsButton } from "~/components/DsButton";
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/routing/workspacePaths";
+import { AiFinalSummaryPanel } from "~/components/meeting/summary/AiFinalSummaryPanel";
 import { MeetingSummaryMain } from "~/components/meeting/summary/MeetingSummaryMain";
 import { MeetingSummarySidebar } from "~/components/meeting/summary/MeetingSummarySidebar";
 import { MarkdownReportPanel } from "~/components/meeting/summary/MarkdownReportPanel";
@@ -37,6 +43,9 @@ import {
   transcriptMarkdown,
 } from "~/components/meeting/summary/meetingSummaryViewModel";
 import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
+import { meetingStartDebug } from "~/utils/meetingStartDebug";
+
+const finalAnalysisPollIntervalMs = 10_000;
 
 export default function MeetingSummary() {
   const { id } = useParams();
@@ -50,6 +59,8 @@ export default function MeetingSummary() {
   const [shareToken, setShareToken] = useState("");
   const [tree, setTree] = useState<TreeUpdatePayload | null>(null);
   const [analysisItems, setAnalysisItems] = useState<AnalysisItem[]>([]);
+  const [finalAnalysis, setFinalAnalysis] = useState<MeetingAIAnalysis | null>(null);
+  const [liveAnalysis, setLiveAnalysis] = useState<MeetingAIAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -65,6 +76,8 @@ export default function MeetingSummary() {
     setTranscriptSegments([]);
     setTree(null);
     setAnalysisItems([]);
+    setFinalAnalysis(null);
+    setLiveAnalysis(null);
     if (id.startsWith("session_")) {
       getWorkspaceMeetingSession(workspaceId, id)
         .then(async (sessionResult) => {
@@ -112,12 +125,65 @@ export default function MeetingSummary() {
     };
   }, [id, workspaceId]);
 
+  // 会議終了直後にこの画面へ遷移した場合、final分析はバックエンドでまだ running のことがある。
+  // completed/failed になるまで10秒間隔でポーリングし、アンマウント/セッション切替で停止する。
+  useEffect(() => {
+    if (!id || !id.startsWith("session_")) {
+      return;
+    }
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    async function poll() {
+      try {
+        const analyses = await getWorkspaceMeetingSessionAIAnalyses(workspaceId, id as string);
+        if (!active) {
+          return;
+        }
+        setFinalAnalysis(analyses.final);
+        setLiveAnalysis(analyses.live);
+        if (analyses.final?.status === "running") {
+          timer = setTimeout(() => void poll(), finalAnalysisPollIntervalMs);
+        }
+      } catch (cause) {
+        if (!active) {
+          return;
+        }
+        meetingStartDebug("meeting-summary-page", "ai final analysis load failed", {
+          sessionId: id,
+          message: cause instanceof Error ? cause.message : "unknown error",
+        });
+      }
+    }
+
+    void poll();
+
+    return () => {
+      active = false;
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, [id, workspaceId]);
+
   const summary = useMemo(() => {
     if (session) {
-      return summaryFromMeetingSession(session, transcriptSegments);
+      return summaryFromMeetingSession(session, transcriptSegments, finalAnalysis);
     }
     return summaryFromReport(meeting, report);
-  }, [meeting, report, session, transcriptSegments]);
+  }, [finalAnalysis, meeting, report, session, transcriptSegments]);
+
+  // 議論ツリー/分析カードは durable イベント(旧経路)を優先し、
+  // 無ければライブ分析payloadのtree/itemsで補って終了後も閲覧できるようにする。
+  const livePayload = (liveAnalysis?.payload as LiveAnalysisPayload | null) ?? null;
+  const effectiveTree = tree?.nodes?.length ? tree : (livePayload?.tree ?? null);
+  // resolved/dismissed の解消済みliveItemはカード表示から除外する(防御)。
+  const effectiveAnalysisItems =
+    analysisItems.length > 0
+      ? analysisItems
+      : (livePayload?.items ?? []).filter(
+          (item) => item.status !== "dismissed" && item.status !== "resolved",
+        );
 
   async function shareReport() {
     if (!id) {
@@ -200,12 +266,13 @@ export default function MeetingSummary() {
       {session ? (
         <>
           <SessionSummaryHeader summary={summary} />
+          <AiFinalSummaryPanel final={finalAnalysis} currentTitle={summary.title} />
           {hasPreMeetingContext(session) && <PreMeetingContextPanel session={session} />}
           <SessionReviewWorkspace
             session={session}
             segments={transcriptSegments}
-            tree={tree}
-            analysisItems={analysisItems}
+            tree={effectiveTree}
+            analysisItems={effectiveAnalysisItems}
           />
         </>
       ) : (

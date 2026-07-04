@@ -19,9 +19,10 @@ import { NodeDetailCard } from "./NodeDetailCard";
 type DiscussionTreeProps = {
   nodes: TreeNodePayload[];
   edges: TreeEdgePayload[];
+  updateStatus?: React.ReactNode;
 };
 
-export function DiscussionTree({ nodes, edges }: DiscussionTreeProps) {
+export function DiscussionTree({ nodes, edges, updateStatus }: DiscussionTreeProps) {
   return (
     <div
       className="flex min-h-80 min-w-0 flex-col overflow-hidden rounded-(--ds-radius-panel) border md:min-h-0"
@@ -43,8 +44,9 @@ export function DiscussionTree({ nodes, edges }: DiscussionTreeProps) {
             論点・リスク・決定事項の関係
           </p>
         </div>
+        {updateStatus && <span className="mr-2 min-w-0 shrink">{updateStatus}</span>}
         <span
-          className="rounded-full px-2 py-1 text-[10px] font-bold"
+          className="shrink-0 rounded-full px-2 py-1 text-[10px] font-bold"
           style={{ background: "var(--brand-light)", color: "var(--brand)" }}
         >
           {nodes.length}
@@ -121,11 +123,14 @@ function DiscussionFlow({ nodes, edges }: DiscussionTreeProps) {
     [treeEdges, selectedId],
   );
 
+  // ノード数が同じでも構造が変わったら再フィットできるよう、id署名を依存にする。
+  const nodeIdSignature = useMemo(() => nodes.map((node) => node.id).join("|"), [nodes]);
+
   useEffect(() => {
     if (selectedId === null) {
       void fitView({ padding: 0.2, duration: 300 });
     }
-  }, [nodes.length, selectedId, fitView]);
+  }, [nodeIdSignature, selectedId, fitView]);
 
   const focusNode = useCallback(
     (id: string) => {
