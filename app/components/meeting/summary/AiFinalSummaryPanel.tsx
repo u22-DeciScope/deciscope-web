@@ -1,4 +1,4 @@
-import { HiSparkles } from "react-icons/hi2";
+import { HiArrowPath, HiSparkles } from "react-icons/hi2";
 
 import type {
   FinalSummaryActionItem,
@@ -23,11 +23,25 @@ const importanceLabel: Record<MeetingAIAnalysisImportance, string> = {
 type AiFinalSummaryPanelProps = {
   final: MeetingAIAnalysis | null;
   currentTitle?: string;
+  pending?: boolean;
 };
 
-export function AiFinalSummaryPanel({ final, currentTitle }: AiFinalSummaryPanelProps) {
+export function AiFinalSummaryPanel({ final, currentTitle, pending }: AiFinalSummaryPanelProps) {
   if (!final) {
-    return null;
+    if (!pending) {
+      return null;
+    }
+    return (
+      <section
+        className="ds-surface shrink-0 rounded-(--ds-radius-panel) px-5 py-4"
+        style={{ boxShadow: "var(--ds-shadow)" }}
+      >
+        <p className="flex items-center gap-2 text-[12px]" style={{ color: "var(--text-sub)" }}>
+          <HiArrowPath className="h-3.5 w-3.5 animate-spin" style={{ color: "var(--brand)" }} />
+          AI最終要約を生成しています…
+        </p>
+      </section>
+    );
   }
 
   if (final.status === "running") {

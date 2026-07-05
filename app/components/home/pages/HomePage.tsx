@@ -18,6 +18,7 @@ import {
 } from "~/routing/workspacePaths";
 import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
 import { meetingStartDebug } from "~/utils/meetingStartDebug";
+import { formatStatus } from "~/utils/meetingStatusLabels";
 
 const staleActiveSessionMs = 2 * 60 * 60 * 1000;
 
@@ -341,7 +342,9 @@ function isActiveMeetingStatus(status: string, isTeamsSession: boolean) {
       status === "joining" ||
       status === "joined" ||
       status === "active" ||
-      status === "recording"
+      status === "recording" ||
+      status === "speech_error" ||
+      status === "speech_throttled"
     );
   }
   return status === "started";
@@ -373,43 +376,6 @@ function formatShortDate(value?: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function formatStatus(status: string) {
-  switch (status) {
-    case "created":
-      return "作成済み";
-    case "started":
-      return "進行中";
-    case "ended":
-    case "completed":
-    case "finished":
-      return "終了";
-    case "requested":
-      return "参加要求済み";
-    case "pending_join":
-      return "参加待機";
-    case "command_sent":
-      return "Bot参加命令済み";
-    case "joining":
-      return "Bot参加中";
-    case "joined":
-      return "Bot参加済み";
-    case "active":
-      return "進行中";
-    case "recording":
-      return "録音中";
-    case "transcribing":
-      return "文字起こし中";
-    case "failed":
-      return "失敗";
-    case "stale":
-      return "停止扱い";
-    case "timeout":
-      return "タイムアウト";
-    default:
-      return status;
-  }
 }
 
 function displaySessionStatus(session: MeetingSessionDto) {

@@ -8,6 +8,8 @@ export type MeetingSessionStatus =
   | "joined"
   | "active"
   | "recording"
+  | "speech_error"
+  | "speech_throttled"
   | "ended"
   | "failed"
   | "stale"
@@ -69,6 +71,8 @@ const meetingSessionStatuses: MeetingSessionStatus[] = [
   "joined",
   "active",
   "recording",
+  "speech_error",
+  "speech_throttled",
   "ended",
   "failed",
   "stale",

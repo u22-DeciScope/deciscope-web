@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObjec
 
 import {
   getWorkspaceMeetingSessionAIAnalyses,
+  type LiveAnalysisPayload,
   type MeetingAIAnalysis,
 } from "~/api/aiAnalysis/aiAnalysisApi";
 import {
@@ -88,6 +89,9 @@ export function useMeetingTranscriptSession(
   const [sessionCreatedAt, setSessionCreatedAt] = useState("");
   const [sessionJoinedAt, setSessionJoinedAt] = useState("");
   const [sessionEndedAt, setSessionEndedAt] = useState("");
+  // Botが会議から退出した理由(例: "manual_end_requested" / "shutdown" / Teams側の
+  // 通話終了メッセージ)。手動終了かどうかをUI側で区別するために保持する。
+  const [sessionEndReason, setSessionEndReason] = useState("");
   const [liveAnalysis, setLiveAnalysis] = useState<MeetingAIAnalysis | null>(null);
   const [finalAnalysis, setFinalAnalysis] = useState<MeetingAIAnalysis | null>(null);
   const [liveAnalysisMeta, setLiveAnalysisMeta] =
@@ -251,6 +255,7 @@ export function useMeetingTranscriptSession(
       setSessionCreatedAt("");
       setSessionJoinedAt("");
       setSessionEndedAt("");
+      setSessionEndReason("");
       setLiveAnalysis(null);
       setFinalAnalysis(null);
       setLiveAnalysisMeta(initialLiveAnalysisMeta);
@@ -312,6 +317,7 @@ export function useMeetingTranscriptSession(
             (isElapsedMeetingSessionStatus(session.status) ? (session.createdAt ?? "") : ""),
         );
         setSessionEndedAt((current) => session.endedAt ?? current);
+        setSessionEndReason((current) => session.endReason ?? current);
         const statusError = sessionStatusErrorMessage(session.status);
         if (statusError) {
           setError(statusError);
@@ -509,6 +515,9 @@ export function useMeetingTranscriptSession(
             if (parsed.sessionStatus.endedAt) {
               setSessionEndedAt(parsed.sessionStatus.endedAt);
             }
+            if (parsed.sessionStatus.endReason) {
+              setSessionEndReason(parsed.sessionStatus.endReason);
+            }
             meetingStartDebug("meeting-page", "session status received", {
               sessionId: parsed.sessionStatus.sessionId,
               title: parsed.sessionStatus.title ?? null,
@@ -521,6 +530,8 @@ export function useMeetingTranscriptSession(
               organizerId: parsed.sessionStatus.organizerId ?? null,
               titleResolutionErrorCode: parsed.sessionStatus.titleResolutionErrorCode ?? null,
               titleResolutionErrorMessage: parsed.sessionStatus.titleResolutionErrorMessage ?? null,
+              endReason: parsed.sessionStatus.endReason ?? null,
+              lastError: parsed.sessionStatus.lastError ?? null,
               status: parsed.sessionStatus.status,
             });
             const statusError = sessionStatusErrorMessage(parsed.sessionStatus.status);
@@ -553,11 +564,26 @@ export function useMeetingTranscriptSession(
 
             const incoming = parsed.aiAnalysis;
             if (incoming.analysisType === "live") {
-              setLiveAnalysis((current) =>
-                shouldReplaceAIAnalysis(current, incoming)
-                  ? mergeAIAnalysisPayload(current, incoming)
-                  : current,
-              );
+              // 切り分け用の軽量デバッグログ。受信1回につき1行、version/items数/
+              // treeのnode・edge数と、shouldReplaceAIAnalysisがfalseでstate反映を
+              // skipした場合はその理由(version比較)を出す。
+              const livePayload = incoming.payload as LiveAnalysisPayload | null;
+              setLiveAnalysis((current) => {
+                const applied = shouldReplaceAIAnalysis(current, incoming);
+                meetingStartDebug("meeting-page", "live analysis received", {
+                  sessionId: incoming.sessionId,
+                  status: incoming.status,
+                  version: incoming.version,
+                  itemsCount: livePayload?.items?.length ?? null,
+                  treeNodesCount: livePayload?.tree?.nodes?.length ?? null,
+                  treeEdgesCount: livePayload?.tree?.edges?.length ?? null,
+                  applied,
+                  ...(applied
+                    ? {}
+                    : { skipReason: "version_not_newer", currentVersion: current?.version ?? null }),
+                });
+                return applied ? mergeAIAnalysisPayload(current, incoming) : current;
+              });
               const receivedAtMs = Date.now();
               setLiveAnalysisMeta((current) => ({
                 ...current,
@@ -580,13 +606,13 @@ export function useMeetingTranscriptSession(
                   ? mergeAIAnalysisPayload(current, incoming)
                   : current,
               );
+              meetingStartDebug("meeting-page", "ai analysis received", {
+                sessionId: incoming.sessionId,
+                analysisType: incoming.analysisType,
+                status: incoming.status,
+                version: incoming.version,
+              });
             }
-            meetingStartDebug("meeting-page", "ai analysis received", {
-              sessionId: incoming.sessionId,
-              analysisType: incoming.analysisType,
-              status: incoming.status,
-              version: incoming.version,
-            });
             return;
           }
 
@@ -722,6 +748,7 @@ export function useMeetingTranscriptSession(
       sessionCreatedAt,
       sessionJoinedAt,
       sessionEndedAt,
+      sessionEndReason,
       sessionStatus,
       liveAnalysis,
       finalAnalysis,
@@ -748,6 +775,7 @@ export function useMeetingTranscriptSession(
       segments,
       sessionCreatedAt,
       sessionEndedAt,
+      sessionEndReason,
       sessionJoinedAt,
       sessionStatus,
       sessionTitle,
@@ -1056,7 +1084,13 @@ function transcriptSegmentTimestampMs(segment: TranscriptSegment) {
 }
 
 function isElapsedMeetingSessionStatus(status: MeetingSessionStatus) {
-  return status === "joined" || status === "active" || status === "recording";
+  return (
+    status === "joined" ||
+    status === "active" ||
+    status === "recording" ||
+    status === "speech_error" ||
+    status === "speech_throttled"
+  );
 }
 
 function transcriptSpeakerLabel(segment: TranscriptSegment) {

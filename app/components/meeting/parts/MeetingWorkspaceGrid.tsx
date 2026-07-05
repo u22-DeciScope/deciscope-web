@@ -1,4 +1,6 @@
-import type { MeetingAIAnalysis } from "~/api/aiAnalysis/aiAnalysisApi";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import type { LiveAnalysisPayload, MeetingAIAnalysis } from "~/api/aiAnalysis/aiAnalysisApi";
 import type { MeetingSegmentDto } from "~/api/meetings/meetingEventsApi";
 import type {
   AnalysisItem,
@@ -36,6 +38,46 @@ export function MeetingWorkspaceGrid({
   liveAnalysis,
   liveAnalysisMeta,
 }: MeetingWorkspaceGridProps) {
+  const [focusedAnalysisItemId, setFocusedAnalysisItemId] = useState<string | null>(null);
+  const [highlightedAnalysisItemId, setHighlightedAnalysisItemId] = useState<string | null>(null);
+  const highlightTimerRef = useRef<number | null>(null);
+  const livePayload = (liveAnalysis?.payload as LiveAnalysisPayload | null) ?? null;
+  const liveItems = useMemo(
+    () => (livePayload?.items ?? []).filter((item) => item.status !== "dismissed"),
+    [livePayload],
+  );
+  const relatedAnalysisItems = useMemo(
+    () => mergeAnalysisItems(liveItems, insights),
+    [insights, liveItems],
+  );
+  const handleSelectAnalysisItem = useCallback((itemId: string) => {
+    if (!itemId) {
+      return;
+    }
+    if (highlightTimerRef.current) {
+      clearTimeout(highlightTimerRef.current);
+    }
+    setFocusedAnalysisItemId(null);
+    setHighlightedAnalysisItemId(itemId);
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => setFocusedAnalysisItemId(itemId), 0);
+      highlightTimerRef.current = window.setTimeout(() => {
+        setHighlightedAnalysisItemId(null);
+      }, 1600);
+    } else {
+      setFocusedAnalysisItemId(itemId);
+    }
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (highlightTimerRef.current) {
+        clearTimeout(highlightTimerRef.current);
+      }
+    },
+    [],
+  );
+
   return (
     <section
       className={[
@@ -49,14 +91,31 @@ export function MeetingWorkspaceGrid({
       <DiscussionTree
         nodes={treeNodes}
         edges={treeEdges}
+        analysisItems={relatedAnalysisItems}
+        onSelectAnalysisItem={handleSelectAnalysisItem}
         updateStatus={liveAnalysisMeta ? <AiUpdateStatusChip meta={liveAnalysisMeta} /> : undefined}
       />
       <MeetingAssistantPanel
         insights={insights}
         speakerSummaries={speakerSummaries}
         liveAnalysis={liveAnalysis}
+        focusedAnalysisItemId={focusedAnalysisItemId}
+        highlightedAnalysisItemId={highlightedAnalysisItemId}
         updateStatus={liveAnalysisMeta ? <AiUpdateStatusChip meta={liveAnalysisMeta} /> : undefined}
       />
     </section>
   );
+}
+
+function mergeAnalysisItems(primary: AnalysisItem[], secondary: AnalysisItem[]) {
+  const merged: AnalysisItem[] = [];
+  const seen = new Set<string>();
+  for (const item of [...primary, ...secondary]) {
+    if (!item.id || seen.has(item.id)) {
+      continue;
+    }
+    seen.add(item.id);
+    merged.push(item);
+  }
+  return merged;
 }

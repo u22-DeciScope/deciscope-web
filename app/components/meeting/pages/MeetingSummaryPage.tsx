@@ -46,6 +46,9 @@ import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
 import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
 const finalAnalysisPollIntervalMs = 10_000;
+// final レコードがまだ作成されていない(final: null)場合の最大ポーリング回数。
+// running になった後は打ち切らず、null が続く場合のみこの回数で諦める(約5分)。
+const finalAnalysisMaxPendingAttempts = 30;
 
 export default function MeetingSummary() {
   const { id } = useParams();
@@ -60,6 +63,7 @@ export default function MeetingSummary() {
   const [tree, setTree] = useState<TreeUpdatePayload | null>(null);
   const [analysisItems, setAnalysisItems] = useState<AnalysisItem[]>([]);
   const [finalAnalysis, setFinalAnalysis] = useState<MeetingAIAnalysis | null>(null);
+  const [finalAnalysisPending, setFinalAnalysisPending] = useState(false);
   const [liveAnalysis, setLiveAnalysis] = useState<MeetingAIAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,6 +81,7 @@ export default function MeetingSummary() {
     setTree(null);
     setAnalysisItems([]);
     setFinalAnalysis(null);
+    setFinalAnalysisPending(false);
     setLiveAnalysis(null);
     if (id.startsWith("session_")) {
       getWorkspaceMeetingSession(workspaceId, id)
@@ -133,8 +138,11 @@ export default function MeetingSummary() {
     }
     let active = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+    setFinalAnalysisPending(true);
 
     async function poll() {
+      attempt += 1;
       try {
         const analyses = await getWorkspaceMeetingSessionAIAnalyses(workspaceId, id as string);
         if (!active) {
@@ -143,12 +151,19 @@ export default function MeetingSummary() {
         setFinalAnalysis(analyses.final);
         setLiveAnalysis(analyses.live);
         if (analyses.final?.status === "running") {
+          // running の間は打ち切らず、完了/失敗になるまでポーリングし続ける。
           timer = setTimeout(() => void poll(), finalAnalysisPollIntervalMs);
+        } else if (analyses.final === null && attempt < finalAnalysisMaxPendingAttempts) {
+          // final レコードがまだ作成されていない。最大試行回数まではポーリングを継続する。
+          timer = setTimeout(() => void poll(), finalAnalysisPollIntervalMs);
+        } else {
+          setFinalAnalysisPending(false);
         }
       } catch (cause) {
         if (!active) {
           return;
         }
+        setFinalAnalysisPending(false);
         meetingStartDebug("meeting-summary-page", "ai final analysis load failed", {
           sessionId: id,
           message: cause instanceof Error ? cause.message : "unknown error",
@@ -177,13 +192,11 @@ export default function MeetingSummary() {
   // 無ければライブ分析payloadのtree/itemsで補って終了後も閲覧できるようにする。
   const livePayload = (liveAnalysis?.payload as LiveAnalysisPayload | null) ?? null;
   const effectiveTree = tree?.nodes?.length ? tree : (livePayload?.tree ?? null);
-  // resolved/dismissed の解消済みliveItemはカード表示から除外する(防御)。
+  // dismissed だけを除外し、resolved は解決済みカードとして残す。
   const effectiveAnalysisItems =
     analysisItems.length > 0
       ? analysisItems
-      : (livePayload?.items ?? []).filter(
-          (item) => item.status !== "dismissed" && item.status !== "resolved",
-        );
+      : (livePayload?.items ?? []).filter((item) => item.status !== "dismissed");
 
   async function shareReport() {
     if (!id) {
@@ -266,7 +279,11 @@ export default function MeetingSummary() {
       {session ? (
         <>
           <SessionSummaryHeader summary={summary} />
-          <AiFinalSummaryPanel final={finalAnalysis} currentTitle={summary.title} />
+          <AiFinalSummaryPanel
+            final={finalAnalysis}
+            currentTitle={summary.title}
+            pending={finalAnalysisPending}
+          />
           {hasPreMeetingContext(session) && <PreMeetingContextPanel session={session} />}
           <SessionReviewWorkspace
             session={session}

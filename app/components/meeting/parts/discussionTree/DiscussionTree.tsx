@@ -10,7 +10,11 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import type { TreeEdgePayload, TreeNodePayload } from "~/api/meetings/meetingRuntimeTypes";
+import type {
+  AnalysisItem,
+  TreeEdgePayload,
+  TreeNodePayload,
+} from "~/api/meetings/meetingRuntimeTypes";
 
 import { type DiscussionFlowNode, nodeTypes } from "./DiscussionNodeView";
 import { NODE_HEIGHT, NODE_WIDTH, layoutPositions, normalizeEdges } from "./discussionTreeLayout";
@@ -19,17 +23,25 @@ import { NodeDetailCard } from "./NodeDetailCard";
 type DiscussionTreeProps = {
   nodes: TreeNodePayload[];
   edges: TreeEdgePayload[];
+  analysisItems?: AnalysisItem[];
+  onSelectAnalysisItem?: (id: string) => void;
   updateStatus?: React.ReactNode;
 };
 
-export function DiscussionTree({ nodes, edges, updateStatus }: DiscussionTreeProps) {
+export function DiscussionTree({
+  nodes,
+  edges,
+  analysisItems,
+  onSelectAnalysisItem,
+  updateStatus,
+}: DiscussionTreeProps) {
   return (
     <div
       className="flex min-h-80 min-w-0 flex-col overflow-hidden rounded-(--ds-radius-panel) border md:min-h-0"
       style={{ background: "var(--ds-surface)", borderColor: "var(--ds-border)" }}
     >
       <div
-        className="flex h-11 shrink-0 items-center border-b px-4"
+        className="flex min-h-11 shrink-0 items-center border-b px-4 py-1"
         style={{ borderColor: "var(--node-border)" }}
       >
         <span
@@ -74,7 +86,12 @@ export function DiscussionTree({ nodes, edges, updateStatus }: DiscussionTreePro
           </div>
         ) : (
           <ReactFlowProvider>
-            <DiscussionFlow nodes={nodes} edges={edges} />
+            <DiscussionFlow
+              nodes={nodes}
+              edges={edges}
+              analysisItems={analysisItems}
+              onSelectAnalysisItem={onSelectAnalysisItem}
+            />
           </ReactFlowProvider>
         )}
       </div>
@@ -82,9 +99,19 @@ export function DiscussionTree({ nodes, edges, updateStatus }: DiscussionTreePro
   );
 }
 
-function DiscussionFlow({ nodes, edges }: DiscussionTreeProps) {
+function DiscussionFlow({
+  nodes,
+  edges,
+  analysisItems,
+  onSelectAnalysisItem,
+}: DiscussionTreeProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const { fitView, getNode, setCenter } = useReactFlow();
+  const analysisItemIds = useMemo(
+    () => new Set((analysisItems ?? []).map((item) => item.id)),
+    [analysisItems],
+  );
 
   const treeEdges = useMemo(() => normalizeEdges(nodes, edges), [nodes, edges]);
 
@@ -97,12 +124,15 @@ function DiscussionFlow({ nodes, edges }: DiscussionTreeProps) {
       selected: node.id === selectedId,
       data: {
         tag: node.kind ?? "topic",
+        status: node.status ?? "",
         speaker: node.speaker_label ?? "",
         label: node.label ?? node.id,
+        description: node.description ?? "",
+        relatedCount: relatedItemIdsForNode(node, analysisItemIds).length,
         active: index === nodes.length - 1,
       },
     }));
-  }, [nodes, treeEdges, selectedId]);
+  }, [analysisItemIds, nodes, treeEdges, selectedId]);
 
   const flowEdges = useMemo<Edge[]>(
     () =>
@@ -135,6 +165,7 @@ function DiscussionFlow({ nodes, edges }: DiscussionTreeProps) {
   const focusNode = useCallback(
     (id: string) => {
       setSelectedId(id);
+      setHoveredId(null);
       const node = getNode(id);
       if (node) {
         void setCenter(node.position.x + NODE_WIDTH / 2, node.position.y + NODE_HEIGHT / 2, {
@@ -146,7 +177,10 @@ function DiscussionFlow({ nodes, edges }: DiscussionTreeProps) {
     [getNode, setCenter],
   );
 
-  const selectedNode = selectedId ? (nodes.find((node) => node.id === selectedId) ?? null) : null;
+  const detailNodeId = selectedId ?? hoveredId;
+  const selectedNode = detailNodeId
+    ? (nodes.find((node) => node.id === detailNodeId) ?? null)
+    : null;
 
   return (
     <>
@@ -162,7 +196,14 @@ function DiscussionFlow({ nodes, edges }: DiscussionTreeProps) {
         nodesConnectable={false}
         edgesFocusable={false}
         onNodeClick={(_, node) => setSelectedId(node.id)}
-        onPaneClick={() => setSelectedId(null)}
+        onNodeMouseEnter={(_, node) => setHoveredId(node.id)}
+        onNodeMouseLeave={(_, node) =>
+          setHoveredId((current) => (current === node.id ? null : current))
+        }
+        onPaneClick={() => {
+          setSelectedId(null);
+          setHoveredId(null);
+        }}
       >
         <Background variant={BackgroundVariant.Dots} gap={22} color="var(--node-border)" />
         <Controls showInteractive={false} position="bottom-left" />
@@ -173,10 +214,31 @@ function DiscussionFlow({ nodes, edges }: DiscussionTreeProps) {
           node={selectedNode}
           nodes={nodes}
           edges={treeEdges}
-          onClose={() => setSelectedId(null)}
+          analysisItems={analysisItems ?? []}
+          onSelectAnalysisItem={onSelectAnalysisItem}
+          onClose={() => {
+            setSelectedId(null);
+            setHoveredId(null);
+          }}
           onFocusNode={focusNode}
         />
       )}
     </>
   );
+}
+
+function relatedItemIdsForNode(node: TreeNodePayload, itemIds: Set<string>) {
+  const ids = node.relatedItemIds ?? [];
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  const add = (id: string) => {
+    if (!id || !itemIds.has(id) || seen.has(id)) {
+      return;
+    }
+    seen.add(id);
+    normalized.push(id);
+  };
+  add(node.id);
+  ids.forEach(add);
+  return normalized;
 }

@@ -144,7 +144,8 @@ function normalizeLivePayload(value: unknown): LiveAnalysisPayload | null {
   const items = Array.isArray(source.items)
     ? normalizeLiveAnalysisItems(source.items)
     : legacyLiveAnalysisItems(source);
-  const tree = normalizeLiveTree(source.tree) ?? synthesizeLiveTree(currentTopic, items);
+  const itemIds = new Set(items.map((item) => item.id));
+  const tree = normalizeLiveTree(source.tree, itemIds) ?? synthesizeLiveTree(currentTopic, items);
   return {
     ...(summary ? { summary } : {}),
     ...(currentTopic ? { currentTopic } : {}),
@@ -251,19 +252,19 @@ function truncateItemTitle(text: string, maxLength = 25) {
   return `${text.slice(0, maxLength)}…`;
 }
 
-function normalizeLiveTree(value: unknown): TreeUpdatePayload | null {
+function normalizeLiveTree(value: unknown, itemIds: Set<string>): TreeUpdatePayload | null {
   if (!value || typeof value !== "object") {
     return null;
   }
   const source = value as Record<string, unknown>;
-  const nodes = normalizeTreeNodes(source.nodes);
+  const nodes = normalizeTreeNodes(source.nodes, itemIds);
   if (nodes.length === 0) {
     return null;
   }
   return { nodes, edges: normalizeTreeEdges(source.edges) };
 }
 
-function normalizeTreeNodes(value: unknown): TreeNodePayload[] {
+function normalizeTreeNodes(value: unknown, itemIds: Set<string>): TreeNodePayload[] {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -279,13 +280,53 @@ function normalizeTreeNodes(value: unknown): TreeNodePayload[] {
       }
       const kind = optionalString(source.kind)?.trim();
       const label = optionalString(source.label)?.trim();
+      const status = optionalString(source.status)?.trim();
+      const description = truncateNodeDescription(
+        optionalString(source.description)?.trim() ?? optionalString(source.summary)?.trim() ?? "",
+      );
+      const relatedItemIds = normalizeRelatedItemIds(source, id, itemIds);
       return {
         id,
         ...(kind ? { kind } : {}),
         ...(label ? { label } : {}),
+        ...(status ? { status } : {}),
+        ...(description ? { description } : {}),
+        ...(relatedItemIds.length > 0 ? { relatedItemIds } : {}),
       };
     })
     .filter((node): node is TreeNodePayload => node !== null);
+}
+
+function normalizeRelatedItemIds(
+  source: Record<string, unknown>,
+  nodeId: string,
+  itemIds: Set<string>,
+): string[] {
+  const rawIds = [
+    ...normalizeStringArray(source.relatedItemIds),
+    ...normalizeStringArray(source.related_item_ids),
+    ...normalizeStringArray(source.linkedItemIds),
+    ...normalizeStringArray(source.sourceItemIds),
+  ];
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  const add = (id: string) => {
+    if (!id || !itemIds.has(id) || seen.has(id)) {
+      return;
+    }
+    seen.add(id);
+    normalized.push(id);
+  };
+  add(nodeId);
+  rawIds.forEach(add);
+  return normalized;
+}
+
+function truncateNodeDescription(value: string, maxLength = 120) {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength)}…`;
 }
 
 function normalizeTreeEdges(value: unknown): TreeEdgePayload[] {
@@ -327,6 +368,9 @@ function synthesizeLiveTree(
     id: item.id,
     kind: item.kind,
     label: item.title,
+    status: item.status,
+    ...(item.body ? { description: truncateNodeDescription(item.body) } : {}),
+    relatedItemIds: [item.id],
   }));
   const edges: TreeEdgePayload[] = items.map((item) => ({
     id: `edge-${topicNode.id}-${item.id}`,

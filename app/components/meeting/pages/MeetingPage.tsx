@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
 import { DsButton } from "~/components/DsButton";
+import { BotStatusToasts } from "~/components/meeting/parts/BotStatusToasts";
 import { LiveStatusBadge } from "~/components/meeting/parts/LiveStatusBadge";
 import { MeetingEndedModal } from "~/components/meeting/parts/MeetingEndedModal";
 import { MeetingWorkspaceGrid } from "~/components/meeting/parts/MeetingWorkspaceGrid";
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
+import { useBotStatusToasts } from "~/hooks/useBotStatusToasts";
 import { useMeetingTranscriptSession } from "~/hooks/useMeetingTranscriptSession";
 import { useMeetingRuntime } from "~/hooks/useMeetingRuntime";
 import { useMeetingElapsedTime } from "~/hooks/useMeetingElapsedTime";
@@ -59,6 +61,14 @@ export default function Meeting() {
   const [sessionEndedAtOverride, setSessionEndedAtOverride] = useState("");
   const [sessionEndError, setSessionEndError] = useState<string | null>(null);
   const detailTargetId = sessionId || runtimeMeetingId || id || "";
+  // 終了ボタンが押された/押された結果を表示中かどうか。trueの間は「Botが会議から
+  // 退出しました」トースト(想定外の退出向け)を出さない。
+  const isLocalEnd = isEndingSession || sessionEndStatusOverride !== null || showEndedModal;
+  const { toasts: botStatusToasts, dismissToast: dismissBotStatusToast } = useBotStatusToasts(
+    detailTargetId,
+    transcriptSession.sessionStatus,
+    { endReason: transcriptSession.sessionEndReason, isLocalEnd },
+  );
   const meetingsPath = workspacePath(workspaceId, "/meetings");
   const summaryPath = workspaceMeetingSummaryPath(workspaceId, detailTargetId);
   const meetingTitle = runtime.meeting?.title?.trim()
@@ -247,6 +257,8 @@ export default function Meeting() {
 
   return (
     <section className="flex h-full min-w-0 flex-col gap-2 overflow-hidden">
+      <BotStatusToasts toasts={botStatusToasts} onDismiss={dismissBotStatusToast} />
+
       {pageNotice && (
         <div
           className="rounded-(--ds-radius-control) border px-3 py-2 text-[11px]"

@@ -80,10 +80,23 @@ export function summaryFromFinalAnalysis(
 
   return {
     ...summary,
-    ...(overview ? { aiSummary: overview } : {}),
+    ...(overview ? { aiSummary: aiSummaryDigest(overview) } : {}),
     ...(decisions.length > 0 ? { decisions } : {}),
     ...(actions.length > 0 ? { actions } : {}),
   };
+}
+
+// ヘッダーの「AIサマリー」は短いダイジェストのみを担い、全文は AiFinalSummaryPanel の
+// 「AI最終要約」に任せる。overview の最初の段落を全角120字程度でトランケートする。
+const AI_SUMMARY_DIGEST_MAX_LENGTH = 120;
+
+function aiSummaryDigest(overview: string) {
+  const firstOverviewParagraph = overview.split(/\n{2,}/)[0] ?? overview;
+  const collapsed = firstOverviewParagraph.replace(/\s+/g, " ").trim();
+  if (collapsed.length <= AI_SUMMARY_DIGEST_MAX_LENGTH) {
+    return collapsed;
+  }
+  return `${collapsed.slice(0, AI_SUMMARY_DIGEST_MAX_LENGTH)}…`;
 }
 
 function firstParagraph(content = "") {
