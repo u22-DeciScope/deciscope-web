@@ -75,29 +75,30 @@ Transcript segmentには任意で `speakerId` / `speakerName` が含まれます
 
 ## 会議URLからBot参加
 
-workspace配下の「Teams 会議に入室」画面でTeams会議URLを貼って `会議に入室` を押すと、フロントエンドはGo APIへ次のリクエストを送ります。
+workspace配下の「Teams 会議に入室」画面でTeams会議URLを貼って `会議に入室` を押すと、フロントエンドは認証済みのworkspace APIへ次のリクエストを送ります。
 
 ```text
-POST /api/v1/meeting-sessions
+POST /v1/workspaces/{workspaceId}/meeting-sessions
 ```
 
 ```json
 {
-  "joinUrl": "https://teams.microsoft.com/l/meetup-join/..."
+  "joinUrl": "https://teams.microsoft.com/l/meetup-join/...",
+  "userProvidedTitle": "週次定例"
 }
 ```
 
-レスポンスの `sessionId` を受け取ったら、フロントエンドは `sessionId` をURLに含めて会議画面へ遷移します。
+レスポンスの `sessionId` を受け取ったら、フロントエンドは `sessionId` をパスに含めて会議画面へ遷移します。
 
 ```text
-/w/<workspaceId>/meetings/<sessionId>?sessionId=<sessionId>
+/w/<workspaceId>/meetings/<sessionId>
 ```
 
-会議URL送信時の流れは、`POST /api/v1/meeting-sessions`、`sessionId` の `localStorage` 保存、`sessionId` 付きURLへの遷移の順です。`sessionId` をURLに持たせることで、認証状態の再確認、ページ再読み込み、React stateの破棄を挟んでも会議セッションを復元できます。送信中はボタンをdisabledにし、同じsubmitの二重実行を防ぎます。
+会議URL送信時の流れは、workspace-scoped APIでのsession作成、pending navigationの保存、`sessionId` パスへの遷移の順です。`sessionId` をルートパラメータに持たせることで、認証状態の再確認、ページ再読み込み、React stateの破棄を挟んでも会議セッションを復元できます。送信中はボタンをdisabledにし、同じsubmitの二重実行を防ぎます。
 
-ホームの進行中一覧では、フロントエンドが保存した `sessionId` とGo APIの `GET /api/v1/meeting-sessions/{sessionId}` のstatusを使ってTeams会議を表示します。`ended` または `failed` のTeams sessionは進行中一覧から外れ、最近の会議側に表示されます。Teams会議の「開く」「記録を見る」は必ず `?sessionId=<sessionId>` 付きで会議画面へ遷移するため、既存meetingレコードだけを開いて空の会議画面になることを避けます。
+ホームの進行中一覧では、Go APIの `GET /v1/workspaces/{workspaceId}/meeting-sessions` と `GET /v1/workspaces/{workspaceId}/meeting-sessions/{sessionId}` のstatusを使ってTeams会議を表示します。`ended`、`failed`、`stale`、`timeout` のTeams sessionは進行中一覧から外れ、最近の会議側に表示されます。Teams会議の「開く」「記録を見る」は `sessionId` を含む会議画面パスへ遷移するため、既存meetingレコードだけを開いて空の会議画面になることを避けます。
 
-`sessionId` は `localStorage` の `deciscope:meetingSessions:v1` に保持します。旧実装の `deciscope:lastSessionId` は最後に作成したsessionの控えとしてのみ更新し、ホーム一覧へは自動移行しません。存在しないsessionIdが保存されている場合は、ホーム表示時の再取得で削除します。
+`sessionId` はURLパスを正とします。`localStorage` の `deciscope:meetingSessions:v1` は、作成直後の復帰や旧導線の補助情報としてのみ使います。旧実装の `deciscope:lastSessionId` は最後に作成したsessionの控えとしてのみ更新し、ホーム一覧へは自動移行しません。
 
 認証状態が `loading` の間は未認証扱いでredirectせず、「認証状態を確認しています...」を表示します。WebSocketの一時切断や再接続中も会議画面は維持し、画面内の接続状態として表示します。
 
@@ -129,10 +130,13 @@ POST /api/v1/meeting-sessions
 /api/v1/meeting-sessions
 /api/v1/transcript-segments
 /api/v1/ws/transcript-segments
+/v1/workspaces/.../meeting-sessions
 /api/v1/workspaces/.../meeting-sessions/.../transcript-stream
 /v1/workspaces/.../meeting-sessions/.../transcript-stream
 /ws/v1/workspaces/.../meeting-sessions/.../transcript-stream
 ```
+
+`/api/v1/meeting-sessions` はVM Bot連携や手動確認に残しているAPI-key系の互換ルートです。通常のブラウザUIは `/v1/workspaces/.../meeting-sessions` を使います。
 
 Docker Compose内では、proxy先は既定で次になります。
 
@@ -168,7 +172,7 @@ http://localhost:5193/test
 http://localhost:5193/test?sessionId=session_...
 ```
 
-このcomposeは、Go APIがホスト公開ポート `localhost:9090` で動いている前提で、frontendコンテナから `host.docker.internal:9090` へproxyします。
+このcomposeは、Go APIがホスト公開ポート `localhost:9090` で動いている前提で、frontendコンテナから `host.docker.internal:9090` へproxyします。VM上のTeams Botはこのcomposeには含めず、Go APIからTailscale経由で接続します。
 
 Go APIコンテナが同じDocker network上で `api:9090` として解決できる場合は、次のようにproxy先を上書きしてください。
 
@@ -197,7 +201,7 @@ API_PROXY_TARGET=http://host.docker.internal:9090 WS_PROXY_TARGET=ws://host.dock
 3. workspace配下の「Teams 会議に入室」画面でTeams会議URLを入力して `会議に入室` を押します。
 4. 既存の会議画面へ遷移することを確認します。
 5. 必要ならGo APIレスポンスの `sessionId` を使って `http://localhost:5193/test?sessionId=<sessionId>` を開き、同じsessionIdで Connect します。
-6. VM Bot、またはバックエンド手順に沿った手動POSTで `POST /api/v1/transcript-segments` へ文字起こしを投入します。
+6. VM Bot、またはバックエンド手順に沿った手動POSTで `POST /api/v1/transcript-segments` へ文字起こしを投入します。VM BotはTeamsの音声をAzure Speechで文字起こしし、raw audioではなくtranscript segmentをGo APIへ送ります。
 7. 会議作成画面または `/test` の接続状態が `connected` になり、最新の文字起こしと一覧に受信データが表示されることを確認します。
 
 `/test` は既存の公開ページやworkspace配下のルートとは分離しており、確認用UIとして追加されています。
