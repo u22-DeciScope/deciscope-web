@@ -17,7 +17,8 @@ export default function WorkspaceResolver() {
         const workspaceId =
           session.workspaces.find((item) => item.id === session.current_workspace_id)?.id ??
           session.workspaces[0]?.id;
-        setDestination(workspaceId ? workspacePath(workspaceId, "/meetings") : "/login");
+        // 所属ワークスペースがない場合は一覧画面の空状態(作成導線)へ誘導する。
+        setDestination(workspaceId ? workspacePath(workspaceId, "/meetings") : "/workspaces");
       })
       .catch((cause) => {
         meetingStartDebug("workspace-resolver", "workspace fetch failed", {

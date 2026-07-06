@@ -7,6 +7,8 @@ export default [
   route("signup", "routes/signup.tsx"),
   route("terms", "routes/terms.tsx"),
   route("test", "routes/test.tsx"),
+  route("workspaces", "routes/workspaces.tsx"),
+  route("invitations/accept", "routes/invitations.accept.tsx"),
   route(WORKSPACE_ROUTE_SEGMENT, "routes/workspace-resolver.tsx"),
   route(WORKSPACE_ROUTE_PATH, "routes/workspace-layout.tsx", [
     index("routes/workspace.tsx"),

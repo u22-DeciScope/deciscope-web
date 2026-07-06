@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { HiChevronRight, HiPlus, HiUserGroup } from "react-icons/hi2";
 
-import { canManageMeetingSessions } from "~/api/auth/authApi";
+import { canManageMeetingSessions, normalizeWorkspaceRole } from "~/api/auth/authApi";
+import { RoleBadge, ViewerOnlyBadge } from "~/components/workspace/parts/RoleBadge";
 import {
   listWorkspaceMeetingSessions,
   type MeetingSessionDto,
@@ -82,11 +83,19 @@ export default function Home() {
     [meetingItems],
   );
 
+  // 主見出しは「今どのワークスペースにいるか」を優先する。
+  // ユーザー名と日付はサブテキストに退避。
   const chrome = useMemo(
     () => ({
       header: {
-        title: `こんにちは、${displayName}さん`,
-        subtitle: today,
+        title: (
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate">{workspace.name}</span>
+            <RoleBadge role={workspace.role} />
+            {normalizeWorkspaceRole(workspace.role) === "viewer" && <ViewerOnlyBadge />}
+          </span>
+        ),
+        subtitle: `${displayName}さん・${today}`,
         actions: canCreateMeeting ? (
           <Link to={newMeetingPath}>
             <DsButton>
@@ -102,7 +111,7 @@ export default function Home() {
         ),
       },
     }),
-    [canCreateMeeting, displayName, newMeetingPath, today],
+    [canCreateMeeting, displayName, newMeetingPath, today, workspace.name, workspace.role],
   );
   useWorkspaceChrome(chrome);
 

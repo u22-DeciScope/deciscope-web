@@ -8,7 +8,9 @@ import { workspaceIdFromPath } from "~/routing/workspaceRouteMatchers";
 export default function Login() {
   const location = useLocation();
   const requestedPath =
-    typeof location.state?.from === "string" && workspaceIdFromPath(location.state.from)
+    typeof location.state?.from === "string" &&
+    (workspaceIdFromPath(location.state.from) ||
+      location.state.from.startsWith("/invitations/accept"))
       ? location.state.from
       : null;
   const {

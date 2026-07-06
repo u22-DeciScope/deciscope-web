@@ -15,18 +15,54 @@ export type WorkspaceInvitationDto = {
   workspace_id: string;
   email: string;
   role: Extract<WorkspaceRole, "admin" | "viewer">;
-  status: "pending" | "accepted" | "revoked";
+  status: "pending" | "accepted" | "revoked" | "expired";
+  expires_at: string;
+  invited_by_name: string;
   created_at: string;
+};
+
+export type InvitationPreviewDto = {
+  workspace_name: string;
+  email: string;
+  role: string;
+  status: "pending" | "accepted" | "revoked" | "expired";
+  expires_at: string;
 };
 
 const workspaceBase = (workspaceId: string) => `/v1/workspaces/${encodeURIComponent(workspaceId)}`;
 
-export async function updateWorkspaceName(workspaceId: string, name: string) {
-  const payload = await requestJson<unknown>(`${workspaceBase(workspaceId)}/`, {
-    method: "PATCH",
-    body: JSON.stringify({ name }),
+export async function listWorkspaces() {
+  const payload = await requestJson<unknown>("/v1/workspaces");
+  return {
+    workspaces: extractArray(payload, "workspaces")
+      .map(safeNormalizeWorkspace)
+      .filter((workspace): workspace is WorkspaceDto => Boolean(workspace)),
+  };
+}
+
+export async function createWorkspace(name: string, description = "") {
+  const payload = await requestJson<unknown>("/v1/workspaces", {
+    method: "POST",
+    body: JSON.stringify({ name, description }),
   });
   return normalizeWorkspace(payload);
+}
+
+export type WorkspaceUpdateInput = {
+  name?: string;
+  description?: string;
+};
+
+export async function updateWorkspace(workspaceId: string, input: WorkspaceUpdateInput) {
+  const payload = await requestJson<unknown>(`${workspaceBase(workspaceId)}/`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+  return normalizeWorkspace(payload);
+}
+
+export function updateWorkspaceName(workspaceId: string, name: string) {
+  return updateWorkspace(workspaceId, { name });
 }
 
 export async function listWorkspaceMembers(workspaceId: string) {
@@ -81,6 +117,31 @@ export function revokeWorkspaceInvitation(workspaceId: string, invitationId: str
   );
 }
 
+export async function previewInvitation(token: string) {
+  const payload = await requestJson<unknown>(
+    `/v1/invitations/preview?token=${encodeURIComponent(token)}`,
+  );
+  if (!payload || typeof payload !== "object") {
+    throw new Error("招待情報を取得できませんでした。");
+  }
+  const source = payload as Record<string, unknown>;
+  return {
+    workspace_name: optionalString(source.workspace_name) ?? "",
+    email: optionalString(source.email) ?? "",
+    role: optionalString(source.role) ?? "viewer",
+    status: invitationStatus(optionalString(source.status)),
+    expires_at: optionalString(source.expires_at) ?? "",
+  } satisfies InvitationPreviewDto;
+}
+
+export async function acceptInvitation(token: string) {
+  const payload = await requestJson<unknown>("/v1/invitations/accept", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+  return normalizeWorkspace(payload);
+}
+
 export function removeWorkspaceMember(workspaceId: string, memberId: string) {
   return requestJson<null>(
     `${workspaceBase(workspaceId)}/members/${encodeURIComponent(memberId)}`,
@@ -91,18 +152,27 @@ export function removeWorkspaceMember(workspaceId: string, memberId: string) {
 }
 
 function normalizeWorkspace(payload: unknown): WorkspaceDto {
-  if (!payload || typeof payload !== "object") {
+  const workspace = safeNormalizeWorkspace(payload);
+  if (!workspace) {
     throw new Error("Workspaceレスポンスを解析できませんでした。");
+  }
+  return workspace;
+}
+
+function safeNormalizeWorkspace(payload: unknown): WorkspaceDto | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
   }
   const source = payload as Record<string, unknown>;
   const id = optionalString(source.id);
   const name = optionalString(source.name);
   if (!id || !name) {
-    throw new Error("Workspaceレスポンスを解析できませんでした。");
+    return null;
   }
   return {
     id,
     name,
+    description: optionalString(source.description) ?? "",
     role: normalizeWorkspaceRole(optionalString(source.role)),
     created_at: optionalString(source.created_at) ?? optionalString(source.createdAt) ?? "",
     updated_at: optionalString(source.updated_at) ?? optionalString(source.updatedAt) ?? "",
@@ -150,6 +220,9 @@ function normalizeInvitation(payload: unknown): WorkspaceInvitationDto {
     email,
     role: invitationRole(optionalString(source.role)),
     status: invitationStatus(optionalString(source.status)),
+    expires_at: optionalString(source.expires_at) ?? optionalString(source.expiresAt) ?? "",
+    invited_by_name:
+      optionalString(source.invited_by_name) ?? optionalString(source.invitedByName) ?? "",
     created_at: optionalString(source.created_at) ?? optionalString(source.createdAt) ?? "",
   };
 }
@@ -171,7 +244,7 @@ function invitationRole(role: string | undefined): Extract<WorkspaceRole, "admin
 }
 
 function invitationStatus(value: string | undefined): WorkspaceInvitationDto["status"] {
-  return value === "accepted" || value === "revoked" ? value : "pending";
+  return value === "accepted" || value === "revoked" || value === "expired" ? value : "pending";
 }
 
 function optionalString(value: unknown) {
