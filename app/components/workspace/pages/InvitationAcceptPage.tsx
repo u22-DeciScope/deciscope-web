@@ -165,9 +165,8 @@ export default function InvitationAcceptPage() {
               ) : !session ? (
                 <div className="flex flex-col gap-2">
                   <p className="text-sm text-(--text-muted)">
-                    参加するには Microsoft アカウントでログインしてください。
-                    招待されたメールアドレス ({state.preview.email})
-                    のアカウントでログインする必要があります。
+                    参加するには、招待されたメールアドレス ({state.preview.email})
+                    でログインしてください。Microsoft または Google アカウントでログインできます。
                   </p>
                   <DsButton type="button" onClick={goToLogin}>
                     ログインして参加する
@@ -176,8 +175,8 @@ export default function InvitationAcceptPage() {
               ) : emailMismatch ? (
                 <div className="flex flex-col gap-2">
                   <p className="rounded-(--ds-radius-control) border px-3 py-2 text-sm text-red-600">
-                    ログイン中のアカウント ({session.user.email})
-                    は、招待されたメールアドレスと一致しません。招待されたアカウントでログインし直してください。
+                    ログイン中のメールアドレス ({session.user.email})
+                    が招待先メールアドレスと一致しません。招待されたメールアドレスのアカウントでログインしてください。
                   </p>
                   <DsButton type="button" variant="secondary" onClick={goToLogin}>
                     別のアカウントでログイン
@@ -232,7 +231,7 @@ function acceptErrorMessage(cause: unknown) {
       case 401:
         return "ログインの有効期限が切れています。ログインし直してください。";
       case 403:
-        return "ログイン中のアカウントのメールアドレスが招待先と一致しません。";
+        return "ログイン中のメールアドレスが招待先メールアドレスと一致しません。招待されたメールアドレスのアカウントでログインしてください。";
       case 409:
         return "この招待リンクは使用済みです。";
       case 410:

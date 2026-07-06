@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { canManageWorkspace, normalizeWorkspaceRole } from "~/api/auth/authApi";
 import {
@@ -50,6 +50,16 @@ export default function WorkspaceSettingsPage() {
   const [message, setMessage] = useState("");
   const [busyAction, setBusyAction] = useState("");
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
+  const [justSaved, setJustSaved] = useState(false);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (savedTimerRef.current) {
+        clearTimeout(savedTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     setName(workspace.name);
@@ -91,6 +101,11 @@ export default function WorkspaceSettingsPage() {
       setActionError("Workspace名を入力してください。");
       return;
     }
+    if (savedTimerRef.current) {
+      clearTimeout(savedTimerRef.current);
+      savedTimerRef.current = null;
+    }
+    setJustSaved(false);
     setBusyAction("rename");
     setActionError(null);
     setMessage("");
@@ -101,7 +116,12 @@ export default function WorkspaceSettingsPage() {
       });
       setName(updated.name);
       setDescription(updated.description ?? "");
-      setMessage("Workspace情報を更新しました。");
+      // 保存完了が一瞬で分からないため、数秒間「保存しました」をボタンに表示する。
+      setJustSaved(true);
+      savedTimerRef.current = setTimeout(() => {
+        setJustSaved(false);
+        savedTimerRef.current = null;
+      }, 2500);
     } catch (cause) {
       setActionError(errorMessage(cause) || "Workspace情報を更新できませんでした。");
     } finally {
@@ -265,10 +285,10 @@ export default function WorkspaceSettingsPage() {
               <div className="flex justify-end">
                 <DsButton
                   type="button"
-                  disabled={busyAction === "rename"}
+                  disabled={busyAction === "rename" || justSaved}
                   onClick={saveWorkspaceInfo}
                 >
-                  {busyAction === "rename" ? "保存中..." : "保存"}
+                  {busyAction === "rename" ? "保存中..." : justSaved ? "✓ 保存しました" : "保存"}
                 </DsButton>
               </div>
             )}
@@ -354,7 +374,7 @@ export default function WorkspaceSettingsPage() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <SectionTitle
                 title="メールアドレスで招待"
-                subtitle="招待メールのリンクから参加できます。リンクの有効期限は72時間です。"
+                subtitle="招待されたユーザーは、メール内のリンクから Microsoft または Google アカウントでログインすると参加できます。ログイン時のメールアドレスが招待先メールアドレスと一致する必要があります。リンクの有効期限は72時間です。"
               />
               <span className="text-xs text-(--text-muted)">owner権限は招待できません</span>
             </div>

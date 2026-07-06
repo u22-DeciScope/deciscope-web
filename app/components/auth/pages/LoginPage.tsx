@@ -1,7 +1,8 @@
 import { Link, useLocation } from "react-router";
 import { BrandLogo } from "~/components/BrandLogo";
+import { GoogleIcon } from "~/components/shared/GoogleIcon";
 import { MicrosoftIcon } from "~/components/shared/MicrosoftIcon";
-import { useMicrosoftAuthFlow } from "~/hooks/useMicrosoftAuthFlow";
+import { useFirebaseAuthFlow } from "~/hooks/useFirebaseAuthFlow";
 import { WORKSPACE_ROUTE_BASE } from "~/routing/workspacePaths";
 import { workspaceIdFromPath } from "~/routing/workspaceRouteMatchers";
 
@@ -16,8 +17,10 @@ export default function Login() {
   const {
     error,
     isPending: isSigningIn,
-    signIn,
-  } = useMicrosoftAuthFlow({
+    pendingProvider,
+    signInMicrosoft,
+    signInGoogle,
+  } = useFirebaseAuthFlow({
     redirectTo: requestedPath ?? WORKSPACE_ROUTE_BASE,
     fallbackMessage: "ログインに失敗しました。",
   });
@@ -42,21 +45,38 @@ export default function Login() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={signIn}
-          disabled={isSigningIn}
-          className="w-full flex items-center gap-3 px-5 py-[14px] rounded-(--ds-radius-panel) border text-[14px] font-medium transition hover:opacity-80"
-          style={{
-            borderColor: "var(--ds-border)",
-            color: "var(--text-main)",
-            background: "var(--ds-surface)",
-            opacity: isSigningIn ? 0.65 : 1,
-          }}
-        >
-          <MicrosoftIcon />
-          {isSigningIn ? "ログイン中..." : "Microsoft でログイン"}
-        </button>
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={signInMicrosoft}
+            disabled={isSigningIn}
+            className="w-full flex items-center gap-3 px-5 py-[14px] rounded-(--ds-radius-panel) border text-[14px] font-medium transition hover:opacity-80"
+            style={{
+              borderColor: "var(--ds-border)",
+              color: "var(--text-main)",
+              background: "var(--ds-surface)",
+              opacity: isSigningIn ? 0.65 : 1,
+            }}
+          >
+            <MicrosoftIcon />
+            {pendingProvider === "microsoft" ? "ログイン中..." : "Microsoft でログイン"}
+          </button>
+          <button
+            type="button"
+            onClick={signInGoogle}
+            disabled={isSigningIn}
+            className="w-full flex items-center gap-3 px-5 py-[14px] rounded-(--ds-radius-panel) border text-[14px] font-medium transition hover:opacity-80"
+            style={{
+              borderColor: "var(--ds-border)",
+              color: "var(--text-main)",
+              background: "var(--ds-surface)",
+              opacity: isSigningIn ? 0.65 : 1,
+            }}
+          >
+            <GoogleIcon />
+            {pendingProvider === "google" ? "ログイン中..." : "Google でログイン"}
+          </button>
+        </div>
 
         {error && (
           <div

@@ -24,8 +24,7 @@ import { formatStatus } from "~/utils/meetingStatusLabels";
 const staleActiveSessionMs = 2 * 60 * 60 * 1000;
 
 export default function Home() {
-  const { today, user, workspace, workspaceId } = useAuthenticatedLayout();
-  const displayName = user.displayName?.split(" ")[0] ?? "ゲスト";
+  const { workspace, workspaceId } = useAuthenticatedLayout();
   const [meetingSessions, setMeetingSessions] = useState<MeetingSessionDto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -83,8 +82,7 @@ export default function Home() {
     [meetingItems],
   );
 
-  // 主見出しは「今どのワークスペースにいるか」を優先する。
-  // ユーザー名と日付はサブテキストに退避。
+  // 主見出しはワークスペース名 + role badge のみ。ユーザー名・日付は表示しない。
   const chrome = useMemo(
     () => ({
       header: {
@@ -95,7 +93,6 @@ export default function Home() {
             {normalizeWorkspaceRole(workspace.role) === "viewer" && <ViewerOnlyBadge />}
           </span>
         ),
-        subtitle: `${displayName}さん・${today}`,
         actions: canCreateMeeting ? (
           <Link to={newMeetingPath}>
             <DsButton>
@@ -111,7 +108,7 @@ export default function Home() {
         ),
       },
     }),
-    [canCreateMeeting, displayName, newMeetingPath, today, workspace.name, workspace.role],
+    [canCreateMeeting, newMeetingPath, workspace.name, workspace.role],
   );
   useWorkspaceChrome(chrome);
 

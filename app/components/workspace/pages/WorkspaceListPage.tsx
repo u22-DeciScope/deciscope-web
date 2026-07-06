@@ -1,14 +1,13 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { HiPlus } from "react-icons/hi2";
+import { HiChevronRight, HiPlus, HiUserGroup } from "react-icons/hi2";
 
-import { fetchMe, normalizeWorkspaceRole, type WorkspaceDto } from "~/api/auth/authApi";
+import { type WorkspaceDto } from "~/api/auth/authApi";
 import { ApiError } from "~/api/core/apiClient";
-import { createWorkspace, listWorkspaces } from "~/api/workspaces/workspaceApi";
+import { listWorkspaces } from "~/api/workspaces/workspaceApi";
 import { BrandLogo } from "~/components/BrandLogo";
 import { DsButton } from "~/components/DsButton";
-import { DsInput } from "~/components/DsInput";
-import { notifyAuthenticatedSessionChanged } from "~/hooks/useAuthenticatedSession";
+import { RoleBadge } from "~/components/workspace/parts/RoleBadge";
 import { workspacePath } from "~/routing/workspacePaths";
 
 export default function WorkspaceListPage() {
@@ -16,11 +15,6 @@ export default function WorkspaceListPage() {
   const [workspaces, setWorkspaces] = useState<WorkspaceDto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [isCreating, setIsCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
 
   const loadWorkspaces = useCallback(async () => {
     setIsLoading(true);
@@ -44,152 +38,120 @@ export default function WorkspaceListPage() {
     void loadWorkspaces();
   }, [loadWorkspaces]);
 
-  async function handleCreate(event: FormEvent) {
-    event.preventDefault();
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      setCreateError("ワークスペース名を入力してください。");
-      return;
-    }
-    setIsCreating(true);
-    setCreateError(null);
-    try {
-      const created = await createWorkspace(trimmedName, description.trim());
-      // 認証セッションのキャッシュを更新してから遷移しないと、
-      // レイアウト側が新ワークスペースを認識できずリゾルバへ戻されてしまう。
-      try {
-        notifyAuthenticatedSessionChanged(await fetchMe());
-      } catch {
-        // セッション更新に失敗しても遷移先の再取得で回復できる。
-      }
-      navigate(workspacePath(created.id, "/meetings"));
-    } catch (cause) {
-      setCreateError(errorMessage(cause) || "ワークスペースを作成できませんでした。");
-    } finally {
-      setIsCreating(false);
-    }
-  }
-
   return (
     <div className="min-h-dvh bg-(--ds-bg) px-4 py-8">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <BrandLogo size="sm" linkTo="/workspaces" />
-        </div>
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+        <BrandLogo size="sm" linkTo="/workspaces" />
 
-        <section className="ds-surface rounded-(--ds-radius-panel) p-5">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h1 className="text-lg font-bold">ワークスペース</h1>
-              <p className="mt-1 text-xs text-(--text-muted)">
-                所属しているワークスペースの一覧です。
-              </p>
-            </div>
-            <DsButton type="button" onClick={() => setShowCreateForm((current) => !current)}>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold" style={{ color: "var(--text-main)" }}>
+              ワークスペース
+            </h1>
+            <p className="mt-1 text-sm" style={{ color: "var(--text-muted)" }}>
+              会議・文字起こし・AI分析を管理する単位です。
+            </p>
+          </div>
+          <Link to="/workspaces/new">
+            <DsButton type="button">
               <HiPlus className="h-3.5 w-3.5" />
               新規作成
             </DsButton>
-          </div>
+          </Link>
+        </div>
 
-          {showCreateForm && (
-            <form
-              className="mb-4 flex flex-col gap-2 rounded-(--ds-radius-control) border p-3"
-              onSubmit={handleCreate}
-            >
-              <DsInput
-                label="ワークスペース名"
-                value={name}
-                disabled={isCreating}
-                onChange={(event) => setName(event.currentTarget.value)}
-              />
-              <DsInput
-                label="説明(任意)"
-                value={description}
-                disabled={isCreating}
-                onChange={(event) => setDescription(event.currentTarget.value)}
-              />
-              {createError && <p className="text-xs text-red-600">{createError}</p>}
-              <div className="flex justify-end gap-2">
-                <DsButton
-                  type="button"
-                  variant="secondary"
-                  disabled={isCreating}
-                  onClick={() => setShowCreateForm(false)}
-                >
-                  キャンセル
-                </DsButton>
-                <DsButton type="submit" disabled={isCreating}>
-                  {isCreating ? "作成中" : "作成"}
-                </DsButton>
-              </div>
-            </form>
-          )}
-
-          {isLoading ? (
-            <EmptyLine>ワークスペースを読み込んでいます...</EmptyLine>
-          ) : loadError ? (
-            <div className="flex flex-col gap-2">
-              <p className="rounded-(--ds-radius-control) border px-3 py-2 text-[12px] text-red-600">
-                {loadError}
-              </p>
-              <DsButton type="button" variant="secondary" onClick={loadWorkspaces}>
-                再読み込み
-              </DsButton>
-            </div>
-          ) : workspaces.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 rounded-(--ds-radius-control) border px-4 py-10 text-center">
-              <p className="text-sm font-semibold">ワークスペースを作成してください</p>
-              <p className="text-xs text-(--text-muted)">
-                会議の記録やAI分析をチームで共有するには、まずワークスペースが必要です。
-              </p>
-              <DsButton type="button" onClick={() => setShowCreateForm(true)}>
-                <HiPlus className="h-3.5 w-3.5" />
-                最初のワークスペースを作成
-              </DsButton>
-            </div>
-          ) : (
-            workspaces.map((workspace) => (
+        {isLoading ? (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {[0, 1].map((index) => (
               <div
-                className="flex flex-wrap items-center justify-between gap-3 border-b py-3 last:border-0"
-                key={workspace.id}
+                key={index}
+                className="ds-surface h-36 animate-pulse rounded-(--ds-radius-panel)"
+                style={{ boxShadow: "var(--ds-shadow)" }}
+              />
+            ))}
+          </div>
+        ) : loadError ? (
+          <div
+            className="ds-surface flex flex-col items-start gap-3 rounded-(--ds-radius-panel) p-6"
+            style={{ boxShadow: "var(--ds-shadow)" }}
+          >
+            <p className="text-sm text-red-600">{loadError}</p>
+            <DsButton type="button" variant="secondary" onClick={loadWorkspaces}>
+              再読み込み
+            </DsButton>
+          </div>
+        ) : workspaces.length === 0 ? (
+          <div
+            className="ds-surface flex flex-col items-center gap-4 rounded-(--ds-radius-panel) px-6 py-16 text-center"
+            style={{ boxShadow: "var(--ds-shadow)" }}
+          >
+            <div
+              className="flex h-14 w-14 items-center justify-center rounded-full"
+              style={{ background: "var(--brand-light)" }}
+            >
+              <HiUserGroup className="h-7 w-7" style={{ color: "var(--brand)" }} />
+            </div>
+            <div>
+              <p className="text-base font-bold" style={{ color: "var(--text-main)" }}>
+                まだワークスペースがありません
+              </p>
+              <p
+                className="mt-2 max-w-md text-sm leading-relaxed"
+                style={{ color: "var(--text-muted)" }}
               >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">{workspace.name}</p>
-                  {workspace.description ? (
-                    <p className="truncate text-xs text-(--text-muted)">{workspace.description}</p>
-                  ) : null}
-                  <p className="mt-0.5 text-[11px] text-(--text-muted)">
-                    更新: {formatDate(workspace.updated_at)}
+                DeciScopeでは、会議・文字起こし・AI分析をワークスペースごとに管理します。
+                まずは最初のワークスペースを作成してください。
+              </p>
+            </div>
+            <Link to="/workspaces/new">
+              <DsButton type="button">
+                <HiPlus className="h-3.5 w-3.5" />
+                ワークスペースを作成
+              </DsButton>
+            </Link>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {workspaces.map((workspace) => (
+              <Link
+                key={workspace.id}
+                to={workspacePath(workspace.id, "/meetings")}
+                className="ds-surface group flex flex-col gap-3 rounded-(--ds-radius-panel) p-5 transition hover:opacity-90"
+                style={{ boxShadow: "var(--ds-shadow)" }}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p
+                    className="min-w-0 truncate text-base font-bold"
+                    style={{ color: "var(--text-main)" }}
+                  >
+                    {workspace.name}
                   </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
                   <RoleBadge role={workspace.role} />
-                  <Link to={workspacePath(workspace.id, "/meetings")}>
-                    <DsButton variant="secondary">開く</DsButton>
-                  </Link>
                 </div>
-              </div>
-            ))
-          )}
-        </section>
+                <p
+                  className="line-clamp-2 min-h-10 text-sm leading-relaxed"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {workspace.description || "説明はまだ設定されていません。"}
+                </p>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                    更新: {formatDate(workspace.updated_at)}
+                  </span>
+                  <span
+                    className="flex items-center gap-1 text-sm font-medium"
+                    style={{ color: "var(--brand)" }}
+                  >
+                    開く
+                    <HiChevronRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
     </div>
-  );
-}
-
-function RoleBadge({ role }: { role: string }) {
-  return (
-    <span className="rounded-(--ds-radius-control) border px-2 py-1 text-[11px] font-semibold">
-      {normalizeWorkspaceRole(role)}
-    </span>
-  );
-}
-
-function EmptyLine({ children }: { children: string }) {
-  return (
-    <p className="rounded-(--ds-radius-control) border px-3 py-2 text-[12px] text-(--text-muted)">
-      {children}
-    </p>
   );
 }
 
@@ -205,8 +167,6 @@ function formatDate(value?: string) {
     year: "numeric",
     month: "short",
     day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
   });
 }
 
