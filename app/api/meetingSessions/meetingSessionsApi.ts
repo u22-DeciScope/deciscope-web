@@ -184,6 +184,15 @@ export function isMeetingSessionStatus(value: unknown): value is MeetingSessionS
   );
 }
 
+// セッションがこれ以上状態遷移しない終端状態かどうか。ended(正常終了)に加え、
+// failed/stale/timeout(異常終了)もここに含める。復旧トースト表示ガード等、
+// 複数フックで共有するためここに集約する。
+export function isTerminalMeetingSessionStatus(status: MeetingSessionStatus): boolean {
+  return (
+    status === "ended" || status === "failed" || status === "stale" || status === "timeout"
+  );
+}
+
 function normalizeMeetingSession(value: unknown): MeetingSessionDto | null {
   if (!value || typeof value !== "object") {
     return null;

@@ -58,12 +58,19 @@ export type MeetingSessionStatusChange = {
   status: MeetingSessionStatus;
 };
 
+export type MeetingSessionBotHealthChange = {
+  sessionId: string;
+  healthy: boolean;
+  lastBotStatusAtUtc?: string;
+};
+
 export type ParsedTranscriptWebSocketEvent = {
   type: string;
   sentAtUtc?: string;
   segment: TranscriptSegment | null;
   sessionStatus: MeetingSessionStatusChange | null;
   aiAnalysis: MeetingAIAnalysis | null;
+  botHealth: MeetingSessionBotHealthChange | null;
 };
 
 type TranscriptHistoryResult = {
@@ -215,6 +222,7 @@ export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebS
       segment: null,
       sessionStatus: normalizeMeetingSessionStatusChange(payload.data),
       aiAnalysis: null,
+      botHealth: null,
     };
   }
 
@@ -225,6 +233,7 @@ export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebS
       segment: normalizeTranscriptSegment(payload.data),
       sessionStatus: null,
       aiAnalysis: null,
+      botHealth: null,
     };
   }
 
@@ -235,6 +244,18 @@ export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebS
       segment: null,
       sessionStatus: null,
       aiAnalysis: normalizeAIAnalysis(payload.data),
+      botHealth: null,
+    };
+  }
+
+  if (type === "meeting_session.bot_health_changed") {
+    return {
+      type,
+      sentAtUtc: payload.sentAtUtc,
+      segment: null,
+      sessionStatus: null,
+      aiAnalysis: null,
+      botHealth: normalizeMeetingSessionBotHealthChange(payload.data),
     };
   }
 
@@ -244,6 +265,7 @@ export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebS
     segment: null,
     sessionStatus: null,
     aiAnalysis: null,
+    botHealth: null,
   };
 }
 
@@ -456,6 +478,27 @@ function normalizeMeetingSessionStatusChange(value: unknown): MeetingSessionStat
     ...(endReason ? { endReason } : {}),
     ...(lastError ? { lastError } : {}),
     status,
+  };
+}
+
+function normalizeMeetingSessionBotHealthChange(
+  value: unknown,
+): MeetingSessionBotHealthChange | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const source = value as Record<string, unknown>;
+  const sessionId = optionalString(source.sessionId) ?? optionalString(source.session_id);
+  const healthy = source.healthy;
+  const lastBotStatusAtUtc =
+    optionalString(source.lastBotStatusAtUtc) ?? optionalString(source.last_bot_status_at_utc);
+  if (!sessionId || typeof healthy !== "boolean") {
+    return null;
+  }
+  return {
+    sessionId,
+    healthy,
+    ...(lastBotStatusAtUtc ? { lastBotStatusAtUtc } : {}),
   };
 }
 

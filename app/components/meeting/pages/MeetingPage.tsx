@@ -67,7 +67,11 @@ export default function Meeting() {
   const { toasts: botStatusToasts, dismissToast: dismissBotStatusToast } = useBotStatusToasts(
     detailTargetId,
     transcriptSession.sessionStatus,
-    { endReason: transcriptSession.sessionEndReason, isLocalEnd },
+    {
+      endReason: transcriptSession.sessionEndReason,
+      isLocalEnd,
+      botConnectionLost: transcriptSession.botConnectionLost,
+    },
   );
   const meetingsPath = workspacePath(workspaceId, "/meetings");
   const summaryPath = workspaceMeetingSummaryPath(workspaceId, detailTargetId);

@@ -8,6 +8,7 @@ import {
 import {
   getMeetingSession,
   getWorkspaceMeetingSession,
+  isTerminalMeetingSessionStatus,
   type MeetingSessionStatus,
 } from "~/api/meetingSessions/meetingSessionsApi";
 import type { MeetingSegmentDto } from "~/api/meetings/meetingEventsApi";
@@ -41,6 +42,10 @@ const websocketConnectTimeoutMs = 10000;
 const transcriptHistoryRetryMessage = "文字起こし履歴を取得中/再試行中です。";
 const ticksPerMillisecond = 10_000;
 const partialBubbleGapThresholdMs = 3000;
+// サーバ側watchdog(DECISCOPE_SESSION_BOT_LOST_AFTER_SECONDS=60)がBotの途絶を
+// 検知するまでの閾値に、ネットワーク遅延等のマージンを加えたしきい値。
+// セッション復元時、lastBotStatusAtがこれより古ければ既にBot接続喪失中とみなす。
+const botConnectionLostThresholdMs = 90_000;
 
 type TranscriptPartialEntry = {
   key: string;
@@ -92,6 +97,9 @@ export function useMeetingTranscriptSession(
   // Botが会議から退出した理由(例: "manual_end_requested" / "shutdown" / Teams側の
   // 通話終了メッセージ)。手動終了かどうかをUI側で区別するために保持する。
   const [sessionEndReason, setSessionEndReason] = useState("");
+  // Go API側watchdogが配信するBotハートビート途絶イベント(健全性)の状態。
+  // trueの間、会議画面に永続トーストで警告を表示する。
+  const [botConnectionLost, setBotConnectionLost] = useState(false);
   const [liveAnalysis, setLiveAnalysis] = useState<MeetingAIAnalysis | null>(null);
   const [finalAnalysis, setFinalAnalysis] = useState<MeetingAIAnalysis | null>(null);
   const [liveAnalysisMeta, setLiveAnalysisMeta] =
@@ -256,6 +264,7 @@ export function useMeetingTranscriptSession(
       setSessionJoinedAt("");
       setSessionEndedAt("");
       setSessionEndReason("");
+      setBotConnectionLost(false);
       setLiveAnalysis(null);
       setFinalAnalysis(null);
       setLiveAnalysisMeta(initialLiveAnalysisMeta);
@@ -276,6 +285,7 @@ export function useMeetingTranscriptSession(
     setSessionCreatedAt("");
     setSessionJoinedAt("");
     setSessionEndedAt("");
+    setBotConnectionLost(false);
     setLiveAnalysis(null);
     setFinalAnalysis(null);
     setLiveAnalysisMeta(initialLiveAnalysisMeta);
@@ -318,6 +328,17 @@ export function useMeetingTranscriptSession(
         );
         setSessionEndedAt((current) => session.endedAt ?? current);
         setSessionEndReason((current) => session.endReason ?? current);
+        // trueへの片方向セットではなく算出値を毎回反映する。再接続後の再取得(下記の
+        // "open"リスナー参照)では、切断中にBotが復旧していればfalseへ、逆にendedに
+        // なっていた場合もfalseへ正しく戻す必要があるため。
+        const lastBotStatusAtMs = session.lastBotStatusAt
+          ? Date.parse(session.lastBotStatusAt)
+          : Number.NaN;
+        const lost =
+          isElapsedMeetingSessionStatus(session.status) &&
+          !Number.isNaN(lastBotStatusAtMs) &&
+          Date.now() - lastBotStatusAtMs > botConnectionLostThresholdMs;
+        setBotConnectionLost(lost);
         const statusError = sessionStatusErrorMessage(session.status);
         if (statusError) {
           setError(statusError);
@@ -328,6 +349,7 @@ export function useMeetingTranscriptSession(
           titleSource: session.titleSource ?? null,
           meetingUrlHash: session.meetingUrlHash ?? null,
           status: session.status,
+          lastBotStatusAt: session.lastBotStatusAt ?? null,
         });
       } catch (cause) {
         if (!active) {
@@ -484,6 +506,20 @@ export function useMeetingTranscriptSession(
           sessionId: normalizedSessionId,
           url: maskWebSocketUrl(websocketUrl),
         });
+
+        if (reconnecting) {
+          // 切断中(PCスリープ等)に配信された status_changed / bot_health_changed は
+          // サーバが遷移時に1回しか送らないため見逃す可能性がある。再接続直後に
+          // 現在状態を取り直して画面を復旧させる。3つとも冪等(historyはseenKeysRef
+          // でdedupe、AI分析はversion比較guard)であることを確認済み。
+          meetingStartDebug("meeting-page", "reconnected, refetching missed state", {
+            sessionId: normalizedSessionId,
+            url: maskWebSocketUrl(websocketUrl),
+          });
+          void loadInitialData();
+          void loadTranscriptHistory();
+          void loadAIAnalyses();
+        }
       });
 
       socket.addEventListener("message", (event) => {
@@ -518,6 +554,9 @@ export function useMeetingTranscriptSession(
             if (parsed.sessionStatus.endReason) {
               setSessionEndReason(parsed.sessionStatus.endReason);
             }
+            if (isTerminalMeetingSessionStatus(parsed.sessionStatus.status)) {
+              setBotConnectionLost(false);
+            }
             meetingStartDebug("meeting-page", "session status received", {
               sessionId: parsed.sessionStatus.sessionId,
               title: parsed.sessionStatus.title ?? null,
@@ -547,6 +586,25 @@ export function useMeetingTranscriptSession(
               currentSessionId: activeSessionRef.current,
               receivedSessionId: parsed.sessionStatus.sessionId,
               status: parsed.sessionStatus.status,
+            });
+            return;
+          }
+
+          if (parsed.botHealth) {
+            if (parsed.botHealth.sessionId !== activeSessionRef.current) {
+              meetingStartDebug("meeting-page", "bot health ignored", {
+                reason: "session_id_mismatch",
+                currentSessionId: activeSessionRef.current,
+                receivedSessionId: parsed.botHealth.sessionId,
+                healthy: parsed.botHealth.healthy,
+              });
+              return;
+            }
+            setBotConnectionLost(!parsed.botHealth.healthy);
+            meetingStartDebug("meeting-page", "bot health received", {
+              sessionId: parsed.botHealth.sessionId,
+              healthy: parsed.botHealth.healthy,
+              lastBotStatusAtUtc: parsed.botHealth.lastBotStatusAtUtc ?? null,
             });
             return;
           }
@@ -750,6 +808,7 @@ export function useMeetingTranscriptSession(
       sessionEndedAt,
       sessionEndReason,
       sessionStatus,
+      botConnectionLost,
       liveAnalysis,
       finalAnalysis,
       liveAnalysisMeta,
@@ -764,6 +823,7 @@ export function useMeetingTranscriptSession(
       ),
     }),
     [
+      botConnectionLost,
       connectionStatus,
       error,
       finalAnalysis,

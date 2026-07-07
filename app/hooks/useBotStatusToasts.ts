@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { MeetingSessionStatus } from "~/api/meetingSessions/meetingSessionsApi";
+import {
+  isTerminalMeetingSessionStatus,
+  type MeetingSessionStatus,
+} from "~/api/meetingSessions/meetingSessionsApi";
 
 export type BotStatusToastTone = "error" | "warning" | "success";
 
@@ -26,22 +29,70 @@ const recoveredToastDurationMs = 5000;
 export function useBotStatusToasts(
   sessionKey: string,
   sessionStatus: MeetingSessionStatus | null,
-  options: { endReason?: string; isLocalEnd: boolean },
+  options: { endReason?: string; isLocalEnd: boolean; botConnectionLost: boolean },
 ) {
-  const { endReason, isLocalEnd } = options;
+  const { endReason, isLocalEnd, botConnectionLost } = options;
   const [toasts, setToasts] = useState<BotStatusToast[]>([]);
   const previousStatusRef = useRef<MeetingSessionStatus | null>(null);
   const recoveredTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const botConnectionRecoveredTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previousBotConnectionLostRef = useRef(false);
 
   // 別の会議セッションに切り替わったら、前のセッションのトーストを引きずらない。
   useEffect(() => {
     previousStatusRef.current = null;
+    previousBotConnectionLostRef.current = false;
     setToasts([]);
     if (recoveredTimerRef.current) {
       clearTimeout(recoveredTimerRef.current);
       recoveredTimerRef.current = null;
     }
+    if (botConnectionRecoveredTimerRef.current) {
+      clearTimeout(botConnectionRecoveredTimerRef.current);
+      botConnectionRecoveredTimerRef.current = null;
+    }
   }, [sessionKey]);
+
+  // Go API側watchdogがBotのハートビート途絶(60秒以上)を検知した通知。
+  // 復帰(healthy=true)した場合は、既に会議が終了していない限り復旧トーストへ切り替える。
+  useEffect(() => {
+    const previousBotConnectionLost = previousBotConnectionLostRef.current;
+    previousBotConnectionLostRef.current = botConnectionLost;
+    if (botConnectionLost === previousBotConnectionLost) {
+      return;
+    }
+
+    if (botConnectionLost) {
+      setToasts((current) =>
+        upsertToast(current, {
+          id: "bot-connection",
+          tone: "warning",
+          message:
+            "Botとの接続が確認できません。VM上のBotが停止した可能性があります。復旧しない場合は「会議終了」で会議を終了してください。",
+        }),
+      );
+      return;
+    }
+
+    setToasts((current) => removeToast(current, "bot-connection"));
+    // failed/stale/timeout(webの型上のみ)で終了した場合もended同様、偽の復旧
+    // トーストを出さない。sessionStatus === null はまだ状態未取得のケース。
+    if (sessionStatus === null || !isTerminalMeetingSessionStatus(sessionStatus)) {
+      setToasts((current) =>
+        upsertToast(current, {
+          id: "bot-connection-recovered",
+          tone: "success",
+          message: "Botとの接続が復旧しました。",
+        }),
+      );
+      if (botConnectionRecoveredTimerRef.current) {
+        clearTimeout(botConnectionRecoveredTimerRef.current);
+      }
+      botConnectionRecoveredTimerRef.current = setTimeout(() => {
+        setToasts((current) => removeToast(current, "bot-connection-recovered"));
+      }, recoveredToastDurationMs);
+    }
+  }, [botConnectionLost, sessionStatus]);
 
   useEffect(() => {
     const previousStatus = previousStatusRef.current;
@@ -96,6 +147,7 @@ export function useBotStatusToasts(
 
     if (sessionStatus === "ended") {
       setToasts((current) => removeToast(current, "speech-status"));
+      setToasts((current) => removeToast(current, "bot-connection"));
       // previousStatus === null は「終了済みセッションを後から開いた」初回ロードなので、
       // 会議中にライブで ended への遷移を目撃した場合だけ退出トーストを出す
       // (終了済みページでは既存の endedNotice バナーが案内を担う)。
@@ -115,6 +167,9 @@ export function useBotStatusToasts(
     return () => {
       if (recoveredTimerRef.current) {
         clearTimeout(recoveredTimerRef.current);
+      }
+      if (botConnectionRecoveredTimerRef.current) {
+        clearTimeout(botConnectionRecoveredTimerRef.current);
       }
     };
   }, []);
@@ -148,6 +203,9 @@ function describeBotLeftMessage(endReason?: string) {
   }
   if (reason.includes("manual")) {
     return `${base}(別の参加者が終了操作を行いました)`;
+  }
+  if (reason.includes("unresponsive") || reason.includes("heartbeat")) {
+    return `${base}(Botが応答しなくなったため自動終了しました。VM上のBotが停止した可能性があります)`;
   }
   if (reason.includes("shutdown")) {
     return `${base}(Bot側の停止によるものです)`;
