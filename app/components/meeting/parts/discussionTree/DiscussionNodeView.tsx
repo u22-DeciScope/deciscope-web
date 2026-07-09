@@ -1,5 +1,5 @@
 import { Handle, Position, type Node, type NodeProps, type NodeTypes } from "@xyflow/react";
-import { HiCheck } from "react-icons/hi2";
+import { HiChevronDown, HiChevronRight, HiCheck } from "react-icons/hi2";
 
 import {
   analysisKindLabel,
@@ -11,6 +11,7 @@ import { tagStyle } from "./discussionTags";
 import { NODE_HEIGHT, NODE_WIDTH } from "./discussionTreeLayout";
 
 export type DiscussionNodeData = {
+  id: string;
   tag: string;
   status: string;
   speaker: string;
@@ -18,6 +19,12 @@ export type DiscussionNodeData = {
   description: string;
   relatedCount: number;
   active: boolean;
+  hasChildren: boolean;
+  collapsed: boolean;
+  onToggleCollapse?: (id: string) => void;
+  childKindCounts: Array<{ kind: string; count: number }>;
+  dimmed: boolean;
+  recentlyUpdated: boolean;
 };
 
 export type DiscussionFlowNode = Node<DiscussionNodeData, "discussion">;
@@ -32,6 +39,16 @@ export function DiscussionNodeView({ data, selected }: NodeProps<DiscussionFlowN
   const baseBackground = `color-mix(in srgb, ${style.bg} 55%, var(--node-bg))`;
   const baseBorder = `color-mix(in srgb, ${style.fg} 35%, transparent)`;
 
+  const boxShadows: string[] = [];
+  if (selected) {
+    boxShadows.push(`0 0 0 2.5px color-mix(in srgb, ${style.fg} 30%, transparent)`);
+  }
+  if (data.recentlyUpdated) {
+    boxShadows.push(`0 0 0 3px color-mix(in srgb, var(--brand) 45%, transparent)`);
+  }
+
+  const showChildCounts = data.collapsed && data.hasChildren && data.childKindCounts.length > 0;
+
   return (
     <div
       className="flex flex-col gap-1.5 rounded-(--ds-radius-control) border px-3 py-2.5"
@@ -39,23 +56,36 @@ export function DiscussionNodeView({ data, selected }: NodeProps<DiscussionFlowN
         width: NODE_WIDTH,
         height: NODE_HEIGHT,
         background: resolved ? dimmedColor(baseBackground, 45) : baseBackground,
-        borderColor: emphasized
-          ? style.fg
-          : resolved
-            ? dimmedColor(baseBorder, 45)
-            : baseBorder,
+        borderColor: emphasized ? style.fg : resolved ? dimmedColor(baseBorder, 45) : baseBorder,
         borderWidth: emphasized ? "1.5px" : "1px",
         // resolved時は色(減衰)に加えて破線枠にすることで、色覚多様性があっても
         // 「解決済」であることを判別できるようにする。
         borderStyle: resolved ? "dashed" : undefined,
-        boxShadow: selected
-          ? `0 0 0 2.5px color-mix(in srgb, ${style.fg} 30%, transparent)`
-          : undefined,
+        boxShadow: boxShadows.length > 0 ? boxShadows.join(", ") : undefined,
+        opacity: data.dimmed ? 0.4 : 1,
         cursor: "pointer",
       }}
     >
       <Handle type="target" position={Position.Left} style={{ opacity: 0 }} />
       <div className="flex items-center gap-1.5">
+        {data.hasChildren && (
+          <button
+            type="button"
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm"
+            style={{ color: style.fg }}
+            aria-label={data.collapsed ? "展開" : "折りたたみ"}
+            onClick={(event) => {
+              event.stopPropagation();
+              data.onToggleCollapse?.(data.id);
+            }}
+          >
+            {data.collapsed ? (
+              <HiChevronRight className="h-3 w-3" />
+            ) : (
+              <HiChevronDown className="h-3 w-3" />
+            )}
+          </button>
+        )}
         <span
           className="shrink-0 rounded-sm px-1.25 py-0.75 text-[9px] font-semibold leading-none"
           style={{ background: style.bg, color: style.fg }}
@@ -88,10 +118,28 @@ export function DiscussionNodeView({ data, selected }: NodeProps<DiscussionFlowN
       >
         {data.label}
       </span>
-      {data.description && (
-        <span className="line-clamp-1 text-[11px] leading-4" style={{ color: "var(--text-sub)" }}>
-          {data.description}
-        </span>
+      {showChildCounts ? (
+        <div className="flex items-center gap-1 overflow-hidden">
+          {data.childKindCounts.map(({ kind, count }) => {
+            const countStyle = tagStyle[kind] ?? tagStyle.topic;
+            return (
+              <span
+                key={kind}
+                className="shrink-0 rounded-sm px-1 py-0.5 text-[9px] font-semibold leading-none"
+                style={{ background: countStyle.bg, color: countStyle.fg }}
+              >
+                {analysisKindLabel(kind)}
+                {count}
+              </span>
+            );
+          })}
+        </div>
+      ) : (
+        data.description && (
+          <span className="line-clamp-1 text-[11px] leading-4" style={{ color: "var(--text-sub)" }}>
+            {data.description}
+          </span>
+        )
       )}
       <Handle type="source" position={Position.Right} style={{ opacity: 0 }} />
     </div>

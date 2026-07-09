@@ -4,6 +4,7 @@ import {
   isTerminalMeetingSessionStatus,
   type MeetingSessionStatus,
 } from "~/api/meetingSessions/meetingSessionsApi";
+import type { MeetingSessionTranscriptHealth } from "~/api/transcripts/transcriptSegmentsApi";
 
 export type BotStatusToastTone = "error" | "warning" | "success";
 
@@ -29,19 +30,26 @@ const recoveredToastDurationMs = 5000;
 export function useBotStatusToasts(
   sessionKey: string,
   sessionStatus: MeetingSessionStatus | null,
-  options: { endReason?: string; isLocalEnd: boolean; botConnectionLost: boolean },
+  options: {
+    endReason?: string;
+    isLocalEnd: boolean;
+    botConnectionLost: boolean;
+    transcriptHealth?: MeetingSessionTranscriptHealth | null;
+  },
 ) {
-  const { endReason, isLocalEnd, botConnectionLost } = options;
+  const { endReason, isLocalEnd, botConnectionLost, transcriptHealth = null } = options;
   const [toasts, setToasts] = useState<BotStatusToast[]>([]);
   const previousStatusRef = useRef<MeetingSessionStatus | null>(null);
   const recoveredTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const botConnectionRecoveredTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousBotConnectionLostRef = useRef(false);
+  const previousTranscriptHealthRef = useRef<MeetingSessionTranscriptHealth | null>(null);
 
   // 別の会議セッションに切り替わったら、前のセッションのトーストを引きずらない。
   useEffect(() => {
     previousStatusRef.current = null;
     previousBotConnectionLostRef.current = false;
+    previousTranscriptHealthRef.current = null;
     setToasts([]);
     if (recoveredTimerRef.current) {
       clearTimeout(recoveredTimerRef.current);
@@ -93,6 +101,48 @@ export function useBotStatusToasts(
       }, recoveredToastDurationMs);
     }
   }, [botConnectionLost, sessionStatus]);
+
+  // Go API側watchdogが配信する文字起こし途絶イベント(健全性)の通知。
+  // botConnectionLostとは別id・別文言で、Bot接続は維持されているが文字起こしが
+  // 一定時間届いていないケースを知らせる。ended等の終了状態では表示しない。
+  useEffect(() => {
+    const previousTranscriptHealth = previousTranscriptHealthRef.current;
+    previousTranscriptHealthRef.current = transcriptHealth;
+    if (transcriptHealth === previousTranscriptHealth) {
+      return;
+    }
+
+    const isTerminal = sessionStatus !== null && isTerminalMeetingSessionStatus(sessionStatus);
+    if (isTerminal) {
+      setToasts((current) => removeToast(current, "transcript-health"));
+      return;
+    }
+
+    if (transcriptHealth === "transcript_stalled") {
+      setToasts((current) =>
+        upsertToast(current, {
+          id: "transcript-health",
+          tone: "warning",
+          message:
+            "Botとの接続は維持されていますが、文字起こしが一定時間届いていません。音声がBotに届いていない可能性があります。",
+        }),
+      );
+      return;
+    }
+
+    if (transcriptHealth === "transcript_delayed") {
+      setToasts((current) =>
+        upsertToast(current, {
+          id: "transcript-health",
+          tone: "warning",
+          message: "文字起こしの受信が遅れています。",
+        }),
+      );
+      return;
+    }
+
+    setToasts((current) => removeToast(current, "transcript-health"));
+  }, [sessionStatus, transcriptHealth]);
 
   useEffect(() => {
     const previousStatus = previousStatusRef.current;
@@ -148,6 +198,7 @@ export function useBotStatusToasts(
     if (sessionStatus === "ended") {
       setToasts((current) => removeToast(current, "speech-status"));
       setToasts((current) => removeToast(current, "bot-connection"));
+      setToasts((current) => removeToast(current, "transcript-health"));
       // previousStatus === null は「終了済みセッションを後から開いた」初回ロードなので、
       // 会議中にライブで ended への遷移を目撃した場合だけ退出トーストを出す
       // (終了済みページでは既存の endedNotice バナーが案内を担う)。

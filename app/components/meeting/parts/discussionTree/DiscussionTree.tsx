@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   BackgroundVariant,
   Controls,
+  Panel,
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
@@ -18,7 +19,11 @@ import type {
 
 import { type DiscussionFlowNode, nodeTypes } from "./DiscussionNodeView";
 import { NODE_HEIGHT, NODE_WIDTH, layoutPositions, normalizeEdges } from "./discussionTreeLayout";
+import { buildDiscussionTreeModel, collapsibleNodeIds, isNodeVisible } from "./discussionTreeModel";
 import { NodeDetailCard } from "./NodeDetailCard";
+
+// バッジ表示・件数バッジの種別の並び順(安定した順序で見比べやすくする)。
+const KIND_ORDER = ["issue", "question", "risk", "decision", "todo", "topic"];
 
 type DiscussionTreeProps = {
   nodes: TreeNodePayload[];
@@ -114,31 +119,116 @@ function DiscussionFlow({
   );
 
   const treeEdges = useMemo(() => normalizeEdges(nodes, edges), [nodes, edges]);
+  const discussionModel = useMemo(
+    () => buildDiscussionTreeModel(nodes, treeEdges),
+    [nodes, treeEdges],
+  );
+
+  // 折りたたみ状態。初期値は「root以外で子を持つ全ノード」を折りたたみ、
+  // root + 直下の大分類のみが見える状態にする。
+  const [collapsed, setCollapsed] = useState<Set<string>>(() =>
+    collapsibleNodeIds(discussionModel),
+  );
+
+  const recentlyUpdatedIds = useRecentlyUpdatedNodeIds(nodes);
+
+  const toggleCollapse = useCallback((id: string) => {
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const visibleIds = useMemo(() => {
+    const visible = new Set<string>();
+    for (const node of nodes) {
+      if (isNodeVisible(discussionModel, collapsed, node.id)) {
+        visible.add(node.id);
+      }
+    }
+    return visible;
+  }, [nodes, discussionModel, collapsed]);
+
+  const visibleNodes = useMemo(
+    () => nodes.filter((node) => visibleIds.has(node.id)),
+    [nodes, visibleIds],
+  );
+  const visibleEdges = useMemo(
+    () => treeEdges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target)),
+    [treeEdges, visibleIds],
+  );
+
+  // フォーカス強調(選択時): 選択ノード自身 + 直接の親 + 直接の子。
+  const focusIds = useMemo(() => {
+    if (selectedId === null) {
+      return null;
+    }
+    const ids = new Set<string>([selectedId]);
+    const parent = discussionModel.parentOf.get(selectedId);
+    if (parent) {
+      ids.add(parent);
+    }
+    for (const childId of discussionModel.childrenOf.get(selectedId) ?? []) {
+      ids.add(childId);
+    }
+    return ids;
+  }, [selectedId, discussionModel]);
+
+  // 「active」= ノード一覧の末尾(最新)ノード。折りたたみで非表示になっていても
+  // 他ノードへ付け替わらないよう、可視ノードに絞る前のidで判定する。
+  const lastNodeId = nodes.length > 0 ? nodes[nodes.length - 1].id : null;
 
   const flowNodes = useMemo<DiscussionFlowNode[]>(() => {
-    const laidOut = layoutPositions(nodes, treeEdges);
-    return nodes.map((node, index) => ({
-      id: node.id,
-      type: "discussion",
-      position: laidOut.get(node.id) ?? { x: 0, y: index * (NODE_HEIGHT + 24) },
-      selected: node.id === selectedId,
-      data: {
-        tag: node.kind ?? "topic",
-        status: node.status ?? "",
-        speaker: node.speaker_label ?? "",
-        label: node.label ?? node.id,
-        description: node.description ?? "",
-        relatedCount: relatedItemIdsForNode(node, analysisItemIds).length,
-        active: index === nodes.length - 1,
-      },
-    }));
-  }, [analysisItemIds, nodes, treeEdges, selectedId]);
+    const laidOut = layoutPositions(visibleNodes, visibleEdges);
+    return visibleNodes.map((node, index) => {
+      const kindCounts = discussionModel.descendantKindCounts.get(node.id) ?? {};
+      return {
+        id: node.id,
+        type: "discussion",
+        position: laidOut.get(node.id) ?? { x: 0, y: index * (NODE_HEIGHT + 24) },
+        selected: node.id === selectedId,
+        data: {
+          id: node.id,
+          tag: node.kind ?? "topic",
+          status: node.status ?? "",
+          speaker: node.speaker_label ?? "",
+          label: node.label ?? node.id,
+          description: node.description ?? "",
+          relatedCount: relatedItemIdsForNode(node, analysisItemIds).length,
+          active: node.id === lastNodeId,
+          hasChildren: (discussionModel.childrenOf.get(node.id) ?? []).length > 0,
+          collapsed: collapsed.has(node.id),
+          onToggleCollapse: toggleCollapse,
+          childKindCounts: sortedKindCounts(kindCounts),
+          dimmed: focusIds !== null && !focusIds.has(node.id),
+          recentlyUpdated: recentlyUpdatedIds.has(node.id),
+        },
+      };
+    });
+  }, [
+    visibleNodes,
+    visibleEdges,
+    discussionModel,
+    selectedId,
+    analysisItemIds,
+    lastNodeId,
+    collapsed,
+    toggleCollapse,
+    focusIds,
+    recentlyUpdatedIds,
+  ]);
 
   const flowEdges = useMemo<Edge[]>(
     () =>
-      treeEdges.map((edge) => {
+      visibleEdges.map((edge) => {
         const highlighted =
           selectedId !== null && (edge.source === selectedId || edge.target === selectedId);
+        const dimmedEdge = selectedId !== null && !highlighted;
         return {
           id: edge.id,
           source: edge.source,
@@ -147,20 +237,23 @@ function DiscussionFlow({
           style: {
             stroke: highlighted ? "var(--brand)" : "var(--indent-line)",
             strokeWidth: highlighted ? 2 : 1.5,
+            opacity: dimmedEdge ? 0.35 : 1,
           },
         };
       }),
-    [treeEdges, selectedId],
+    [visibleEdges, selectedId],
   );
 
-  // ノード数が同じでも構造が変わったら再フィットできるよう、id署名を依存にする。
-  const nodeIdSignature = useMemo(() => nodes.map((node) => node.id).join("|"), [nodes]);
-
+  // 初回(ノードが空→非空になった最初)だけ自動フィットする。以降のライブ更新・
+  // 展開/折りたたみでは自動フィットしない(手動フィットは既存のControlsで可能)。
+  const didInitialFitRef = useRef(false);
   useEffect(() => {
-    if (selectedId === null) {
-      void fitView({ padding: 0.2, duration: 300 });
+    if (didInitialFitRef.current || flowNodes.length === 0) {
+      return;
     }
-  }, [nodeIdSignature, selectedId, fitView]);
+    didInitialFitRef.current = true;
+    void fitView({ padding: 0.2, duration: 300 });
+  }, [flowNodes, fitView]);
 
   const focusNode = useCallback(
     (id: string) => {
@@ -207,6 +300,32 @@ function DiscussionFlow({
       >
         <Background variant={BackgroundVariant.Dots} gap={22} color="var(--node-border)" />
         <Controls showInteractive={false} position="bottom-left" />
+        <Panel position="top-right" className="flex gap-1">
+          <button
+            type="button"
+            className="rounded-(--ds-radius-control) border px-2 py-1 text-[10px] font-semibold"
+            style={{
+              background: "var(--ds-surface)",
+              borderColor: "var(--ds-border)",
+              color: "var(--text-sub)",
+            }}
+            onClick={() => setCollapsed(new Set())}
+          >
+            全展開
+          </button>
+          <button
+            type="button"
+            className="rounded-(--ds-radius-control) border px-2 py-1 text-[10px] font-semibold"
+            style={{
+              background: "var(--ds-surface)",
+              borderColor: "var(--ds-border)",
+              color: "var(--text-sub)",
+            }}
+            onClick={() => setCollapsed(collapsibleNodeIds(discussionModel))}
+          >
+            全折りたたみ
+          </button>
+        </Panel>
       </ReactFlow>
 
       {selectedNode && (
@@ -225,6 +344,80 @@ function DiscussionFlow({
       )}
     </>
   );
+}
+
+// signature = label|description|status。新規idまたはsignature変化idを
+// 「直近更新」として約3000ms保持する。ビューポートは動かさない。
+function useRecentlyUpdatedNodeIds(nodes: TreeNodePayload[]): Set<string> {
+  const [recentlyUpdated, setRecentlyUpdated] = useState<Set<string>>(new Set());
+  const signaturesRef = useRef<Map<string, string>>(new Map());
+  const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  useEffect(() => {
+    const previousSignatures = signaturesRef.current;
+    const nextSignatures = new Map<string, string>();
+    const changedIds: string[] = [];
+
+    for (const node of nodes) {
+      const signature = `${node.label ?? ""}|${node.description ?? ""}|${node.status ?? ""}`;
+      nextSignatures.set(node.id, signature);
+      if (previousSignatures.get(node.id) !== signature) {
+        changedIds.push(node.id);
+      }
+    }
+    signaturesRef.current = nextSignatures;
+
+    if (changedIds.length === 0) {
+      return;
+    }
+
+    setRecentlyUpdated((current) => {
+      const next = new Set(current);
+      changedIds.forEach((id) => next.add(id));
+      return next;
+    });
+
+    changedIds.forEach((id) => {
+      const existingTimer = timersRef.current.get(id);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+      }
+      const timer = setTimeout(() => {
+        timersRef.current.delete(id);
+        setRecentlyUpdated((current) => {
+          if (!current.has(id)) {
+            return current;
+          }
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        });
+      }, 3000);
+      timersRef.current.set(id, timer);
+    });
+  }, [nodes]);
+
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer));
+    };
+  }, []);
+
+  return recentlyUpdated;
+}
+
+function sortedKindCounts(counts: Record<string, number>): Array<{ kind: string; count: number }> {
+  return Object.entries(counts)
+    .filter(([, count]) => count > 0)
+    .sort(([kindA], [kindB]) => {
+      const rankA = KIND_ORDER.indexOf(kindA);
+      const rankB = KIND_ORDER.indexOf(kindB);
+      const orderA = rankA === -1 ? KIND_ORDER.length : rankA;
+      const orderB = rankB === -1 ? KIND_ORDER.length : rankB;
+      return orderA !== orderB ? orderA - orderB : kindA.localeCompare(kindB);
+    })
+    .map(([kind, count]) => ({ kind, count }));
 }
 
 function relatedItemIdsForNode(node: TreeNodePayload, itemIds: Set<string>) {

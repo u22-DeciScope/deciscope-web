@@ -23,6 +23,7 @@ import {
   maskWebSocketUrl,
   parseTranscriptWebSocketEvent,
   transcriptSegmentKey,
+  type MeetingSessionTranscriptHealth,
   type TranscriptSegment,
 } from "~/api/transcripts/transcriptSegmentsApi";
 import { meetingStartDebug } from "~/utils/meetingStartDebug";
@@ -100,6 +101,12 @@ export function useMeetingTranscriptSession(
   // Go API側watchdogが配信するBotハートビート途絶イベント(健全性)の状態。
   // trueの間、会議画面に永続トーストで警告を表示する。
   const [botConnectionLost, setBotConnectionLost] = useState(false);
+  // Go API側watchdogが配信する文字起こし途絶イベント(健全性)の状態。
+  // botConnectionLostとは別に、Bot接続は維持されているが文字起こしが届いていない
+  // ケースを検知するためのもの。
+  const [transcriptHealth, setTranscriptHealth] = useState<MeetingSessionTranscriptHealth | null>(
+    null,
+  );
   const [liveAnalysis, setLiveAnalysis] = useState<MeetingAIAnalysis | null>(null);
   const [finalAnalysis, setFinalAnalysis] = useState<MeetingAIAnalysis | null>(null);
   const [liveAnalysisMeta, setLiveAnalysisMeta] =
@@ -265,6 +272,7 @@ export function useMeetingTranscriptSession(
       setSessionEndedAt("");
       setSessionEndReason("");
       setBotConnectionLost(false);
+      setTranscriptHealth(null);
       setLiveAnalysis(null);
       setFinalAnalysis(null);
       setLiveAnalysisMeta(initialLiveAnalysisMeta);
@@ -286,6 +294,7 @@ export function useMeetingTranscriptSession(
     setSessionJoinedAt("");
     setSessionEndedAt("");
     setBotConnectionLost(false);
+    setTranscriptHealth(null);
     setLiveAnalysis(null);
     setFinalAnalysis(null);
     setLiveAnalysisMeta(initialLiveAnalysisMeta);
@@ -556,6 +565,7 @@ export function useMeetingTranscriptSession(
             }
             if (isTerminalMeetingSessionStatus(parsed.sessionStatus.status)) {
               setBotConnectionLost(false);
+              setTranscriptHealth(null);
             }
             meetingStartDebug("meeting-page", "session status received", {
               sessionId: parsed.sessionStatus.sessionId,
@@ -605,6 +615,25 @@ export function useMeetingTranscriptSession(
               sessionId: parsed.botHealth.sessionId,
               healthy: parsed.botHealth.healthy,
               lastBotStatusAtUtc: parsed.botHealth.lastBotStatusAtUtc ?? null,
+            });
+            return;
+          }
+
+          if (parsed.transcriptHealth) {
+            if (parsed.transcriptHealth.sessionId !== activeSessionRef.current) {
+              meetingStartDebug("meeting-page", "transcript health ignored", {
+                reason: "session_id_mismatch",
+                currentSessionId: activeSessionRef.current,
+                receivedSessionId: parsed.transcriptHealth.sessionId,
+                transcriptHealth: parsed.transcriptHealth.transcriptHealth,
+              });
+              return;
+            }
+            setTranscriptHealth(parsed.transcriptHealth.transcriptHealth);
+            meetingStartDebug("meeting-page", "transcript health received", {
+              sessionId: parsed.transcriptHealth.sessionId,
+              transcriptHealth: parsed.transcriptHealth.transcriptHealth,
+              secondsSinceLastTranscript: parsed.transcriptHealth.secondsSinceLastTranscript,
             });
             return;
           }
@@ -809,6 +838,7 @@ export function useMeetingTranscriptSession(
       sessionEndReason,
       sessionStatus,
       botConnectionLost,
+      transcriptHealth,
       liveAnalysis,
       finalAnalysis,
       liveAnalysisMeta,
@@ -840,6 +870,7 @@ export function useMeetingTranscriptSession(
       sessionStatus,
       sessionTitle,
       sessionTitleSource,
+      transcriptHealth,
     ],
   );
 }

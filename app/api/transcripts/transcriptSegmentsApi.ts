@@ -64,6 +64,14 @@ export type MeetingSessionBotHealthChange = {
   lastBotStatusAtUtc?: string;
 };
 
+export type MeetingSessionTranscriptHealth = "ok" | "transcript_delayed" | "transcript_stalled";
+
+export type MeetingSessionTranscriptHealthChange = {
+  sessionId: string;
+  transcriptHealth: MeetingSessionTranscriptHealth;
+  secondsSinceLastTranscript: number | null;
+};
+
 export type ParsedTranscriptWebSocketEvent = {
   type: string;
   sentAtUtc?: string;
@@ -71,6 +79,7 @@ export type ParsedTranscriptWebSocketEvent = {
   sessionStatus: MeetingSessionStatusChange | null;
   aiAnalysis: MeetingAIAnalysis | null;
   botHealth: MeetingSessionBotHealthChange | null;
+  transcriptHealth: MeetingSessionTranscriptHealthChange | null;
 };
 
 type TranscriptHistoryResult = {
@@ -223,6 +232,7 @@ export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebS
       sessionStatus: normalizeMeetingSessionStatusChange(payload.data),
       aiAnalysis: null,
       botHealth: null,
+      transcriptHealth: null,
     };
   }
 
@@ -234,6 +244,7 @@ export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebS
       sessionStatus: null,
       aiAnalysis: null,
       botHealth: null,
+      transcriptHealth: null,
     };
   }
 
@@ -245,6 +256,7 @@ export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebS
       sessionStatus: null,
       aiAnalysis: normalizeAIAnalysis(payload.data),
       botHealth: null,
+      transcriptHealth: null,
     };
   }
 
@@ -256,6 +268,19 @@ export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebS
       sessionStatus: null,
       aiAnalysis: null,
       botHealth: normalizeMeetingSessionBotHealthChange(payload.data),
+      transcriptHealth: null,
+    };
+  }
+
+  if (type === "meeting_session.transcript_health_changed") {
+    return {
+      type,
+      sentAtUtc: payload.sentAtUtc,
+      segment: null,
+      sessionStatus: null,
+      aiAnalysis: null,
+      botHealth: null,
+      transcriptHealth: normalizeMeetingSessionTranscriptHealthChange(payload.data),
     };
   }
 
@@ -266,6 +291,7 @@ export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebS
     sessionStatus: null,
     aiAnalysis: null,
     botHealth: null,
+    transcriptHealth: null,
   };
 }
 
@@ -500,6 +526,34 @@ function normalizeMeetingSessionBotHealthChange(
     healthy,
     ...(lastBotStatusAtUtc ? { lastBotStatusAtUtc } : {}),
   };
+}
+
+function normalizeMeetingSessionTranscriptHealthChange(
+  value: unknown,
+): MeetingSessionTranscriptHealthChange | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const source = value as Record<string, unknown>;
+  const sessionId = optionalString(source.sessionId) ?? optionalString(source.session_id);
+  const transcriptHealth =
+    optionalString(source.transcriptHealth) ?? optionalString(source.transcript_health);
+  const secondsSinceLastTranscript =
+    optionalNumber(source.secondsSinceLastTranscript) ??
+    optionalNumber(source.seconds_since_last_transcript) ??
+    null;
+  if (!sessionId || !isMeetingSessionTranscriptHealth(transcriptHealth)) {
+    return null;
+  }
+  return {
+    sessionId,
+    transcriptHealth,
+    secondsSinceLastTranscript,
+  };
+}
+
+function isMeetingSessionTranscriptHealth(value: unknown): value is MeetingSessionTranscriptHealth {
+  return value === "ok" || value === "transcript_delayed" || value === "transcript_stalled";
 }
 
 function normalizeTranscriptFilters(
