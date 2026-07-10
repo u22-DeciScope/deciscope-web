@@ -109,14 +109,17 @@ export function hasPreMeetingContext(session: MeetingSessionDto) {
 }
 
 export function preMeetingContextItems(session: MeetingSessionDto) {
+  // 現行の入室フォームは 目的・ゴール / 前提・背景 / アジェンダ / AIへの補足指示 の構成。
+  // 決定したいこと・懸念点・期待するアウトプットは旧フォームの項目で、値が入っている
+  // 過去の会議でだけ表示される(空はfilterで落ちる)。
   return [
-    { label: "目的", value: session.purpose },
+    { label: "目的・ゴール", value: session.purpose },
     { label: "前提・背景", value: session.context },
     { label: "アジェンダ", value: session.agenda },
     { label: "決定したいこと", value: session.decisionPoints },
     { label: "懸念点", value: session.concerns },
     { label: "期待するアウトプット", value: session.expectedOutput },
-    { label: "補足指示", value: session.customInstruction },
+    { label: "AIへの補足指示", value: session.customInstruction },
   ].filter((item): item is { label: string; value: string } => Boolean(item.value?.trim()));
 }
 

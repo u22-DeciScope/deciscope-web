@@ -186,12 +186,7 @@ export default function Home() {
                 <HiUserGroup className="h-4 w-4" style={{ color: "var(--text-muted)" }} />
               </div>
               <div className="min-w-0 flex-1">
-                <p
-                  className="truncate text-[13px] font-medium"
-                  style={{ color: "var(--text-main)" }}
-                >
-                  {meeting.title}
-                </p>
+                <MeetingTitleLine teamsTitle={meeting.teamsTitle} title={meeting.title} />
                 <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
                   {formatShortDate(meeting.ended_at || meeting.updated_at)}
                 </p>
@@ -213,6 +208,9 @@ export default function Home() {
 type MeetingListItem = {
   id: string;
   title: string;
+  // Teams側の会議名(graphTitle)。表示タイトルと異なる場合のみ、会議名の横に
+  // 薄い文字で補助表示する。
+  teamsTitle?: string;
   status: string;
   source: string;
   created_at: string;
@@ -244,9 +242,7 @@ function MeetingRow({ meeting }: { meeting: MeetingListItem }) {
         >
           {formatSource(meeting.source)}
         </span>
-        <p className="truncate text-[13px] font-medium" style={{ color: "var(--text-main)" }}>
-          {meeting.title}
-        </p>
+        <MeetingTitleLine teamsTitle={meeting.teamsTitle} title={meeting.title} />
         <p className="truncate text-[11px]" style={{ color: "var(--text-muted)" }}>
           {meeting.detailId}
         </p>
@@ -254,6 +250,30 @@ function MeetingRow({ meeting }: { meeting: MeetingListItem }) {
       <Link to={meeting.to}>
         <DsButton variant="secondary">{meeting.actionLabel}</DsButton>
       </Link>
+    </div>
+  );
+}
+
+// 会議名の行。ユーザー入力のタイトルを主表示し、Teams側の会議名が別にある場合は
+// 少し間をあけて薄い文字で補助表示する。
+function MeetingTitleLine({ teamsTitle, title }: { teamsTitle?: string; title: string }) {
+  return (
+    <div className="flex min-w-0 items-baseline gap-2">
+      <p
+        className="min-w-0 shrink truncate text-[13px] font-medium"
+        style={{ color: "var(--text-main)" }}
+      >
+        {title}
+      </p>
+      {teamsTitle && (
+        <p
+          className="min-w-0 shrink truncate text-[11px]"
+          style={{ color: "var(--text-muted)" }}
+          title={`Teams上の会議名: ${teamsTitle}`}
+        >
+          {teamsTitle}
+        </p>
+      )}
     </div>
   );
 }
@@ -299,9 +319,12 @@ function sessionToListItem(session: MeetingSessionDto, workspaceId: string): Mee
   const updatedAt = session.updatedAt ?? session.lastBotStatusAt ?? createdAt;
   const endedAt =
     session.endedAt ?? (isTerminalMeetingSessionStatus(session.status) ? updatedAt : undefined);
+  const displayTitle = getMeetingDisplayTitle(session, { component: "dashboard-session-card" });
+  const graphTitle = session.graphTitle?.trim();
   return {
     id: session.sessionId,
-    title: getMeetingDisplayTitle(session, { component: "dashboard-session-card" }),
+    title: displayTitle,
+    ...(graphTitle && graphTitle !== displayTitle ? { teamsTitle: graphTitle } : {}),
     status,
     source: "teams_bot",
     created_at: createdAt,
