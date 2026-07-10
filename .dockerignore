@@ -3,7 +3,7 @@
 .github
 .idea
 node_modules
-build
+# Dockerfile.runtime packages the build/ artifacts generated before docker build.
 .env
 .env.*
 !.env.example
