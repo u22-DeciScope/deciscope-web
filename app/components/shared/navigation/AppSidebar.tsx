@@ -17,8 +17,7 @@ type AppSidebarProps = {
 };
 
 export function AppSidebar({ navigation }: AppSidebarProps) {
-  const sidebarContentWidth =
-    navigation.width + APP_SIDEBAR_SIZES.resizeHandleWidth;
+  const sidebarContentWidth = navigation.width + APP_SIDEBAR_SIZES.resizeHandleWidth;
 
   return (
     // min-w-0 を削除（子要素の width 指定を優先させるため）
@@ -31,9 +30,11 @@ export function AppSidebar({ navigation }: AppSidebarProps) {
 
       {/* 💡 変更点1: ここの div も flex-col にし、h-full (残り全高) を持たせる */}
       <div className="flex flex-1 flex-col min-h-0 min-w-0">
-        
         {/* 💡 変更点2: ナビゲーション部分を flex-1 にして、残りのスペースをすべて埋めるようにする */}
-        <div className="min-w-0 flex-1 flex-col overflow-y-auto" style={{ width: navigation.width }}>
+        <div
+          className="min-w-0 flex-1 flex-col overflow-y-auto"
+          style={{ width: navigation.width }}
+        >
           <AppNavigation collapsed={navigation.collapsed} />
         </div>
 

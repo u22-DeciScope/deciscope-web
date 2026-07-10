@@ -11,6 +11,7 @@ export type BackendUser = {
 export type WorkspaceDto = {
   id: string;
   name: string;
+  description?: string;
   role: WorkspaceRole;
   created_at: string;
   updated_at: string;

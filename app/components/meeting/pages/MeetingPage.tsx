@@ -2,14 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
 import { DsButton } from "~/components/DsButton";
+import { BotStatusToasts } from "~/components/meeting/parts/BotStatusToasts";
 import { LiveStatusBadge } from "~/components/meeting/parts/LiveStatusBadge";
 import { MeetingEndedModal } from "~/components/meeting/parts/MeetingEndedModal";
+import { MeetingEndAction } from "~/components/meeting/parts/MeetingEndAction";
 import { MeetingWorkspaceGrid } from "~/components/meeting/parts/MeetingWorkspaceGrid";
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
+import { useBotStatusToasts } from "~/hooks/useBotStatusToasts";
 import { useMeetingTranscriptSession } from "~/hooks/useMeetingTranscriptSession";
 import { useMeetingRuntime } from "~/hooks/useMeetingRuntime";
 import { useMeetingElapsedTime } from "~/hooks/useMeetingElapsedTime";
+import type { LiveAnalysisPayload } from "~/api/aiAnalysis/aiAnalysisApi";
 import { canManageMeetingSessions } from "~/api/auth/authApi";
 import {
   endWorkspaceMeetingSession,
@@ -58,6 +62,19 @@ export default function Meeting() {
   const [sessionEndedAtOverride, setSessionEndedAtOverride] = useState("");
   const [sessionEndError, setSessionEndError] = useState<string | null>(null);
   const detailTargetId = sessionId || runtimeMeetingId || id || "";
+  // 終了ボタンが押された/押された結果を表示中かどうか。trueの間は「Botが会議から
+  // 退出しました」トースト(想定外の退出向け)を出さない。
+  const isLocalEnd = isEndingSession || sessionEndStatusOverride !== null || showEndedModal;
+  const { toasts: botStatusToasts, dismissToast: dismissBotStatusToast } = useBotStatusToasts(
+    detailTargetId,
+    transcriptSession.sessionStatus,
+    {
+      endReason: transcriptSession.sessionEndReason,
+      isLocalEnd,
+      botConnectionLost: transcriptSession.botConnectionLost,
+      transcriptHealth: transcriptSession.transcriptHealth,
+    },
+  );
   const meetingsPath = workspacePath(workspaceId, "/meetings");
   const summaryPath = workspaceMeetingSummaryPath(workspaceId, detailTargetId);
   const meetingTitle = runtime.meeting?.title?.trim()
@@ -129,6 +146,16 @@ export default function Meeting() {
     () => mergeDisplaySegments(runtime.segments, transcriptSession.segments),
     [runtime.segments, transcriptSession.segments],
   );
+  // 議論ツリーは runtime(旧経路)のtreeを優先し、無ければライブ分析のtreeで補う。
+  const liveAnalysisTree = useMemo(() => {
+    const payload = transcriptSession.liveAnalysis?.payload as LiveAnalysisPayload | null;
+    return payload?.tree ?? null;
+  }, [transcriptSession.liveAnalysis]);
+  const runtimeTreeNodes = runtime.tree?.nodes ?? [];
+  const treeNodes =
+    runtimeTreeNodes.length > 0 ? runtimeTreeNodes : (liveAnalysisTree?.nodes ?? []);
+  const treeEdges =
+    runtimeTreeNodes.length > 0 ? (runtime.tree?.edges ?? []) : (liveAnalysisTree?.edges ?? []);
   const meetingSessionStatus = sessionEndStatusOverride ?? transcriptSession.sessionStatus;
   const statusLabel =
     meetingSessionStatus ??
@@ -160,6 +187,16 @@ export default function Meeting() {
       ? "この会議は終了済みです。文字起こしの内容は会議詳細画面から確認できます。"
       : null;
   const pageNotice = runtime.error ?? sessionEndError ?? endedNotice ?? transcriptNotice;
+  const connectionRecoveryRequired = runtime.recoveryRequired || transcriptSession.recoveryRequired;
+
+  const retryConnections = useCallback(() => {
+    if (runtime.recoveryRequired) {
+      runtime.retryConnection();
+    }
+    if (transcriptSession.recoveryRequired) {
+      transcriptSession.retryConnection();
+    }
+  }, [runtime, transcriptSession]);
 
   const finishMeeting = useCallback(async () => {
     if (isEndingMeeting || isEndedStatus || showEndedModal) {
@@ -208,13 +245,11 @@ export default function Meeting() {
         actions: (
           <div className="flex flex-wrap items-center justify-end gap-1.5">
             {canManageSessions && (
-              <DsButton
-                disabled={!canEndMeeting || isEndingMeeting || isEndedStatus || showEndedModal}
-                variant="secondary"
-                onClick={finishMeeting}
-              >
-                {isEndingMeeting ? "終了中" : "終了"}
-              </DsButton>
+              <MeetingEndAction
+                disabled={!canEndMeeting || isEndedStatus || showEndedModal}
+                isEnding={isEndingMeeting}
+                onConfirm={finishMeeting}
+              />
             )}
           </div>
         ),
@@ -236,12 +271,19 @@ export default function Meeting() {
 
   return (
     <section className="flex h-full min-w-0 flex-col gap-2 overflow-hidden">
+      <BotStatusToasts toasts={botStatusToasts} onDismiss={dismissBotStatusToast} />
+
       {pageNotice && (
         <div
-          className="rounded-(--ds-radius-control) border px-3 py-2 text-[11px]"
+          className="flex items-center justify-between gap-3 rounded-(--ds-radius-control) border px-3 py-2 text-[11px]"
           style={{ borderColor: "var(--ds-border)", color: "var(--text-sub)" }}
         >
-          {pageNotice}
+          <span>{pageNotice}</span>
+          {connectionRecoveryRequired && (
+            <DsButton type="button" variant="secondary" onClick={retryConnections}>
+              再接続
+            </DsButton>
+          )}
         </div>
       )}
 
@@ -249,10 +291,12 @@ export default function Meeting() {
         className="min-h-0 flex-1"
         partials={partials}
         segments={segments}
-        treeNodes={runtime.tree?.nodes ?? []}
-        treeEdges={runtime.tree?.edges ?? []}
+        treeNodes={treeNodes}
+        treeEdges={treeEdges}
         insights={runtime.analysisItems}
         speakerSummaries={runtime.speakerSummaries}
+        liveAnalysis={transcriptSession.liveAnalysis}
+        liveAnalysisMeta={transcriptSession.liveAnalysisMeta}
       />
 
       {endOverlayMode && (

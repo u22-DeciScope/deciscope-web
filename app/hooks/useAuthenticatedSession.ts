@@ -1,16 +1,20 @@
 import {
   createContext,
   createElement,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router";
+import { ApiError } from "~/api/core/apiClient";
 import { fetchMe, logoutSession, type BackendSession } from "~/api/auth/authApi";
 import { signOutOfFirebase } from "~/api/firebase/firebaseAuthClient";
 import { meetingStartDebug } from "~/utils/meetingStartDebug";
+import { performSecureLogout } from "~/utils/secureLogout";
 
 type AuthenticationStatus = "loading" | "authenticated" | "unauthenticated" | "error";
 
@@ -27,6 +31,7 @@ type AuthenticatedSessionContextValue = {
 
 const AuthenticatedSessionContext = createContext<AuthenticatedSessionContextValue | null>(null);
 const authenticatedSessionChangedEvent = "deciscope:authenticated-session-changed";
+const authenticationClearedStorageKey = "deciscope.authentication-cleared";
 
 export function notifyAuthenticatedSessionChanged(session: BackendSession) {
   cachedBackendSession = session;
@@ -47,6 +52,7 @@ export function AuthenticatedSessionProvider({ children }: { children: ReactNode
     cachedBackendSession ? "authenticated" : "loading",
   );
   const [error, setError] = useState<Error | null>(null);
+  const authenticationGenerationRef = useRef(0);
   const today = new Date().toLocaleDateString("ja-JP", {
     year: "numeric",
     month: "long",
@@ -54,15 +60,24 @@ export function AuthenticatedSessionProvider({ children }: { children: ReactNode
     weekday: "long",
   });
 
+  const clearLocalAuthentication = useCallback(() => {
+    authenticationGenerationRef.current += 1;
+    cachedBackendSession = null;
+    setSession(null);
+    setStatus("unauthenticated");
+    setError(null);
+  }, []);
+
   useEffect(() => {
     let active = true;
+    const generation = authenticationGenerationRef.current;
     meetingStartDebug("auth-guard", "fetchMe started", {
       route: location.pathname,
       hadCachedSession: Boolean(cachedBackendSession),
     });
     fetchMe()
       .then((value) => {
-        if (active) {
+        if (active && authenticationGenerationRef.current === generation) {
           cachedBackendSession = value;
           setSession(value);
           setStatus("authenticated");
@@ -73,25 +88,19 @@ export function AuthenticatedSessionProvider({ children }: { children: ReactNode
         }
       })
       .catch((cause: unknown) => {
-        if (!active) return;
+        if (!active || authenticationGenerationRef.current !== generation) return;
         const resolved = cause instanceof Error ? cause : new Error("Authentication failed");
         setError(resolved);
-        const nextStatus = resolved.message.toLowerCase().includes("unauthorized")
-          ? "unauthenticated"
-          : "error";
-        if (nextStatus === "unauthenticated" && cachedBackendSession) {
-          setSession(cachedBackendSession);
-          setStatus("authenticated");
-          meetingStartDebug("auth-guard", "stale unauthenticated fetch ignored", {
-            route: location.pathname,
-          });
-          return;
-        }
+        const nextStatus =
+          (resolved instanceof ApiError && resolved.status === 401) ||
+          resolved.message.toLowerCase().includes("unauthorized")
+            ? "unauthenticated"
+            : "error";
         if (nextStatus === "unauthenticated") {
-          cachedBackendSession = null;
-          setSession(null);
+          clearLocalAuthentication();
+        } else {
+          setStatus(nextStatus);
         }
-        setStatus(nextStatus);
         meetingStartDebug("auth-guard", "fetchMe failed", {
           route: location.pathname,
           status: nextStatus,
@@ -101,19 +110,29 @@ export function AuthenticatedSessionProvider({ children }: { children: ReactNode
     return () => {
       active = false;
     };
-  }, []);
+  }, [clearLocalAuthentication]);
 
   useEffect(() => {
     async function handleUnauthorized() {
-      cachedBackendSession = null;
-      setSession(null);
-      setStatus("unauthenticated");
+      clearLocalAuthentication();
+      notifyAuthenticationCleared();
       meetingStartDebug("auth-guard", "unauthorized event received", { route: location.pathname });
       await signOutOfFirebase().catch(() => undefined);
     }
     window.addEventListener("deciscope:unauthorized", handleUnauthorized);
     return () => window.removeEventListener("deciscope:unauthorized", handleUnauthorized);
-  }, []);
+  }, [clearLocalAuthentication, location.pathname]);
+
+  useEffect(() => {
+    function handleAuthenticationCleared(event: StorageEvent) {
+      if (event.key === authenticationClearedStorageKey) {
+        clearLocalAuthentication();
+        void signOutOfFirebase().catch(() => undefined);
+      }
+    }
+    window.addEventListener("storage", handleAuthenticationCleared);
+    return () => window.removeEventListener("storage", handleAuthenticationCleared);
+  }, [clearLocalAuthentication]);
 
   useEffect(() => {
     function handleAuthenticatedSessionChanged(event: Event) {
@@ -122,6 +141,7 @@ export function AuthenticatedSessionProvider({ children }: { children: ReactNode
         return;
       }
       cachedBackendSession = nextSession;
+      authenticationGenerationRef.current += 1;
       setSession(nextSession);
       setStatus("authenticated");
       setError(null);
@@ -138,14 +158,37 @@ export function AuthenticatedSessionProvider({ children }: { children: ReactNode
       );
   }, [location.pathname]);
 
-  async function handleLogout() {
-    try {
-      await logoutSession();
-    } finally {
-      cachedBackendSession = null;
-      await signOutOfFirebase().catch(() => undefined);
-      navigate("/");
+  useEffect(() => {
+    if (status !== "authenticated" || !session?.expires_at) {
+      return;
     }
+    const expiresAtMs = Date.parse(session.expires_at);
+    if (Number.isNaN(expiresAtMs)) {
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout>;
+    const scheduleExpiration = () => {
+      const remainingMs = expiresAtMs - Date.now() + 1000;
+      if (remainingMs <= 0) {
+        clearLocalAuthentication();
+        notifyAuthenticationCleared();
+        void signOutOfFirebase().catch(() => undefined);
+        return;
+      }
+      timer = setTimeout(scheduleExpiration, Math.min(remainingMs, 2_147_000_000));
+    };
+    scheduleExpiration();
+    return () => clearTimeout(timer);
+  }, [clearLocalAuthentication, session?.expires_at, status]);
+
+  async function handleLogout() {
+    await performSecureLogout({
+      clearLocalAuthentication,
+      notifyOtherTabs: notifyAuthenticationCleared,
+      navigateAway: () => navigate("/", { replace: true }),
+      logoutBackend: logoutSession,
+      signOutIdentityProvider: signOutOfFirebase,
+    });
   }
 
   const value = useMemo(
@@ -154,6 +197,17 @@ export function AuthenticatedSessionProvider({ children }: { children: ReactNode
   );
 
   return createElement(AuthenticatedSessionContext.Provider, { value }, children);
+}
+
+function notifyAuthenticationCleared() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(authenticationClearedStorageKey, `${Date.now()}-${Math.random()}`);
+  } catch {
+    // localStorageが利用できない場合も、このタブのstate破棄は完了している。
+  }
 }
 
 export function useAuthenticatedSession() {

@@ -8,6 +8,8 @@ export type MeetingSessionStatus =
   | "joined"
   | "active"
   | "recording"
+  | "speech_error"
+  | "speech_throttled"
   | "ended"
   | "failed"
   | "stale"
@@ -69,6 +71,8 @@ const meetingSessionStatuses: MeetingSessionStatus[] = [
   "joined",
   "active",
   "recording",
+  "speech_error",
+  "speech_throttled",
   "ended",
   "failed",
   "stale",
@@ -83,12 +87,12 @@ export type CreateMeetingSessionInput = {
   createdByMicrosoftUserId?: string;
   createdByEmail?: string;
   organizerUserId?: string;
+  // 事前情報は入室フォームの現行構成(目的・ゴール / 前提・背景 / アジェンダ /
+  // AIへの補足指示)のみ。旧フィールド(decisionPoints / concerns / expectedOutput)は
+  // 作成時には送らない(過去データの読み取り用に MeetingSessionDto 側には残る)。
   purpose?: string;
   context?: string;
   agenda?: string;
-  decisionPoints?: string;
-  concerns?: string;
-  expectedOutput?: string;
   customInstruction?: string;
 };
 
@@ -178,6 +182,13 @@ export function isMeetingSessionStatus(value: unknown): value is MeetingSessionS
   return (
     typeof value === "string" && meetingSessionStatuses.includes(value as MeetingSessionStatus)
   );
+}
+
+// セッションがこれ以上状態遷移しない終端状態かどうか。ended(正常終了)に加え、
+// failed/stale/timeout(異常終了)もここに含める。復旧トースト表示ガード等、
+// 複数フックで共有するためここに集約する。
+export function isTerminalMeetingSessionStatus(status: MeetingSessionStatus): boolean {
+  return status === "ended" || status === "failed" || status === "stale" || status === "timeout";
 }
 
 function normalizeMeetingSession(value: unknown): MeetingSessionDto | null {
@@ -316,9 +327,6 @@ function createMeetingSessionBody(joinUrl: string, input: CreateMeetingSessionIn
   const purpose = input.purpose?.trim();
   const context = input.context?.trim();
   const agenda = input.agenda?.trim();
-  const decisionPoints = input.decisionPoints?.trim();
-  const concerns = input.concerns?.trim();
-  const expectedOutput = input.expectedOutput?.trim();
   const customInstruction = input.customInstruction?.trim();
   return {
     joinUrl,
@@ -331,9 +339,6 @@ function createMeetingSessionBody(joinUrl: string, input: CreateMeetingSessionIn
     ...(purpose ? { purpose } : {}),
     ...(context ? { context } : {}),
     ...(agenda ? { agenda } : {}),
-    ...(decisionPoints ? { decisionPoints } : {}),
-    ...(concerns ? { concerns } : {}),
-    ...(expectedOutput ? { expectedOutput } : {}),
     ...(customInstruction ? { customInstruction } : {}),
   };
 }

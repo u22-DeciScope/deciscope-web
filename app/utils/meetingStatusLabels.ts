@@ -1,5 +1,11 @@
 export function isElapsedMeetingStatus(status: string) {
-  return status === "joined" || status === "active" || status === "recording";
+  return (
+    status === "joined" ||
+    status === "active" ||
+    status === "recording" ||
+    status === "speech_error" ||
+    status === "speech_throttled"
+  );
 }
 
 export function isCompletedMeetingStatus(status: string) {
@@ -46,6 +52,12 @@ export function formatStatus(status: string) {
       return "進行中";
     case "recording":
       return "録音中";
+    case "speech_error":
+      return "文字起こし停止中";
+    case "speech_throttled":
+      return "文字起こし再接続中";
+    case "transcribing":
+      return "文字起こし中";
     case "failed":
       return "失敗";
     case "stale":

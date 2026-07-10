@@ -1,27 +1,170 @@
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   HiCheck,
-  HiEllipsisHorizontal,
+  HiCheckCircle,
+  HiClipboardDocumentList,
   HiExclamationTriangle,
   HiLightBulb,
   HiQuestionMarkCircle,
   HiSparkles,
 } from "react-icons/hi2";
 
+import type { LiveAnalysisPayload, MeetingAIAnalysis } from "~/api/aiAnalysis/aiAnalysisApi";
 import type { AnalysisItem, RuntimeSpeakerSummary } from "~/api/meetings/meetingRuntimeTypes";
+import {
+  analysisKindColor,
+  analysisKindLabel,
+  dimmedColor,
+  resolvedBadgeColor,
+} from "~/components/meeting/parts/analysisKindPalette";
 
 type MeetingAssistantPanelProps = {
   insights: AnalysisItem[];
   speakerSummaries: RuntimeSpeakerSummary[];
+  liveAnalysis?: MeetingAIAnalysis | null;
+  focusedAnalysisItemId?: string | null;
+  highlightedAnalysisItemId?: string | null;
+  updateStatus?: React.ReactNode;
+  // ライブタブを表示するか。会議終了後のレビュー(サマリー)画面ではライブ分析が
+  // 無いため false にし、初期タブも「進行中」にする。
+  showLiveTab?: boolean;
+  // カードクリック時に、対応する議論ツリーのノードへフォーカスさせるための通知。
+  onFocusTreeItem?: (itemId: string) => void;
 };
 
 const insightIcons = {
   issue: HiLightBulb,
   question: HiQuestionMarkCircle,
   risk: HiExclamationTriangle,
+  decision: HiCheckCircle,
+  todo: HiClipboardDocumentList,
 };
 
-export function MeetingAssistantPanel({ insights, speakerSummaries }: MeetingAssistantPanelProps) {
-  const visibleInsights = insights.filter((insight) => insight.status !== "dismissed");
+type InsightFilter = "live" | "active" | "decision" | "resolved";
+
+const insightFilterTabs: Array<{ key: InsightFilter; label: string }> = [
+  { key: "live", label: "ライブ" },
+  { key: "active", label: "進行中" },
+  { key: "decision", label: "決定事項" },
+  { key: "resolved", label: "解決済" },
+];
+
+function matchesInsightFilter(item: AnalysisItem, filter: InsightFilter) {
+  switch (filter) {
+    case "live":
+      return false;
+    case "active":
+      return !isResolvedItem(item) && item.kind !== "decision";
+    case "decision":
+      return !isResolvedItem(item) && item.kind === "decision";
+    case "resolved":
+      return isResolvedItem(item);
+    default:
+      return true;
+  }
+}
+
+export function analysisItemElementId(itemId: string) {
+  return `ai-analysis-item-${encodeURIComponent(itemId)}`;
+}
+
+function filterForInsightItem(item: AnalysisItem): InsightFilter {
+  if (isResolvedItem(item)) {
+    return "resolved";
+  }
+  if (item.kind === "decision") {
+    return "decision";
+  }
+  return "active";
+}
+
+function isResolvedItem(item: AnalysisItem) {
+  return item.status === "resolved";
+}
+
+function isDismissedItem(item: AnalysisItem) {
+  return item.status === "dismissed";
+}
+
+export function MeetingAssistantPanel({
+  insights,
+  speakerSummaries,
+  liveAnalysis,
+  focusedAnalysisItemId,
+  highlightedAnalysisItemId,
+  updateStatus,
+  showLiveTab = true,
+  onFocusTreeItem,
+}: MeetingAssistantPanelProps) {
+  const [filter, setFilter] = useState<InsightFilter>(showLiveTab ? "live" : "active");
+  // 直近で自動タブ切替を実行済みのフォーカスIDを保持する。同じIDに対してタブ切替は
+  // 1回だけ行い、ユーザーが手動でタブを変えても再度引き戻さないようにするための目印。
+  const processedFocusIdRef = useRef<string | null>(null);
+  const visibleInsights = useMemo(
+    () => insights.filter((insight) => !isDismissedItem(insight)),
+    [insights],
+  );
+  const livePayload = (liveAnalysis?.payload as LiveAnalysisPayload | null) ?? null;
+  const liveItems = useMemo(
+    () => (livePayload?.items ?? []).filter((item) => !isDismissedItem(item)),
+    [livePayload],
+  );
+  const totalCount = visibleInsights.length + liveItems.length;
+  const filteredLiveItems = useMemo(
+    () => liveItems.filter((item) => matchesInsightFilter(item, filter)),
+    [filter, liveItems],
+  );
+  const filteredInsights = useMemo(
+    () => visibleInsights.filter((insight) => matchesInsightFilter(insight, filter)),
+    [filter, visibleInsights],
+  );
+  const filteredItemCount = filteredLiveItems.length + filteredInsights.length;
+  const visibleFilterTabs = useMemo(
+    () => (showLiveTab ? insightFilterTabs : insightFilterTabs.filter((tab) => tab.key !== "live")),
+    [showLiveTab],
+  );
+  const liveTabActive = showLiveTab && filter === "live";
+
+  useEffect(() => {
+    if (!focusedAnalysisItemId) {
+      // フォーカスが解除されたら、次に同じIDが再フォーカスされたときに
+      // タブ自動切替をもう一度行えるようにリセットする。
+      processedFocusIdRef.current = null;
+      return;
+    }
+    if (processedFocusIdRef.current === focusedAnalysisItemId) {
+      // このフォーカスIDに対してはすでにタブ切替済み。以降のユーザーの手動タブ操作を妨げない。
+      return;
+    }
+    const target = [...liveItems, ...visibleInsights].find(
+      (item) => item.id === focusedAnalysisItemId,
+    );
+    if (!target) {
+      return;
+    }
+    processedFocusIdRef.current = focusedAnalysisItemId;
+    if (!matchesInsightFilter(target, filter)) {
+      setFilter(filterForInsightItem(target));
+    }
+  }, [filter, focusedAnalysisItemId, liveItems, visibleInsights]);
+
+  useEffect(() => {
+    if (!focusedAnalysisItemId || typeof window === "undefined") {
+      return;
+    }
+    const isVisible = [...filteredLiveItems, ...filteredInsights].some(
+      (item) => item.id === focusedAnalysisItemId,
+    );
+    if (!isVisible) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      document
+        .getElementById(analysisItemElementId(focusedAnalysisItemId))
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [filteredInsights, filteredLiveItems, focusedAnalysisItemId]);
 
   return (
     <div
@@ -29,7 +172,7 @@ export function MeetingAssistantPanel({ insights, speakerSummaries }: MeetingAss
       style={{ background: "var(--ds-surface)", borderColor: "var(--ds-border)" }}
     >
       <header
-        className="flex h-11 shrink-0 items-center border-b px-3"
+        className="flex min-h-11 shrink-0 items-center border-b px-3 py-1"
         style={{ borderColor: "var(--node-border)" }}
       >
         <span
@@ -46,36 +189,47 @@ export function MeetingAssistantPanel({ insights, speakerSummaries }: MeetingAss
             論点・リスク・次の一手
           </p>
         </div>
+        {updateStatus && <span className="mr-2 min-w-0 shrink">{updateStatus}</span>}
         <span
-          className="flex h-4.5 w-4.5 items-center justify-center rounded-full text-[10px] font-bold text-white"
+          className="flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
           style={{ background: "var(--brand)" }}
         >
-          {visibleInsights.length}
+          {totalCount}
         </span>
       </header>
 
       <div
-        className="flex h-9 shrink-0 items-center gap-1 border-b px-2"
+        className="flex h-9 w-full shrink-0 items-center gap-0.5 border-b px-1.5"
         style={{ borderColor: "var(--node-border)" }}
       >
-        {["すべて", "リスク", "論点", "質問"].map((label, index) => (
+        {visibleFilterTabs.map((tab) => (
           <button
-            key={label}
+            key={tab.key}
             type="button"
-            className="rounded-md px-1.5 py-1 text-[10px]"
+            className="min-w-0 flex-1 whitespace-nowrap rounded-md px-0.5 py-1 text-center text-[10px]"
             style={
-              index === 0
+              tab.key === filter
                 ? { background: "var(--chat-other-bg)", color: "var(--brand)" }
                 : { color: "var(--text-muted)" }
             }
+            onClick={() => setFilter(tab.key)}
           >
-            {label}
+            {tab.label}
           </button>
         ))}
       </div>
 
       <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-2.5">
-        {speakerSummaries.length > 0 && (
+        {liveTabActive &&
+          (liveAnalysis ? (
+            <LiveAnalysisOverview liveAnalysis={liveAnalysis} payload={livePayload} />
+          ) : (
+            <EmptyAssistantState
+              title="ライブ分析を待っています"
+              body="会議の発話が蓄積されると、現在の論点が短く表示されます。"
+            />
+          ))}
+        {liveTabActive && speakerSummaries.length > 0 && (
           <section
             className="rounded-(--ds-radius-control) border p-3"
             style={{ background: "var(--ds-surface-muted)", borderColor: "var(--ds-border)" }}
@@ -101,74 +255,36 @@ export function MeetingAssistantPanel({ insights, speakerSummaries }: MeetingAss
             </div>
           </section>
         )}
-        {visibleInsights.length === 0 && (
-          <div
-            className="rounded-(--ds-radius-control) border px-3 py-4 text-[12px]"
-            style={{ background: "var(--ds-surface-muted)", borderColor: "var(--ds-border)" }}
-          >
-            <p className="font-semibold" style={{ color: "var(--text-main)" }}>
-              まだAIメモはありません
-            </p>
-            <p className="mt-1 leading-5" style={{ color: "var(--text-muted)" }}>
-              分析イベントが届くと、リスクや質問がここへカード表示されます。
-            </p>
-          </div>
+        {!liveTabActive && totalCount === 0 && (
+          <EmptyAssistantState
+            title="まだAIメモはありません"
+            body="分析イベントが届くと、リスクや質問がここへカード表示されます。"
+          />
         )}
-        {visibleInsights.map((insight) => {
-          const Icon = insightIcons[insight.kind as keyof typeof insightIcons] ?? HiLightBulb;
-          const style = insightStyle(insight.kind);
-          return (
-            <article
+        {!liveTabActive && totalCount > 0 && filteredItemCount === 0 && (
+          <EmptyAssistantState
+            title="このタブに表示するカードはありません"
+            body="別のタブに切り替えると、他の状態のカードを確認できます。"
+          />
+        )}
+        {!liveTabActive &&
+          filteredLiveItems.map((item) => (
+            <LiveAnalysisItemCard
+              key={item.id}
+              item={item}
+              highlighted={highlightedAnalysisItemId === item.id}
+              onFocusTreeItem={onFocusTreeItem}
+            />
+          ))}
+        {!liveTabActive &&
+          filteredInsights.map((insight) => (
+            <LiveAnalysisItemCard
               key={insight.id}
-              className="rounded-(--ds-radius-control) border p-3"
-              style={{ background: style.background, borderColor: style.border }}
-            >
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <div
-                  className="flex items-center gap-1.5 text-[10px] font-bold"
-                  style={{ color: style.color }}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {insight.kind}
-                </div>
-                <span
-                  className="rounded-full px-2 py-0.5 text-[10px] font-bold"
-                  style={{
-                    background: "var(--reaction-bg)",
-                    color: severityColor(insight.severity),
-                  }}
-                >
-                  {insight.severity}
-                </span>
-              </div>
-              <h2 className="text-[13px] font-bold leading-5" style={{ color: "var(--text-main)" }}>
-                {insight.title}
-              </h2>
-              <p className="mt-2 text-[12px] leading-5" style={{ color: "var(--text-sub)" }}>
-                {insight.body}
-              </p>
-              <div className="mt-3 flex items-center justify-between gap-1">
-                <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                  {insight.status}
-                </span>
-                <div className="flex gap-1">
-                  <button
-                    type="button"
-                    className="flex h-6 w-6 items-center justify-center rounded-md bg-(--reaction-bg)"
-                  >
-                    <HiCheck className="h-3 w-3" />
-                  </button>
-                  <button
-                    type="button"
-                    className="flex h-6 w-6 items-center justify-center rounded-md bg-(--reaction-bg)"
-                  >
-                    <HiEllipsisHorizontal className="h-3 w-3" />
-                  </button>
-                </div>
-              </div>
-            </article>
-          );
-        })}
+              item={insight}
+              highlighted={highlightedAnalysisItemId === insight.id}
+              onFocusTreeItem={onFocusTreeItem}
+            />
+          ))}
       </div>
     </div>
   );
@@ -184,24 +300,322 @@ function severityColor(severity: string) {
   return "var(--priority-low)";
 }
 
-function insightStyle(kind: string) {
-  if (kind === "risk") {
-    return {
-      background: "var(--ai-risk-bg)",
-      border: "var(--ai-risk-border)",
-      color: "var(--ai-risk-fg)",
-    };
+// resolved(解決済)時だけ緑系の塗り背景+チェックマークの強調バッジを表示する。
+// open/updated は表示しない(「進行中」は表示中のタブから自明で、情報価値が無いため)。
+// カードヘッダーの種別ラベルの右隣に置く。ノード/カードの共通コンポーネントである
+// ResolvedBadge(discussionTree/NodeDetailCard.tsx, DiscussionNodeView.tsx)と同じ配色
+// (resolvedBadgeColor)を使い、ツリー側との見た目の一貫性を保つ。
+function AnalysisStatusBadge({ status }: { status: string }) {
+  if (status !== "resolved") {
+    return null;
   }
-  if (kind === "question") {
-    return {
-      background: "var(--ai-quest-bg)",
-      border: "var(--ai-quest-border)",
-      color: "var(--ai-quest-fg)",
-    };
+  return (
+    <span
+      className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+      style={{ background: resolvedBadgeColor.bg, color: resolvedBadgeColor.fg }}
+    >
+      <HiCheck className="h-3 w-3" />
+      解決済
+    </span>
+  );
+}
+
+function insightStyle(kind: string) {
+  const { bg, fg, border } = analysisKindColor(kind);
+  return { background: bg, border, color: fg };
+}
+
+function analysisItemHighlightStyle(highlighted: boolean): React.CSSProperties {
+  if (!highlighted) {
+    return {};
   }
   return {
-    background: "var(--ai-point-bg)",
-    border: "var(--ai-point-border)",
-    color: "var(--ai-point-fg)",
+    boxShadow: "0 0 0 3px color-mix(in srgb, var(--brand) 28%, transparent)",
+    outline: "2px solid var(--brand)",
+    outlineOffset: "2px",
   };
+}
+
+function LiveAnalysisItemCard({
+  item,
+  highlighted,
+  onFocusTreeItem,
+}: {
+  item: AnalysisItem;
+  highlighted: boolean;
+  onFocusTreeItem?: (itemId: string) => void;
+}) {
+  const Icon = insightIcons[item.kind as keyof typeof insightIcons] ?? HiLightBulb;
+  const style = insightStyle(item.kind);
+  const resolved = isResolvedItem(item);
+  const clickable = Boolean(onFocusTreeItem);
+  return (
+    <article
+      id={analysisItemElementId(item.id)}
+      data-ai-item-id={item.id}
+      className={[
+        "rounded-(--ds-radius-control) border p-3 transition-[box-shadow,outline-color]",
+        clickable ? "cursor-pointer" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      style={{
+        background: resolved ? dimmedColor(style.background, 45) : style.background,
+        borderColor: resolved ? dimmedColor(style.border, 45) : style.border,
+        borderStyle: resolved ? "dashed" : undefined,
+        ...analysisItemHighlightStyle(highlighted),
+      }}
+      title={clickable ? "議論ツリーで該当ノードを表示" : undefined}
+      onClick={clickable ? () => onFocusTreeItem?.(item.id) : undefined}
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center">
+          {/* 種別ラベル(論点/決定事項など)は文字数が異なるため、固定幅の枠を
+              確保して、右隣の解決済バッジの位置がカード間で揃うようにする。 */}
+          <div
+            className="flex w-16 shrink-0 items-center gap-1.5 whitespace-nowrap text-[10px] font-bold"
+            style={{ color: style.color }}
+          >
+            <Icon className="h-3.5 w-3.5 shrink-0" />
+            {analysisKindLabel(item.kind)}
+          </div>
+          <AnalysisStatusBadge status={item.status} />
+        </div>
+        <span
+          className="rounded-full px-2 py-0.5 text-[10px] font-bold"
+          style={{ background: "var(--reaction-bg)", color: severityColor(item.severity) }}
+        >
+          {item.severity}
+        </span>
+      </div>
+      <h2 className="text-[13px] font-bold leading-5" style={{ color: "var(--text-main)" }}>
+        {item.title}
+      </h2>
+      {item.body && item.body !== item.title && (
+        <p className="mt-2 text-[12px] leading-5" style={{ color: "var(--text-sub)" }}>
+          {item.body}
+        </p>
+      )}
+    </article>
+  );
+}
+
+// ライブタブの概要表示。「現在のトピック」「要点」「検出された論点」を項目ごとの
+// カードに分けて表示する。ライブ更新の間隔(数秒〜十数秒おき)で summary/items が
+// 出たり消えたりしても高さが跳ねないよう、表示件数の上限(bullets/items 各4件)と
+// 「まだ何もない」時のプレースホルダ表示で高さの急変・レイアウトシフトを抑えている。
+function LiveAnalysisOverview({
+  liveAnalysis,
+  payload,
+}: {
+  liveAnalysis: MeetingAIAnalysis;
+  payload: LiveAnalysisPayload | null;
+}) {
+  const bullets = liveAnalysisBullets(payload);
+  const liveTopicItems = useMemo(
+    () => (payload?.items ?? []).filter((item) => item.status !== "dismissed").slice(0, 4),
+    [payload],
+  );
+  const hasBody = bullets.length > 0 || liveTopicItems.length > 0;
+
+  return (
+    <>
+      <section
+        className="rounded-(--ds-radius-control) border p-3"
+        style={{ background: "var(--ds-surface-muted)", borderColor: "var(--ds-border)" }}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-white"
+              style={{ background: "var(--brand)" }}
+            >
+              <HiSparkles className="h-3 w-3" />
+            </span>
+            <h2
+              className="shrink-0 whitespace-nowrap text-[11px] font-bold"
+              style={{ color: "var(--text-main)" }}
+            >
+              ライブ分析
+            </h2>
+          </div>
+          <div className="min-w-0 shrink">
+            <LiveAnalysisStatus liveAnalysis={liveAnalysis} />
+          </div>
+        </div>
+
+        {payload?.currentTopic && (
+          <div className="mt-2 min-w-0">
+            <span
+              className="inline-block max-w-full truncate rounded-full px-2 py-0.5 text-[10px] font-semibold"
+              style={{ background: "var(--brand-light)", color: "var(--brand)" }}
+              title={payload.currentTopic}
+            >
+              {payload.currentTopic}
+            </span>
+          </div>
+        )}
+
+        {!hasBody && (
+          <p className="mt-2 min-h-10 text-[11px] leading-5" style={{ color: "var(--text-muted)" }}>
+            発話が蓄積されると要点がここに表示されます。
+          </p>
+        )}
+      </section>
+
+      {bullets.length > 0 && (
+        <LiveAnalysisSectionCard title="要点">
+          <ul className="space-y-1.5">
+            {bullets.map((bullet, index) => (
+              <li
+                key={`${bullet}-${index}`}
+                className="flex gap-1.5 text-[11px] leading-5"
+                style={{ color: "var(--text-sub)" }}
+              >
+                <span
+                  className="mt-2 h-1 w-1 shrink-0 rounded-full"
+                  style={{ background: "var(--brand)" }}
+                />
+                <span className="line-clamp-2 min-w-0">{bullet}</span>
+              </li>
+            ))}
+          </ul>
+        </LiveAnalysisSectionCard>
+      )}
+
+      {liveTopicItems.length > 0 && (
+        <LiveAnalysisSectionCard title="検出された論点">
+          <ul className="space-y-1.5">
+            {liveTopicItems.map((item) => {
+              const Icon = insightIcons[item.kind as keyof typeof insightIcons] ?? HiLightBulb;
+              const style = insightStyle(item.kind);
+              return (
+                <li key={item.id} className="flex items-center gap-1.5 text-[11px] leading-5">
+                  <Icon className="h-3 w-3 shrink-0" style={{ color: style.color }} />
+                  <span
+                    className="shrink-0 rounded-sm px-1 py-0.5 text-[9px] font-semibold leading-none"
+                    style={{ background: style.background, color: style.color }}
+                  >
+                    {analysisKindLabel(item.kind)}
+                  </span>
+                  <span
+                    className="min-w-0 flex-1 truncate"
+                    style={{ color: "var(--text-main)" }}
+                    title={item.title}
+                  >
+                    {item.title}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </LiveAnalysisSectionCard>
+      )}
+    </>
+  );
+}
+
+function liveAnalysisBullets(payload: LiveAnalysisPayload | null) {
+  const summary = payload?.summary?.replace(/\s+/g, " ").trim();
+  if (!summary) {
+    return [];
+  }
+  const parts = summary
+    .split(/[。.!！?？]\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return (parts.length > 0 ? parts : [summary]).slice(0, 4).map((part) => truncateLiveBullet(part));
+}
+
+function truncateLiveBullet(value: string) {
+  const maxLength = 72;
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength)}...`;
+}
+
+function EmptyAssistantState({ title, body }: { title: string; body: string }) {
+  return (
+    <div
+      className="rounded-(--ds-radius-control) border px-3 py-4 text-[12px]"
+      style={{ background: "var(--ds-surface-muted)", borderColor: "var(--ds-border)" }}
+    >
+      <p className="font-semibold" style={{ color: "var(--text-main)" }}>
+        {title}
+      </p>
+      <p className="mt-1 leading-5" style={{ color: "var(--text-muted)" }}>
+        {body}
+      </p>
+    </div>
+  );
+}
+
+function LiveAnalysisSectionCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      className="rounded-(--ds-radius-control) border p-3"
+      style={{ background: "var(--ds-surface-muted)", borderColor: "var(--ds-border)" }}
+    >
+      <p
+        className="mb-1.5 text-[10px] font-bold uppercase tracking-wide"
+        style={{ color: "var(--text-muted)" }}
+      >
+        {title}
+      </p>
+      {children}
+    </section>
+  );
+}
+
+function LiveAnalysisStatus({ liveAnalysis }: { liveAnalysis: MeetingAIAnalysis }) {
+  if (liveAnalysis.status === "running") {
+    return (
+      <span
+        className="flex min-w-0 items-center justify-end gap-1 text-[10px] font-semibold"
+        style={{ color: "var(--ai-quest-fg)" }}
+      >
+        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-current" />
+        <span className="min-w-0 truncate">分析中…</span>
+      </span>
+    );
+  }
+
+  if (liveAnalysis.status === "failed") {
+    return (
+      <span
+        className="block min-w-0 truncate text-right text-[10px]"
+        style={{ color: "var(--text-muted)" }}
+      >
+        分析を一時的に利用できません
+      </span>
+    );
+  }
+
+  const updatedLabel = formatUpdatedAtTime(liveAnalysis.updatedAtUtc);
+  return (
+    <span
+      className="block min-w-0 truncate text-right text-[10px]"
+      style={{ color: "var(--text-muted)" }}
+    >
+      {updatedLabel ? `${updatedLabel} 更新` : ""}
+    </span>
+  );
+}
+
+function formatUpdatedAtTime(value?: string) {
+  if (!value) {
+    return "";
+  }
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) {
+    return "";
+  }
+  return new Date(timestamp).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
 }

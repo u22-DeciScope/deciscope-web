@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Navigate, Outlet, useLocation, useParams } from "react-router";
+import { Link, Navigate, Outlet, useLocation, useParams } from "react-router";
 
 import { AuthenticatedLayoutProvider } from "~/context/AuthenticatedLayoutContext";
 import { useAuthenticatedSession } from "~/hooks/useAuthenticatedSession";
@@ -8,7 +8,7 @@ import { WorkspacePageLayout } from "~/components/shared/layout/WorkspacePageLay
 import { WorkspaceStatus } from "~/components/shared/layout/WorkspaceStatus";
 import { APP_SIDEBAR_SIZES, AppSidebar } from "~/components/shared/navigation/AppSidebar";
 import { setCurrentWorkspace } from "~/api/auth/authApi";
-import { WORKSPACE_ROUTE_BASE } from "~/routing/workspacePaths";
+import { saveLastWorkspaceId } from "~/routing/lastWorkspace";
 import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
 const { collapsedPaneWidth, defaultNavigationWidth, collapseThreshold } = APP_SIDEBAR_SIZES;
@@ -40,6 +40,13 @@ export function AuthenticatedWorkspaceLayout() {
       void setCurrentWorkspace(workspaceId);
     }
   }, [session.session?.current_workspace_id, workspace, workspaceId]);
+
+  // 最後に開いたワークスペースをログイン後の遷移先ヒントとして保存する。
+  useEffect(() => {
+    if (workspaceId && workspace) {
+      saveLastWorkspaceId(workspaceId);
+    }
+  }, [workspace, workspaceId]);
 
   if (!workspaceId) {
     return <WorkspaceStatus message="ワークスペースを特定できませんでした。" />;
@@ -83,17 +90,20 @@ export function AuthenticatedWorkspaceLayout() {
     return <WorkspaceStatus message="認証済みユーザーを取得できませんでした。" />;
   }
   if (!workspace) {
-    meetingStartDebug("auth-guard", "redirecting to workspace resolver", {
+    const memberWorkspaces = session.session?.workspaces ?? [];
+    meetingStartDebug("auth-guard", "workspace access denied", {
       source: "auth-guard",
       reason: "workspace_not_found",
       currentPath,
-      targetPath: WORKSPACE_ROUTE_BASE,
+      targetPath: null,
       authLoading: false,
       workspaceLoading: false,
       sessionId: routeSessionId,
       meetingStatus: null,
     });
-    return <Navigate to={WORKSPACE_ROUTE_BASE} replace />;
+    // 所属していないワークスペースへのURL直打ちはアクセス不可を明示する。
+    // 所属0件のユーザーには作成導線を出す。
+    return <WorkspaceAccessDenied hasWorkspaces={memberWorkspaces.length > 0} />;
   }
 
   const navigationCollapsed = navigationWidth <= collapseThreshold;
@@ -132,6 +142,30 @@ export function AuthenticatedWorkspaceLayout() {
         </section>
       </div>
     </AuthenticatedLayoutProvider>
+  );
+}
+
+function WorkspaceAccessDenied({ hasWorkspaces }: { hasWorkspaces: boolean }) {
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-(--ds-bg) px-4">
+      <div className="ds-surface flex w-full max-w-md flex-col items-center gap-3 rounded-(--ds-radius-panel) p-8 text-center">
+        <p className="text-base font-bold">このワークスペースにアクセスできません</p>
+        <p className="text-sm text-(--text-muted)">
+          {hasWorkspaces
+            ? "このワークスペースに所属していないか、ワークスペースが存在しません。"
+            : "まだワークスペースに所属していません。まずはワークスペースを作成してください。"}
+        </p>
+        {hasWorkspaces ? (
+          <Link className="text-sm text-(--brand) hover:underline" to="/workspaces">
+            ワークスペース一覧へ
+          </Link>
+        ) : (
+          <Link className="text-sm text-(--brand) hover:underline" to="/workspaces/new">
+            ワークスペースを作成する
+          </Link>
+        )}
+      </div>
+    </div>
   );
 }
 

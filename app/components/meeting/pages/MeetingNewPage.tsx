@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { HiVideoCamera } from "react-icons/hi2";
+import { HiChevronRight, HiVideoCamera } from "react-icons/hi2";
 
 import { canManageMeetingSessions } from "~/api/auth/authApi";
 import { createWorkspaceMeetingSession } from "~/api/meetingSessions/meetingSessionsApi";
@@ -26,12 +26,12 @@ export default function MeetingNewPage() {
   const meetingsPath = workspacePath(workspaceId, "/meetings");
   const [joinUrl, setJoinUrl] = useState("");
   const [title, setTitle] = useState("");
+  // 入力の認知負荷を下げるため、事前情報は「目的・ゴール」「前提・背景」「アジェンダ」の
+  // 3項目に集約している(旧: 決定したいこと/懸念点/期待するアウトプットは目的・前提へ統合)。
+  // DBカラムやAPIの旧フィールドは互換のため残っており、過去の会議はそのまま表示される。
   const [purpose, setPurpose] = useState("");
   const [context, setContext] = useState("");
   const [agenda, setAgenda] = useState("");
-  const [decisionPoints, setDecisionPoints] = useState("");
-  const [concerns, setConcerns] = useState("");
-  const [expectedOutput, setExpectedOutput] = useState("");
   const [customInstruction, setCustomInstruction] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -132,9 +132,6 @@ export default function MeetingNewPage() {
         purpose,
         context,
         agenda,
-        decisionPoints,
-        concerns,
-        expectedOutput,
         customInstruction,
       });
       meetingStartDebug("meeting-start", "join request completed", {
@@ -215,51 +212,46 @@ export default function MeetingNewPage() {
             onChange={(event) => setTitle(event.currentTarget.value)}
           />
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <TextArea
-              label="目的"
-              value={purpose}
-              disabled={isSubmitting || !canCreateMeeting}
-              onChange={setPurpose}
-            />
-            <TextArea
-              label="前提・背景"
-              value={context}
-              disabled={isSubmitting || !canCreateMeeting}
-              onChange={setContext}
-            />
-            <TextArea
-              label="アジェンダ"
-              value={agenda}
-              disabled={isSubmitting || !canCreateMeeting}
-              onChange={setAgenda}
-            />
-            <TextArea
-              label="決定したいこと"
-              value={decisionPoints}
-              disabled={isSubmitting || !canCreateMeeting}
-              onChange={setDecisionPoints}
-            />
-            <TextArea
-              label="懸念点"
-              value={concerns}
-              disabled={isSubmitting || !canCreateMeeting}
-              onChange={setConcerns}
-            />
-            <TextArea
-              label="期待するアウトプット"
-              value={expectedOutput}
-              disabled={isSubmitting || !canCreateMeeting}
-              onChange={setExpectedOutput}
-            />
-          </div>
-
           <TextArea
-            label="補足指示"
-            value={customInstruction}
+            label="目的・ゴール"
+            placeholder="この会議で決めたいこと・期待する成果も書いてください"
+            value={purpose}
             disabled={isSubmitting || !canCreateMeeting}
-            onChange={setCustomInstruction}
+            onChange={setPurpose}
           />
+          <TextArea
+            label="前提・背景"
+            placeholder="経緯や現状の共有事項、気になっている懸念点など"
+            value={context}
+            disabled={isSubmitting || !canCreateMeeting}
+            onChange={setContext}
+          />
+          <TextArea
+            label="アジェンダ"
+            placeholder={"例: 1. 現状確認\n2. 対応案の比較\n3. 決定"}
+            value={agenda}
+            disabled={isSubmitting || !canCreateMeeting}
+            onChange={setAgenda}
+          />
+
+          <details className="group">
+            <summary
+              className="flex cursor-pointer select-none items-center gap-1 text-[12px] font-semibold [&::-webkit-details-marker]:hidden"
+              style={{ color: "var(--text-sub)" }}
+            >
+              <HiChevronRight className="h-3 w-3 shrink-0 transition-transform group-open:rotate-90" />
+              AIへの補足指示(任意)
+            </summary>
+            <div className="mt-2">
+              <TextArea
+                ariaLabel="AIへの補足指示"
+                placeholder="例: 財務影響は数値で示すこと"
+                value={customInstruction}
+                disabled={isSubmitting || !canCreateMeeting}
+                onChange={setCustomInstruction}
+              />
+            </div>
+          </details>
 
           {!canCreateMeeting && (
             <p className="rounded-(--ds-radius-control) border px-3 py-2 text-[12px] text-(--text-muted)">
@@ -302,20 +294,28 @@ function normalizeMeetingUrlForClient(value: string) {
 
 function TextArea({
   label,
+  ariaLabel,
+  placeholder,
   value,
   disabled,
   onChange,
 }: {
-  label: string;
+  // ラベルを表示しない場合(折りたたみのsummaryが視覚上のラベルを兼ねる場合)は
+  // label を省略し、ariaLabel でスクリーンリーダー向けの名前を与える。
+  label?: string;
+  ariaLabel?: string;
+  placeholder?: string;
   value: string;
   disabled?: boolean;
   onChange: (value: string) => void;
 }) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="text-[12px] font-semibold" style={{ color: "var(--text-sub)" }}>
-        {label}
-      </span>
+      {label && (
+        <span className="text-[12px] font-semibold" style={{ color: "var(--text-sub)" }}>
+          {label}
+        </span>
+      )}
       <textarea
         className="min-h-20 w-full resize-y rounded-(--ds-radius-control) px-3 py-2.5 text-[13px] outline-none transition"
         style={{
@@ -323,6 +323,8 @@ function TextArea({
           border: "1px solid var(--input-border)",
           color: "var(--text-main)",
         }}
+        aria-label={ariaLabel}
+        placeholder={placeholder}
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(event.currentTarget.value)}

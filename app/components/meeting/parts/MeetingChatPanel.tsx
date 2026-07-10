@@ -3,33 +3,51 @@ import { useEffect, useMemo, useRef } from "react";
 import type { MeetingSegmentDto } from "~/api/meetings/meetingEventsApi";
 import type { RuntimePartial } from "~/api/meetings/meetingRuntimeTypes";
 
+// 前の発言が終わってから次の発言が始まるまでの無音がこれ以下なら、短い間や
+// 言いよどみとみなして同一話者の連続発言を1つのバブルにまとめる。Bot側のAzure Speech
+// 無音タイムアウトは既知の問題を避けるため500〜800msに抑えているので、バブルの
+// 体感間隔はここで調整する。
+const finalBubbleGapThresholdMs = 3000;
+
 type MeetingChatPanelProps = {
   partials: RuntimePartial[];
   segments: MeetingSegmentDto[];
+  // ヘッダー右端に置く操作ボタン(タイムラインの折りたたみなど)。
+  headerAction?: React.ReactNode;
 };
 
-export function MeetingChatPanel({ partials, segments }: MeetingChatPanelProps) {
+type SegmentBubbleGroup = {
+  key: string;
+  speaker: string;
+  speakerId?: string;
+  speakerKey: string;
+  text: string;
+  time: string;
+};
+
+export function MeetingChatPanel({ partials, segments, headerAction }: MeetingChatPanelProps) {
   const visibleSegments = useMemo(
     () => segments.filter((segment) => segment.text.trim()),
     [segments],
   );
+  const bubbleGroups = useMemo(() => groupSegmentsIntoBubbles(visibleSegments), [visibleSegments]);
   const visiblePartials = useMemo(
     () => partials.filter((partial) => (partial.text ?? "").trim()),
     [partials],
   );
-  const itemCount = visibleSegments.length + visiblePartials.length;
+  const itemCount = bubbleGroups.length + visiblePartials.length;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
   const timelineVersion = useMemo(
     () =>
       [
-        visibleSegments.length,
-        visibleSegments[visibleSegments.length - 1]?.segment_id ?? "",
-        visibleSegments[visibleSegments.length - 1]?.text ?? "",
+        bubbleGroups.length,
+        bubbleGroups[bubbleGroups.length - 1]?.key ?? "",
+        bubbleGroups[bubbleGroups.length - 1]?.text ?? "",
         visiblePartials.length,
         ...visiblePartials.map((partial) => `${partial.partial_id}:${partial.text ?? ""}`),
       ].join("|"),
-    [visiblePartials, visibleSegments],
+    [bubbleGroups, visiblePartials],
   );
 
   useEffect(() => {
@@ -74,6 +92,7 @@ export function MeetingChatPanel({ partials, segments }: MeetingChatPanelProps) 
         >
           {itemCount}
         </span>
+        {headerAction}
       </header>
 
       <div
@@ -83,19 +102,18 @@ export function MeetingChatPanel({ partials, segments }: MeetingChatPanelProps) 
           shouldStickToBottomRef.current = isNearBottom(event.currentTarget);
         }}
       >
-        {visibleSegments.length === 0 && visiblePartials.length === 0 && <EmptyTranscript />}
-        {visibleSegments.map((segment, index) => {
-          const speakerKey = segmentSpeakerKey(segment);
-          const previous = visibleSegments[index - 1];
+        {bubbleGroups.length === 0 && visiblePartials.length === 0 && <EmptyTranscript />}
+        {bubbleGroups.map((group, index) => {
+          const previous = bubbleGroups[index - 1];
           return (
             <TranscriptBubble
-              key={segment.segment_id}
-              sameSpeakerAsPrevious={previous ? segmentSpeakerKey(previous) === speakerKey : false}
-              speaker={segmentSpeakerName(segment)}
-              speakerId={segment.speaker_id}
-              speakerKey={speakerKey}
-              text={segment.text}
-              time={formatSegmentTime(segment)}
+              key={group.key}
+              sameSpeakerAsPrevious={previous ? previous.speakerKey === group.speakerKey : false}
+              speaker={group.speaker}
+              speakerId={group.speakerId}
+              speakerKey={group.speakerKey}
+              text={group.text}
+              time={group.time}
             />
           );
         })}
@@ -224,6 +242,50 @@ function formatPartialTime(partial: RuntimePartial) {
     });
   }
   return formatDuration(partial.start_ms ?? 0);
+}
+
+function groupSegmentsIntoBubbles(segments: MeetingSegmentDto[]): SegmentBubbleGroup[] {
+  const groups: SegmentBubbleGroup[] = [];
+  let lastRecognizedAtMs: number | null = null;
+
+  for (const segment of segments) {
+    const speakerKey = segmentSpeakerKey(segment);
+    const recognizedAtMs = Date.parse(segment.created_at);
+    // recognizedAtUtc は「発言が確定した時刻」であり、発言自体の長さぶん遅れて届く。
+    // そのため確定時刻同士の差をそのまま間隔として使うと、次の発言が長いほど
+    // 実際の無音時間より過大に見積もってしまう。次の発言の長さ(duration)を差し引くことで、
+    // 「前の発言が終わってから次の発言が始まるまでの無音時間」を求める。
+    const durationMs = Math.max(0, segment.end_ms - segment.start_ms);
+    const gapMs =
+      lastRecognizedAtMs !== null && !Number.isNaN(recognizedAtMs)
+        ? recognizedAtMs - lastRecognizedAtMs - durationMs
+        : null;
+    const current = groups[groups.length - 1];
+
+    if (
+      current &&
+      current.speakerKey === speakerKey &&
+      gapMs !== null &&
+      gapMs <= finalBubbleGapThresholdMs
+    ) {
+      current.text = `${current.text}${segment.text}`;
+    } else {
+      groups.push({
+        key: segment.segment_id,
+        speaker: segmentSpeakerName(segment),
+        speakerId: segment.speaker_id,
+        speakerKey,
+        text: segment.text,
+        time: formatSegmentTime(segment),
+      });
+    }
+
+    if (!Number.isNaN(recognizedAtMs)) {
+      lastRecognizedAtMs = recognizedAtMs;
+    }
+  }
+
+  return groups;
 }
 
 function segmentSpeakerName(segment: MeetingSegmentDto) {

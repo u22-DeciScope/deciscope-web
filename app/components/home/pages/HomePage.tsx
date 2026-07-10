@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { HiChevronRight, HiPlus, HiUserGroup } from "react-icons/hi2";
 
-import { canManageMeetingSessions } from "~/api/auth/authApi";
+import { canManageMeetingSessions, normalizeWorkspaceRole } from "~/api/auth/authApi";
+import { RoleBadge, ViewerOnlyBadge } from "~/components/workspace/parts/RoleBadge";
 import {
   listWorkspaceMeetingSessions,
   type MeetingSessionDto,
@@ -18,12 +19,12 @@ import {
 } from "~/routing/workspacePaths";
 import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
 import { meetingStartDebug } from "~/utils/meetingStartDebug";
+import { formatStatus } from "~/utils/meetingStatusLabels";
 
 const staleActiveSessionMs = 2 * 60 * 60 * 1000;
 
 export default function Home() {
-  const { today, user, workspace, workspaceId } = useAuthenticatedLayout();
-  const displayName = user.displayName?.split(" ")[0] ?? "ゲスト";
+  const { workspace, workspaceId } = useAuthenticatedLayout();
   const [meetingSessions, setMeetingSessions] = useState<MeetingSessionDto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -81,11 +82,17 @@ export default function Home() {
     [meetingItems],
   );
 
+  // 主見出しはワークスペース名 + role badge のみ。ユーザー名・日付は表示しない。
   const chrome = useMemo(
     () => ({
       header: {
-        title: `こんにちは、${displayName}さん`,
-        subtitle: today,
+        title: (
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate">{workspace.name}</span>
+            <RoleBadge role={workspace.role} />
+            {normalizeWorkspaceRole(workspace.role) === "viewer" && <ViewerOnlyBadge />}
+          </span>
+        ),
         actions: canCreateMeeting ? (
           <Link to={newMeetingPath}>
             <DsButton>
@@ -101,7 +108,7 @@ export default function Home() {
         ),
       },
     }),
-    [canCreateMeeting, displayName, newMeetingPath, today],
+    [canCreateMeeting, newMeetingPath, workspace.name, workspace.role],
   );
   useWorkspaceChrome(chrome);
 
@@ -179,12 +186,7 @@ export default function Home() {
                 <HiUserGroup className="h-4 w-4" style={{ color: "var(--text-muted)" }} />
               </div>
               <div className="min-w-0 flex-1">
-                <p
-                  className="truncate text-[13px] font-medium"
-                  style={{ color: "var(--text-main)" }}
-                >
-                  {meeting.title}
-                </p>
+                <MeetingTitleLine teamsTitle={meeting.teamsTitle} title={meeting.title} />
                 <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
                   {formatShortDate(meeting.ended_at || meeting.updated_at)}
                 </p>
@@ -206,6 +208,9 @@ export default function Home() {
 type MeetingListItem = {
   id: string;
   title: string;
+  // Teams側の会議名(graphTitle)。表示タイトルと異なる場合のみ、会議名の横に
+  // 薄い文字で補助表示する。
+  teamsTitle?: string;
   status: string;
   source: string;
   created_at: string;
@@ -237,9 +242,7 @@ function MeetingRow({ meeting }: { meeting: MeetingListItem }) {
         >
           {formatSource(meeting.source)}
         </span>
-        <p className="truncate text-[13px] font-medium" style={{ color: "var(--text-main)" }}>
-          {meeting.title}
-        </p>
+        <MeetingTitleLine teamsTitle={meeting.teamsTitle} title={meeting.title} />
         <p className="truncate text-[11px]" style={{ color: "var(--text-muted)" }}>
           {meeting.detailId}
         </p>
@@ -247,6 +250,30 @@ function MeetingRow({ meeting }: { meeting: MeetingListItem }) {
       <Link to={meeting.to}>
         <DsButton variant="secondary">{meeting.actionLabel}</DsButton>
       </Link>
+    </div>
+  );
+}
+
+// 会議名の行。ユーザー入力のタイトルを主表示し、Teams側の会議名が別にある場合は
+// 少し間をあけて薄い文字で補助表示する。
+function MeetingTitleLine({ teamsTitle, title }: { teamsTitle?: string; title: string }) {
+  return (
+    <div className="flex min-w-0 items-baseline gap-2">
+      <p
+        className="min-w-0 shrink truncate text-[13px] font-medium"
+        style={{ color: "var(--text-main)" }}
+      >
+        {title}
+      </p>
+      {teamsTitle && (
+        <p
+          className="min-w-0 shrink truncate text-[11px]"
+          style={{ color: "var(--text-muted)" }}
+          title={`Teams上の会議名: ${teamsTitle}`}
+        >
+          {teamsTitle}
+        </p>
+      )}
     </div>
   );
 }
@@ -292,9 +319,12 @@ function sessionToListItem(session: MeetingSessionDto, workspaceId: string): Mee
   const updatedAt = session.updatedAt ?? session.lastBotStatusAt ?? createdAt;
   const endedAt =
     session.endedAt ?? (isTerminalMeetingSessionStatus(session.status) ? updatedAt : undefined);
+  const displayTitle = getMeetingDisplayTitle(session, { component: "dashboard-session-card" });
+  const graphTitle = session.graphTitle?.trim();
   return {
     id: session.sessionId,
-    title: getMeetingDisplayTitle(session, { component: "dashboard-session-card" }),
+    title: displayTitle,
+    ...(graphTitle && graphTitle !== displayTitle ? { teamsTitle: graphTitle } : {}),
     status,
     source: "teams_bot",
     created_at: createdAt,
@@ -341,7 +371,9 @@ function isActiveMeetingStatus(status: string, isTeamsSession: boolean) {
       status === "joining" ||
       status === "joined" ||
       status === "active" ||
-      status === "recording"
+      status === "recording" ||
+      status === "speech_error" ||
+      status === "speech_throttled"
     );
   }
   return status === "started";
@@ -373,43 +405,6 @@ function formatShortDate(value?: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function formatStatus(status: string) {
-  switch (status) {
-    case "created":
-      return "作成済み";
-    case "started":
-      return "進行中";
-    case "ended":
-    case "completed":
-    case "finished":
-      return "終了";
-    case "requested":
-      return "参加要求済み";
-    case "pending_join":
-      return "参加待機";
-    case "command_sent":
-      return "Bot参加命令済み";
-    case "joining":
-      return "Bot参加中";
-    case "joined":
-      return "Bot参加済み";
-    case "active":
-      return "進行中";
-    case "recording":
-      return "録音中";
-    case "transcribing":
-      return "文字起こし中";
-    case "failed":
-      return "失敗";
-    case "stale":
-      return "停止扱い";
-    case "timeout":
-      return "タイムアウト";
-    default:
-      return status;
-  }
 }
 
 function displaySessionStatus(session: MeetingSessionDto) {

@@ -3,7 +3,6 @@ import { HiArrowRightOnRectangle, HiCog6Tooth } from "react-icons/hi2";
 import { createPortal } from "react-dom"; // 💡 追記
 import { useLayoutEffect, useState } from "react"; // 💡 追記
 
-
 type UserMenuPopoverProps = {
   anchorEl: HTMLElement | null; // 💡 追記
   collapsed: boolean;
@@ -18,7 +17,7 @@ export function UserMenuPopover({
   onLogout,
   onOpenSettings,
   user,
-}:UserMenuPopoverProps) {
+}: UserMenuPopoverProps) {
   // 💡 追記: ポップオーバーの表示位置を管理するステート
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
 
@@ -35,7 +34,7 @@ export function UserMenuPopover({
     };
 
     updatePosition();
-    
+
     // ウィンドウのリサイズ時にも位置を追従させる
     window.addEventListener("resize", updatePosition);
     return () => window.removeEventListener("resize", updatePosition);
@@ -60,7 +59,7 @@ export function UserMenuPopover({
         // 元の left-2 (8px) の微調整を再現
         left: `${coords.left + (collapsed ? 0 : 8)}px`,
         // 💡 テクニック: ポップオーバー自身の高さ分、綺麗に上に押し上げる
-        transform: "translateY(-100%) translateY(-8px)", 
+        transform: "translateY(-100%) translateY(-8px)",
         background: "var(--ds-surface-raised)",
         borderColor: "var(--ds-border)",
         boxShadow: "var(--ds-shadow)",
@@ -76,7 +75,7 @@ export function UserMenuPopover({
 
       <UserMenuItem icon={HiArrowRightOnRectangle} label="ログアウト" onClick={onLogout} />
     </div>,
-    document.body // 💡 追記: 描画先を body 直下に指定
+    document.body, // 💡 追記: 描画先を body 直下に指定
   );
 }
 

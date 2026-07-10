@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router";
-import { HiArrowDownTray, HiShare } from "react-icons/hi2";
+import { HiArrowDownTray } from "react-icons/hi2";
 
+import {
+  getWorkspaceMeetingSessionAIAnalyses,
+  type LiveAnalysisPayload,
+  type MeetingAIAnalysis,
+} from "~/api/aiAnalysis/aiAnalysisApi";
 import {
   getWorkspaceMeetingSession,
   type MeetingSessionDto,
 } from "~/api/meetingSessions/meetingSessionsApi";
 import { listMeetingEvents } from "~/api/meetings/meetingEventsApi";
 import { getMeetingReport, getMeetingReportMarkdown } from "~/api/meetings/meetingReportsApi";
-import { createMeetingJoinToken, getMeeting, type MeetingDto } from "~/api/meetings/meetingsApi";
+import { getMeeting, type MeetingDto } from "~/api/meetings/meetingsApi";
 import {
   initialMeetingRuntimeState,
   meetingRuntimeReducer,
@@ -23,8 +28,9 @@ import { DsButton } from "~/components/DsButton";
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/routing/workspacePaths";
+import { AiFinalSummaryPanel } from "~/components/meeting/summary/AiFinalSummaryPanel";
 import { MeetingSummaryMain } from "~/components/meeting/summary/MeetingSummaryMain";
-import { MeetingSummarySidebar } from "~/components/meeting/summary/MeetingSummarySidebar";
+import { MeetingReportShareAction } from "~/components/meeting/summary/MeetingReportShareAction";
 import { MarkdownReportPanel } from "~/components/meeting/summary/MarkdownReportPanel";
 import { PreMeetingContextPanel } from "~/components/meeting/summary/PreMeetingContextPanel";
 import { SessionReviewWorkspace } from "~/components/meeting/summary/SessionReviewWorkspace";
@@ -37,6 +43,14 @@ import {
   transcriptMarkdown,
 } from "~/components/meeting/summary/meetingSummaryViewModel";
 import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
+import { meetingStartDebug } from "~/utils/meetingStartDebug";
+import { boundedRetryDelay } from "~/utils/boundedRetry";
+
+const finalAnalysisPollIntervalMs = 10_000;
+// final レコードがまだ作成されていない(final: null)場合の最大ポーリング回数。
+// running になった後は打ち切らず、null が続く場合のみこの回数で諦める(約5分)。
+const finalAnalysisMaxPendingAttempts = 30;
+const finalAnalysisErrorRetryDelaysMs = [2000, 5000, 10000];
 
 export default function MeetingSummary() {
   const { id } = useParams();
@@ -50,7 +64,11 @@ export default function MeetingSummary() {
   const [shareToken, setShareToken] = useState("");
   const [tree, setTree] = useState<TreeUpdatePayload | null>(null);
   const [analysisItems, setAnalysisItems] = useState<AnalysisItem[]>([]);
+  const [finalAnalysis, setFinalAnalysis] = useState<MeetingAIAnalysis | null>(null);
+  const [finalAnalysisPending, setFinalAnalysisPending] = useState(false);
+  const [liveAnalysis, setLiveAnalysis] = useState<MeetingAIAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [finalAnalysisError, setFinalAnalysisError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) {
@@ -65,6 +83,10 @@ export default function MeetingSummary() {
     setTranscriptSegments([]);
     setTree(null);
     setAnalysisItems([]);
+    setFinalAnalysis(null);
+    setFinalAnalysisPending(false);
+    setLiveAnalysis(null);
+    setFinalAnalysisError(null);
     if (id.startsWith("session_")) {
       getWorkspaceMeetingSession(workspaceId, id)
         .then(async (sessionResult) => {
@@ -112,6 +134,71 @@ export default function MeetingSummary() {
     };
   }, [id, workspaceId]);
 
+  // 会議終了直後にこの画面へ遷移した場合、final分析はバックエンドでまだ running のことがある。
+  // completed/failed になるまで10秒間隔でポーリングし、アンマウント/セッション切替で停止する。
+  useEffect(() => {
+    if (!id || !id.startsWith("session_")) {
+      return;
+    }
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+    let consecutiveErrors = 0;
+    setFinalAnalysisPending(true);
+    setFinalAnalysisError(null);
+
+    async function poll() {
+      attempt += 1;
+      try {
+        const analyses = await getWorkspaceMeetingSessionAIAnalyses(workspaceId, id as string);
+        if (!active) {
+          return;
+        }
+        consecutiveErrors = 0;
+        setFinalAnalysisError(null);
+        setFinalAnalysis(analyses.final);
+        setLiveAnalysis(analyses.live);
+        if (analyses.final?.status === "running") {
+          // running の間は打ち切らず、完了/失敗になるまでポーリングし続ける。
+          timer = setTimeout(() => void poll(), finalAnalysisPollIntervalMs);
+        } else if (analyses.final === null && attempt < finalAnalysisMaxPendingAttempts) {
+          // final レコードがまだ作成されていない。最大試行回数まではポーリングを継続する。
+          timer = setTimeout(() => void poll(), finalAnalysisPollIntervalMs);
+        } else {
+          setFinalAnalysisPending(false);
+        }
+      } catch (cause) {
+        if (!active) {
+          return;
+        }
+        const delay = boundedRetryDelay(finalAnalysisErrorRetryDelaysMs, consecutiveErrors);
+        consecutiveErrors += 1;
+        if (delay !== null) {
+          setFinalAnalysisError("AI分析の取得に一時的に失敗しました。再試行しています。");
+          timer = setTimeout(() => void poll(), delay);
+        } else {
+          setFinalAnalysisPending(false);
+          setFinalAnalysisError(
+            "AI分析を取得できませんでした。時間をおいてページを再読み込みしてください。",
+          );
+        }
+        meetingStartDebug("meeting-summary-page", "ai final analysis load failed", {
+          sessionId: id,
+          message: cause instanceof Error ? cause.message : "unknown error",
+        });
+      }
+    }
+
+    void poll();
+
+    return () => {
+      active = false;
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, [id, workspaceId]);
+
   const summary = useMemo(() => {
     if (session) {
       return summaryFromMeetingSession(session, transcriptSegments);
@@ -119,13 +206,15 @@ export default function MeetingSummary() {
     return summaryFromReport(meeting, report);
   }, [meeting, report, session, transcriptSegments]);
 
-  async function shareReport() {
-    if (!id) {
-      return;
-    }
-    const token = await createMeetingJoinToken(id);
-    setShareToken(token.token);
-  }
+  // 議論ツリー/分析カードは durable イベント(旧経路)を優先し、
+  // 無ければライブ分析payloadのtree/itemsで補って終了後も閲覧できるようにする。
+  const livePayload = (liveAnalysis?.payload as LiveAnalysisPayload | null) ?? null;
+  const effectiveTree = tree?.nodes?.length ? tree : (livePayload?.tree ?? null);
+  // dismissed だけを除外し、resolved は解決済みカードとして残す。
+  const effectiveAnalysisItems =
+    analysisItems.length > 0
+      ? analysisItems
+      : (livePayload?.items ?? []).filter((item) => item.status !== "dismissed");
 
   async function exportMarkdown() {
     const content = session
@@ -159,12 +248,7 @@ export default function MeetingSummary() {
         ],
         actions: (
           <>
-            {!session && (
-              <DsButton variant="secondary" onClick={shareReport}>
-                <HiShare className="h-3.5 w-3.5" />
-                共有
-              </DsButton>
-            )}
+            {!session && <MeetingReportShareAction meetingId={id} onToken={setShareToken} />}
             <DsButton variant="secondary" onClick={exportMarkdown}>
               <HiArrowDownTray className="h-3.5 w-3.5" />
               エクスポート
@@ -172,10 +256,8 @@ export default function MeetingSummary() {
           </>
         ),
       },
-      rightSidebar: <MeetingSummarySidebar summary={summary} />,
-      rightSidebarClassName: "w-55",
     }),
-    [meeting?.title, meetingsPath, session, summary],
+    [id, meeting?.title, meetingsPath, session],
   );
   useWorkspaceChrome(chrome);
 
@@ -197,15 +279,25 @@ export default function MeetingSummary() {
           共有トークン: <span className="font-mono">{shareToken}</span>
         </div>
       )}
+      {finalAnalysisError && (
+        <p className="rounded-(--ds-radius-control) border px-3 py-2 text-[11px] text-red-600">
+          {finalAnalysisError}
+        </p>
+      )}
       {session ? (
         <>
           <SessionSummaryHeader summary={summary} />
+          <AiFinalSummaryPanel
+            final={finalAnalysis}
+            currentTitle={summary.title}
+            pending={finalAnalysisPending}
+          />
           {hasPreMeetingContext(session) && <PreMeetingContextPanel session={session} />}
           <SessionReviewWorkspace
             session={session}
             segments={transcriptSegments}
-            tree={tree}
-            analysisItems={analysisItems}
+            tree={effectiveTree}
+            analysisItems={effectiveAnalysisItems}
           />
         </>
       ) : (
