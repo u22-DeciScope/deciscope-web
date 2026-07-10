@@ -1,5 +1,5 @@
 {
-  "name": "deciscope-frontend",
+  "name": "deciscope-web",
   "private": true,
   "type": "module",
   "scripts": {
@@ -7,6 +7,7 @@
     "dev": "react-router dev",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "test": "vitest run",
     "start": "react-router-serve ./build/server/index.js",
     "typecheck": "react-router typegen && tsc"
   },
@@ -25,13 +26,16 @@
   "devDependencies": {
     "@react-router/dev": "7.17.0",
     "@tailwindcss/vite": "^4.1.13",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^22",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "jsdom": "^29.1.1",
     "prettier": "^3.8.4",
     "tailwindcss": "^4.1.13",
     "typescript": "^5.9.2",
     "vite": "^7.1.7",
-    "vite-tsconfig-paths": "^5.1.4"
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^4.1.10"
   }
 }

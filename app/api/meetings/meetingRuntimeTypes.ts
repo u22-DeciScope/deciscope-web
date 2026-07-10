@@ -49,6 +49,9 @@ export type TreeNodePayload = {
   id: string;
   kind?: string;
   label?: string;
+  status?: string;
+  description?: string;
+  relatedItemIds?: string[];
   speaker_label?: string;
   segment_id?: string;
 };
@@ -119,7 +122,18 @@ export type MeetingRuntimeState = {
 
 export type MeetingRuntimeAction =
   | { type: "loading" }
-  | { type: "loaded"; meeting: MeetingDto; events: MeetingRealtimeEventDto[]; segments: MeetingSegmentDto[] }
+  | {
+      type: "loaded";
+      meeting: MeetingDto;
+      events: MeetingRealtimeEventDto[];
+      segments: MeetingSegmentDto[];
+    }
+  | {
+      type: "resynced";
+      meeting: MeetingDto;
+      events: MeetingRealtimeEventDto[];
+      segments: MeetingSegmentDto[];
+    }
   | { type: "connection"; status: MeetingConnectionStatus }
   | { type: "event"; event: MeetingRealtimeEventDto }
   | { type: "error"; message: string }

@@ -1,5 +1,6 @@
 import { Link } from "react-router";
-import { appNavigationItems } from "~/components/shared/navigation/navigationItems";
+import { canManageWorkspace } from "~/api/auth/authApi";
+import { visibleNavigationItems } from "~/components/shared/navigation/navigationItems";
 import { useActiveNavigationItem } from "~/components/shared/navigation/useActiveNavigationItem";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/routing/workspacePaths";
@@ -10,13 +11,13 @@ type AppNavigationProps = {
 
 export function AppNavigation({ collapsed }: AppNavigationProps) {
   const activeItem = useActiveNavigationItem();
-  const { workspaceId } = useAuthenticatedLayout();
+  const { workspace, workspaceId } = useAuthenticatedLayout();
+  // viewer には管理系メニューを表示しない (backend 認可は別途維持されている)。
+  const items = visibleNavigationItems(canManageWorkspace(workspace.role));
 
   return (
-    <nav
-      className={`relative z-10 flex flex-1 flex-col gap-1 overflow-y-auto p-2`}
-    >
-      {appNavigationItems.map((item) => {
+    <nav className={`relative z-10 flex flex-1 flex-col gap-1 overflow-y-auto p-2`}>
+      {items.map((item) => {
         const Icon = item.icon;
         const active = item.id === activeItem;
         const className = `flex w-full items-center rounded-(--ds-radius-control) h-9 text-left font-medium transition hover:opacity-80 ${

@@ -156,7 +156,7 @@ const TEAMS_JOIN_URL_HOSTS = ["teams.microsoft.com", "teams.live.com"];
 export function validateTeamsJoinUrl(value: string): string | null {
   const trimmed = value.trim();
   if (!trimmed) {
-    return "Teams 会議リンクを入力してください。";
+    return "会議リンクを入力してください。";
   }
   let url: URL;
   try {

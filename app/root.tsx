@@ -10,6 +10,7 @@ import {
 import type { ReactNode } from "react";
 
 import type { Route } from "./+types/root";
+import { AuthenticatedSessionProvider } from "~/hooks/useAuthenticatedSession";
 import "~/app.css";
 
 export const PRODUCT_NAME = "Deciscope";
@@ -74,16 +75,10 @@ export function loader() {
 }
 
 export default function App() {
-  const data = useLoaderData<typeof loader>();
   return (
-    <>
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `window.ENV = ${JSON.stringify(data.env)};`,
-        }}
-      />
+    <AuthenticatedSessionProvider>
       <Outlet />
-    </>
+    </AuthenticatedSessionProvider>
   );
 }
 

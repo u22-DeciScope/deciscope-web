@@ -59,13 +59,10 @@ export function AppUserMenu({ collapsed }: AppUserMenuProps) {
 
   return (
     <>
-      <div
-        ref={menuRoot}
-        className="relative z-20 border-t"
-        style={{ borderColor: "var(--ds-border)" }}
-      >
+      <div ref={menuRoot} className="relative border-t" style={{ borderColor: "var(--ds-border)" }}>
         {open && (
           <UserMenuPopover
+            anchorEl={menuRoot.current} // 💡 追記：親要素の参照を渡す
             collapsed={collapsed}
             onLogout={handleRequestLogout}
             onOpenSettings={handleOpenSettings}

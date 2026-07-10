@@ -6,7 +6,3 @@ export function meetingRealtimeUrl(meetingId: string, lastSeq = 0) {
   url.searchParams.set("last_seq", String(lastSeq));
   return url.toString();
 }
-
-export function connectMeetingRealtime(meetingId: string, lastSeq = 0) {
-  return new WebSocket(meetingRealtimeUrl(meetingId, lastSeq));
-}

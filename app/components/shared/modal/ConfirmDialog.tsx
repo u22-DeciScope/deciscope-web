@@ -1,10 +1,12 @@
+import type { ReactNode } from "react";
+
 import { DsButton } from "~/components/DsButton";
 import { AppModalFrame } from "~/components/shared/modal/AppModalFrame";
 
 type ConfirmDialogProps = {
   cancelLabel?: string;
   confirmLabel?: string;
-  description?: string;
+  description?: ReactNode;
   onCancel: () => void;
   onConfirm: () => void | Promise<void>;
   title: string;
@@ -29,13 +31,17 @@ export function ConfirmDialog({
         boxShadow: "0 24px 80px rgba(15, 38, 56, 0.32)",
       }}
     >
-      <h2 id="confirm-dialog-title" className="text-base font-bold" style={{ color: "var(--text-main)" }}>
+      <h2
+        id="confirm-dialog-title"
+        className="text-base font-bold"
+        style={{ color: "var(--text-main)" }}
+      >
         {title}
       </h2>
       {description ? (
-        <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text-sub)" }}>
+        <div className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text-sub)" }}>
           {description}
-        </p>
+        </div>
       ) : null}
 
       <div className="mt-6 flex justify-end gap-2">

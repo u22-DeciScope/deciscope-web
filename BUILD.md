@@ -3,7 +3,7 @@
 ## 前提
 
 - Node.js と npm がインストール済みであること
-- プロジェクトルート: `deciscope-frontend`
+- プロジェクトルート: `deciscope-web`
 
 ## 開発
 
@@ -12,7 +12,7 @@ npm install
 npm run dev
 ```
 
-開発サーバーは `http://localhost:5173` で起動します。
+開発サーバーは `http://localhost:5193` で起動します。
 
 ## ビルド手順
 

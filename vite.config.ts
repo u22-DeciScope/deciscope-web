@@ -5,20 +5,43 @@ import tsconfigPaths from "vite-tsconfig-paths";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, ".", "");
+  const apiProxyTarget = env.API_PROXY_TARGET || "http://100.70.221.61:9090";
+  const wsProxyTarget = env.WS_PROXY_TARGET || apiProxyTarget.replace(/^http/, "ws");
 
   return {
     plugins: [tailwindcss(), reactRouter(), tsconfigPaths()],
+    optimizeDeps: {
+      include: [
+        "@dagrejs/dagre",
+        "@xyflow/react",
+        "firebase/app",
+        "firebase/auth",
+        "react-icons/hi2",
+        "react-icons/lu",
+      ],
+    },
     server: {
       host: "0.0.0.0",
       port: 5193,
       proxy: {
-        "/api": {
-          target: env.API_PROXY_TARGET || "http://127.0.0.1:9090",
+        "/api/v1/meeting-sessions": {
+          target: apiProxyTarget,
           changeOrigin: true,
+          ws: true,
+        },
+        "/api": {
+          target: apiProxyTarget,
+          changeOrigin: true,
+          ws: true,
           rewrite: (path) => path.replace(/^\/api/, ""),
         },
+        "/v1": {
+          target: apiProxyTarget,
+          changeOrigin: true,
+          ws: true,
+        },
         "/ws": {
-          target: env.WS_PROXY_TARGET || "ws://127.0.0.1:9090",
+          target: wsProxyTarget,
           changeOrigin: true,
           ws: true,
           rewrite: (path) => path.replace(/^\/ws/, ""),
