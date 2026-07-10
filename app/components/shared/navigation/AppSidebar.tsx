@@ -1,7 +1,6 @@
 import { ResizeHandle } from "~/components/shared/layout/ResizeHandle";
 import { AppNavigation } from "~/components/shared/navigation/AppNavigation";
 import { AppSidebarHeader } from "~/components/shared/navigation/AppSidebarHeader";
-import { AppSidebarSharedArea } from "~/components/shared/navigation/AppSidebarSharedArea";
 import { AppUserMenu } from "~/components/shared/navigation/AppUserMenu";
 import { APP_SIDEBAR_SIZES } from "~/components/shared/navigation/appSidebarSizes";
 
@@ -15,19 +14,10 @@ type AppSidebarProps = {
     onWidthReset: () => void;
     width: number;
   };
-  // sharedArea: {
-  //   collapsed: boolean;
-  //   onClose: () => void;
-  //   onOpen: () => void;
-  //   width: number;
-  // };
 };
 
-export function AppSidebar({ navigation}: AppSidebarProps) {
-  const sidebarContentWidth =
-  navigation.width +
-  APP_SIDEBAR_SIZES.resizeHandleWidth
-
+export function AppSidebar({ navigation }: AppSidebarProps) {
+  const sidebarContentWidth = navigation.width + APP_SIDEBAR_SIZES.resizeHandleWidth;
 
   return (
     <aside className="ds-surface-elevated flex h-full min-w-0 flex-col overflow-hidden">
@@ -52,13 +42,6 @@ export function AppSidebar({ navigation}: AppSidebarProps) {
           onChange={navigation.onWidthChange}
           onReset={navigation.onWidthReset}
         />
-
-        {/* <AppSidebarSharedArea
-          collapsed={sharedArea.collapsed}
-          onClose={sharedArea.onClose}
-          onOpen={sharedArea.onOpen}
-          width={sharedArea.width}
-        /> */}
       </div>
     </aside>
   );
