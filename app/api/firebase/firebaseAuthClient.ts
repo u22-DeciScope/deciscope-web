@@ -1,4 +1,5 @@
 import type { User } from "firebase/auth";
+import { getEnv } from "~/env";
 
 type FirebaseConfig = {
   apiKey: string;

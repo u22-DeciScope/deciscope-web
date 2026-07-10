@@ -1,5 +1,7 @@
+import { getEnv } from "~/env";
+
 export function apiBaseUrl() {
-  return String(import.meta.env.VITE_API_BASE_URL ?? "/api");
+  return String(getEnv("VITE_API_BASE_URL") ?? "/api");
 }
 
 export function websocketBaseUrl() {

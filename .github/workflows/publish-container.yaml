@@ -12,7 +12,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/${{ github.event.repository.name }}
+  IMAGE_NAME: ${{ github.repository_owner }}/deciscope-web
 
 jobs:
   publish:
@@ -29,15 +29,6 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
-        env:
-          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
-          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
-          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
-          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
-          VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
-          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
-          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
-          VITE_WS_BASE_URL: ${{ vars.VITE_WS_BASE_URL }}
 
       - name: Create runtime container definition
         run: |
@@ -75,3 +66,24 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Update Kubernetes manifests in yd-network
+        env:
+          INFRA_REPO_PAT: ${{ secrets.INFRA_REPO_PAT }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          SHORT_SHA="sha-${GITHUB_SHA::7}"
+          
+          git clone https://x-access-token:${INFRA_REPO_PAT}@github.com/yukiidayo/yd-network.git infra
+          cd infra
+          
+          # Force lowercase since GitHub owner could be u22-DeciScope
+          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          
+          sed -i "s|image: ghcr.io/u22-deciscope/deciscope-web:.*|image: ghcr.io/${REPO_OWNER}/deciscope-web:${SHORT_SHA}|g" k8s/manifests/deciscope/web.yaml
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add k8s/manifests/deciscope/web.yaml
+          git commit -m "chore(web): deploy ${SHORT_SHA}" || echo "No changes to commit"
+          git push origin main

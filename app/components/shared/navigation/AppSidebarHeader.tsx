@@ -58,5 +58,6 @@ export function AppSidebarHeader({ navigation, navigationWidth, width }: AppSide
         </div>
       </div>
     </header>
+
   );
 }
