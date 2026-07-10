@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { HiChevronLeft, HiChevronRight } from "react-icons/hi2";
 
 import type { LiveAnalysisPayload, MeetingAIAnalysis } from "~/api/aiAnalysis/aiAnalysisApi";
 import type { MeetingSegmentDto } from "~/api/meetings/meetingEventsApi";
@@ -14,6 +15,20 @@ import { DiscussionTree } from "~/components/meeting/parts/discussionTree/Discus
 import { MeetingAssistantPanel } from "~/components/meeting/parts/MeetingAssistantPanel";
 import { MeetingChatPanel } from "~/components/meeting/parts/MeetingChatPanel";
 import type { LiveAnalysisMeta } from "~/hooks/useMeetingTranscriptSession";
+
+// タイムライン(左カラム)の開閉状態を会議中(タブを閉じるまで)維持するためのキー。
+const TIMELINE_COLLAPSED_STORAGE_KEY = "deciscope.meeting.timelineCollapsed";
+
+function readStoredTimelineCollapsed(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  try {
+    return window.localStorage.getItem(TIMELINE_COLLAPSED_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 type MeetingWorkspaceGridProps = {
   className?: string;
@@ -40,6 +55,9 @@ export function MeetingWorkspaceGrid({
 }: MeetingWorkspaceGridProps) {
   const [focusedAnalysisItemId, setFocusedAnalysisItemId] = useState<string | null>(null);
   const [highlightedAnalysisItemId, setHighlightedAnalysisItemId] = useState<string | null>(null);
+  const [timelineCollapsed, setTimelineCollapsed] = useState<boolean>(() =>
+    readStoredTimelineCollapsed(),
+  );
   const highlightTimerRef = useRef<number | null>(null);
   const livePayload = (liveAnalysis?.payload as LiveAnalysisPayload | null) ?? null;
   const liveItems = useMemo(
@@ -78,22 +96,79 @@ export function MeetingWorkspaceGrid({
     [],
   );
 
+  // 会議中は開閉状態を維持したいので localStorage に保存する。SSR/初回描画では
+  // window が無いためガードする。
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      window.localStorage.setItem(TIMELINE_COLLAPSED_STORAGE_KEY, timelineCollapsed ? "1" : "0");
+    } catch {
+      // プライベートモード等でlocalStorageが使えない場合は保存を諦める(致命的ではない)。
+    }
+  }, [timelineCollapsed]);
+
   return (
     <section
       className={[
-        "grid gap-2 lg:grid-cols-[minmax(250px,0.85fr)_minmax(420px,1.65fr)_minmax(280px,0.95fr)]",
+        "grid gap-2 transition-[grid-template-columns] duration-200",
+        timelineCollapsed
+          ? "lg:grid-cols-[56px_minmax(420px,2.4fr)_minmax(280px,0.95fr)]"
+          : "lg:grid-cols-[minmax(250px,0.85fr)_minmax(420px,1.65fr)_minmax(280px,0.95fr)]",
         className,
       ]
         .filter(Boolean)
         .join(" ")}
     >
-      <MeetingChatPanel partials={partials} segments={segments} />
+      <div className="relative min-h-0 min-w-0">
+        {timelineCollapsed ? (
+          <button
+            type="button"
+            className="flex h-full min-h-20 w-full flex-col items-center justify-start gap-2 rounded-(--ds-radius-panel) border py-3"
+            style={{ background: "var(--ds-surface)", borderColor: "var(--ds-border)" }}
+            onClick={() => setTimelineCollapsed(false)}
+            aria-label="タイムラインを開く"
+            title="タイムラインを開く"
+          >
+            <span
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border"
+              style={{
+                background: "var(--ds-surface-muted)",
+                borderColor: "var(--ds-border)",
+                color: "var(--text-sub)",
+              }}
+            >
+              <HiChevronRight className="h-3.5 w-3.5" />
+            </span>
+          </button>
+        ) : (
+          <div className="relative grid h-full min-h-0 min-w-0">
+            <MeetingChatPanel partials={partials} segments={segments} />
+            <button
+              type="button"
+              className="absolute -right-2 -top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full border shadow-sm"
+              style={{
+                background: "var(--ds-surface)",
+                borderColor: "var(--ds-border)",
+                color: "var(--text-sub)",
+              }}
+              onClick={() => setTimelineCollapsed(true)}
+              aria-label="タイムラインを折りたたむ"
+              title="タイムラインを折りたたむ"
+            >
+              <HiChevronLeft className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
       <DiscussionTree
         nodes={treeNodes}
         edges={treeEdges}
         analysisItems={relatedAnalysisItems}
         onSelectAnalysisItem={handleSelectAnalysisItem}
         updateStatus={liveAnalysisMeta ? <AiUpdateStatusChip meta={liveAnalysisMeta} /> : undefined}
+        layoutSignal={timelineCollapsed}
       />
       <MeetingAssistantPanel
         insights={insights}

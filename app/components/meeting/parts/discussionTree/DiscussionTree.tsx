@@ -31,6 +31,9 @@ type DiscussionTreeProps = {
   analysisItems?: AnalysisItem[];
   onSelectAnalysisItem?: (id: string) => void;
   updateStatus?: React.ReactNode;
+  // 隣接カラム(タイムライン)の開閉など、外部要因でこのパネルの表示幅が
+  // 変わったことを知らせるシグナル。値が変化した回だけ一度だけ再fitViewする。
+  layoutSignal?: boolean;
 };
 
 export function DiscussionTree({
@@ -39,6 +42,7 @@ export function DiscussionTree({
   analysisItems,
   onSelectAnalysisItem,
   updateStatus,
+  layoutSignal,
 }: DiscussionTreeProps) {
   return (
     <div
@@ -96,6 +100,7 @@ export function DiscussionTree({
               edges={edges}
               analysisItems={analysisItems}
               onSelectAnalysisItem={onSelectAnalysisItem}
+              layoutSignal={layoutSignal}
             />
           </ReactFlowProvider>
         )}
@@ -109,6 +114,7 @@ function DiscussionFlow({
   edges,
   analysisItems,
   onSelectAnalysisItem,
+  layoutSignal,
 }: DiscussionTreeProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -124,11 +130,10 @@ function DiscussionFlow({
     [nodes, treeEdges],
   );
 
-  // 折りたたみ状態。初期値は「root以外で子を持つ全ノード」を折りたたみ、
-  // root + 直下の大分類のみが見える状態にする。
-  const [collapsed, setCollapsed] = useState<Set<string>>(() =>
-    collapsibleNodeIds(discussionModel),
-  );
+  // 折りたたみ状態。初期値は空集合(全展開)にし、全体像がまず見える状態にする。
+  // 「全折りたたみ」ボタンで collapsibleNodeIds() の集合(root以外で子を持つ
+  // 全ノード)へ一括切り替えできる。
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
 
   const recentlyUpdatedIds = useRecentlyUpdatedNodeIds(nodes);
 
@@ -202,6 +207,7 @@ function DiscussionFlow({
           relatedCount: relatedItemIdsForNode(node, analysisItemIds).length,
           active: node.id === lastNodeId,
           hasChildren: (discussionModel.childrenOf.get(node.id) ?? []).length > 0,
+          childCount: (discussionModel.childrenOf.get(node.id) ?? []).length,
           collapsed: collapsed.has(node.id),
           onToggleCollapse: toggleCollapse,
           childKindCounts: sortedKindCounts(kindCounts),
@@ -254,6 +260,19 @@ function DiscussionFlow({
     didInitialFitRef.current = true;
     void fitView({ padding: 0.2, duration: 300 });
   }, [flowNodes, fitView]);
+
+  // layoutSignal(タイムライン列の開閉など、このパネル自身のライブ更新とは
+  // 無関係な外部要因による表示幅の変化)が変わったときだけ、一度だけ再フィットする。
+  // 初回フィットが済む前の変化は上のuseEffectに任せるため無視する。
+  const previousLayoutSignalRef = useRef(layoutSignal);
+  useEffect(() => {
+    const previous = previousLayoutSignalRef.current;
+    previousLayoutSignalRef.current = layoutSignal;
+    if (!didInitialFitRef.current || layoutSignal === previous) {
+      return;
+    }
+    void fitView({ padding: 0.2, duration: 200 });
+  }, [layoutSignal, fitView]);
 
   const focusNode = useCallback(
     (id: string) => {

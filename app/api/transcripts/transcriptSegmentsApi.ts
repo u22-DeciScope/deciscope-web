@@ -27,13 +27,6 @@ export type TranscriptSegmentEvent = {
   data?: unknown;
 };
 
-export type TranscriptSubscriptionFilters = {
-  callId?: string;
-  sessionId?: string;
-};
-
-export type TranscriptSubscriptionInput = string | TranscriptSubscriptionFilters;
-
 export type MeetingSessionStatusChange = {
   sessionId: string;
   title?: string;
@@ -64,7 +57,13 @@ export type MeetingSessionBotHealthChange = {
   lastBotStatusAtUtc?: string;
 };
 
-export type MeetingSessionTranscriptHealth = "ok" | "transcript_delayed" | "transcript_stalled";
+export type MeetingSessionTranscriptHealth =
+  | "ok"
+  | "transcript_delayed"
+  | "transcript_stalled"
+  | "silent"
+  | "audio_stalled"
+  | "speech_stalled";
 
 export type MeetingSessionTranscriptHealthChange = {
   sessionId: string;
@@ -87,43 +86,6 @@ type TranscriptHistoryResult = {
   unavailable: boolean;
 };
 
-const TRANSCRIPT_HISTORY_PATH = "/api/v1/transcript-segments";
-const TRANSCRIPT_WS_PATH = "/api/v1/ws/transcript-segments";
-
-export function transcriptWebSocketToken() {
-  const token = String(import.meta.env.VITE_DECISCOPE_WS_CLIENT_TOKEN ?? "").trim();
-  return token || null;
-}
-
-export function buildTranscriptWebSocketUrl(
-  input: TranscriptSubscriptionInput = {},
-  token = transcriptWebSocketToken(),
-) {
-  const configured = String(import.meta.env.VITE_DECISCOPE_WS_URL ?? "").trim();
-  const source = configured || TRANSCRIPT_WS_PATH;
-  const url = toWebSocketUrl(source);
-  const filters = normalizeTranscriptFilters(input);
-
-  if (filters.callId) {
-    url.searchParams.set("callId", filters.callId);
-  } else {
-    url.searchParams.delete("callId");
-  }
-  if (filters.sessionId) {
-    url.searchParams.set("sessionId", filters.sessionId);
-  } else {
-    url.searchParams.delete("sessionId");
-  }
-
-  if (token) {
-    url.searchParams.set("token", token);
-  } else {
-    url.searchParams.delete("token");
-  }
-
-  return url.toString();
-}
-
 export function maskWebSocketUrl(value: string) {
   try {
     const url = new URL(value);
@@ -136,24 +98,6 @@ export function maskWebSocketUrl(value: string) {
   }
 }
 
-export async function fetchTranscriptSegmentHistory(
-  input: TranscriptSubscriptionInput = {},
-  limit = 100,
-  token = transcriptWebSocketToken(),
-): Promise<TranscriptHistoryResult> {
-  const url = buildTranscriptHistoryUrl(input, limit, token);
-  return fetchTranscriptHistoryUrl(url);
-}
-
-export async function fetchMeetingSessionTranscriptSegmentHistory(
-  sessionId: string,
-  limit = 100,
-  token = transcriptWebSocketToken(),
-): Promise<TranscriptHistoryResult> {
-  const url = buildMeetingSessionTranscriptHistoryUrl(sessionId, limit, token);
-  return fetchTranscriptHistoryUrl(url);
-}
-
 export async function fetchWorkspaceMeetingSessionTranscriptSegmentHistory(
   workspaceId: string,
   sessionId: string,
@@ -161,14 +105,6 @@ export async function fetchWorkspaceMeetingSessionTranscriptSegmentHistory(
 ): Promise<TranscriptHistoryResult> {
   const url = buildWorkspaceMeetingSessionTranscriptHistoryUrl(workspaceId, sessionId, limit);
   return fetchTranscriptHistoryUrl(url);
-}
-
-export function buildMeetingSessionTranscriptHistoryDebugUrl(
-  sessionId: string,
-  limit = 100,
-  token = transcriptWebSocketToken(),
-) {
-  return maskWebSocketUrl(buildMeetingSessionTranscriptHistoryUrl(sessionId, limit, token));
 }
 
 export function buildWorkspaceMeetingSessionTranscriptHistoryDebugUrl(
@@ -184,21 +120,13 @@ export function buildWorkspaceMeetingSessionTranscriptHistoryDebugUrl(
 export function buildWorkspaceMeetingSessionTranscriptWebSocketUrl(
   workspaceId: string,
   sessionId: string,
-  token = transcriptWebSocketToken(),
 ) {
-  const url = toWebSocketUrl(
+  return toWebSocketUrl(
     joinUrlPath(
       websocketBaseUrl(),
       workspaceMeetingSessionTranscriptPath(workspaceId, sessionId, "transcript-stream"),
     ),
-  );
-
-  if (token) {
-    url.searchParams.set("token", token);
-  } else {
-    url.searchParams.delete("token");
-  }
-  return url.toString();
+  ).toString();
 }
 
 async function fetchTranscriptHistoryUrl(url: string): Promise<TranscriptHistoryResult> {
@@ -212,6 +140,9 @@ async function fetchTranscriptHistoryUrl(url: string): Promise<TranscriptHistory
   }
 
   if (!response.ok) {
+    if (response.status === 401 && typeof window !== "undefined") {
+      window.dispatchEvent(new Event("deciscope:unauthorized"));
+    }
     const message = (await response.text()).trim() || `${response.status} ${response.statusText}`;
     throw new Error(message);
   }
@@ -306,44 +237,6 @@ export function transcriptSegmentKey(segment: TranscriptSegment) {
     return `${segment.sessionId}:${segment.sequenceNo}`;
   }
   return `${segment.callId}:${segment.recognizedAtUtc}:${segment.text}`;
-}
-
-function buildTranscriptHistoryUrl(
-  input: TranscriptSubscriptionInput,
-  limit: number,
-  token: string | null,
-) {
-  const url = new URL(TRANSCRIPT_HISTORY_PATH, apiBaseUrl());
-  const filters = normalizeTranscriptFilters(input);
-
-  if (filters.callId) {
-    url.searchParams.set("callId", filters.callId);
-  }
-  if (filters.sessionId) {
-    url.searchParams.set("sessionId", filters.sessionId);
-  }
-  url.searchParams.set("limit", String(limit));
-  if (token) {
-    url.searchParams.set("token", token);
-  }
-
-  return url.toString();
-}
-
-function buildMeetingSessionTranscriptHistoryUrl(
-  sessionId: string,
-  limit: number,
-  token: string | null,
-) {
-  const url = new URL(
-    `/api/v1/meeting-sessions/${encodeURIComponent(sessionId.trim())}/transcript-segments`,
-    apiBaseUrl(),
-  );
-  url.searchParams.set("limit", String(limit));
-  if (token) {
-    url.searchParams.set("token", token);
-  }
-  return url.toString();
 }
 
 function buildWorkspaceMeetingSessionTranscriptHistoryUrl(
@@ -553,19 +446,14 @@ function normalizeMeetingSessionTranscriptHealthChange(
 }
 
 function isMeetingSessionTranscriptHealth(value: unknown): value is MeetingSessionTranscriptHealth {
-  return value === "ok" || value === "transcript_delayed" || value === "transcript_stalled";
-}
-
-function normalizeTranscriptFilters(
-  input: TranscriptSubscriptionInput,
-): Required<TranscriptSubscriptionFilters> {
-  if (typeof input === "string") {
-    return { callId: input.trim(), sessionId: "" };
-  }
-  return {
-    callId: input.callId?.trim() ?? "",
-    sessionId: input.sessionId?.trim() ?? "",
-  };
+  return (
+    value === "ok" ||
+    value === "transcript_delayed" ||
+    value === "transcript_stalled" ||
+    value === "silent" ||
+    value === "audio_stalled" ||
+    value === "speech_stalled"
+  );
 }
 
 function resolveBrowserUrl(value: string) {
@@ -581,10 +469,6 @@ function browserOrigin() {
     return window.location.origin;
   }
   return "http://localhost:5193";
-}
-
-function apiBaseUrl() {
-  return String(import.meta.env.VITE_DECISCOPE_API_BASE_URL ?? "").trim() || browserOrigin();
 }
 
 function coreApiUrl(path: string) {

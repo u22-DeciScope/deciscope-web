@@ -6,7 +6,6 @@ export default [
   route("login", "routes/login.tsx"),
   route("signup", "routes/signup.tsx"),
   route("terms", "routes/terms.tsx"),
-  route("test", "routes/test.tsx"),
   route("workspaces", "routes/workspaces.tsx"),
   route("workspaces/new", "routes/workspaces.new.tsx"),
   route("invitations/accept", "routes/invitations.accept.tsx"),

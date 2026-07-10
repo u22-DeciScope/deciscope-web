@@ -128,6 +128,12 @@ export type MeetingRuntimeAction =
       events: MeetingRealtimeEventDto[];
       segments: MeetingSegmentDto[];
     }
+  | {
+      type: "resynced";
+      meeting: MeetingDto;
+      events: MeetingRealtimeEventDto[];
+      segments: MeetingSegmentDto[];
+    }
   | { type: "connection"; status: MeetingConnectionStatus }
   | { type: "event"; event: MeetingRealtimeEventDto }
   | { type: "error"; message: string }

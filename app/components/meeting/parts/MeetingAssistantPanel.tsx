@@ -465,6 +465,10 @@ function LiveAnalysisItemCard({ item, highlighted }: { item: AnalysisItem; highl
   );
 }
 
+// ライブ更新の間隔(数秒〜十数秒おき)で summary/items が出たり消えたりしても
+// カード全体の高さが跳ねないよう、表示件数の上限(bullets/items 各4件)と
+// 本文エリアの min-h、そして「まだ何もない」時のプレースホルダ表示で
+// 高さの急変・レイアウトシフトを抑えている。
 function LiveAnalysisOverview({
   liveAnalysis,
   payload,
@@ -473,51 +477,105 @@ function LiveAnalysisOverview({
   payload: LiveAnalysisPayload | null;
 }) {
   const bullets = liveAnalysisBullets(payload);
+  const liveTopicItems = useMemo(
+    () => (payload?.items ?? []).filter((item) => item.status !== "dismissed").slice(0, 4),
+    [payload],
+  );
+  const hasBody = bullets.length > 0 || liveTopicItems.length > 0;
+
   return (
     <section
       className="rounded-(--ds-radius-control) border p-3"
-      style={{ background: "var(--ai-quest-bg)", borderColor: "var(--ai-quest-border)" }}
+      style={{ background: "var(--ds-surface-muted)", borderColor: "var(--ds-border)" }}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
-        <h2
-          className="shrink-0 whitespace-nowrap text-[11px] font-bold"
-          style={{ color: "var(--ai-quest-fg)" }}
-        >
-          ライブ分析
-        </h2>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-white"
+            style={{ background: "var(--brand)" }}
+          >
+            <HiSparkles className="h-3 w-3" />
+          </span>
+          <h2
+            className="shrink-0 whitespace-nowrap text-[11px] font-bold"
+            style={{ color: "var(--text-main)" }}
+          >
+            ライブ分析
+          </h2>
+        </div>
         <div className="min-w-0 shrink">
           <LiveAnalysisStatus liveAnalysis={liveAnalysis} />
         </div>
       </div>
 
-      {payload && (payload.summary || payload.currentTopic) && (
-        <div className="space-y-2.5">
-          {payload.currentTopic && (
-            <LiveAnalysisBlock title="現在のトピック">
-              <p className="text-[11px] leading-5" style={{ color: "var(--ai-quest-fg)" }}>
-                {payload.currentTopic}
-              </p>
-            </LiveAnalysisBlock>
-          )}
-
-          {bullets.length > 0 && (
-            <LiveAnalysisBlock title="要点">
-              <ul className="space-y-1.5">
-                {bullets.map((bullet, index) => (
-                  <li
-                    key={`${bullet}-${index}`}
-                    className="flex gap-1.5 text-[11px] leading-5"
-                    style={{ color: "var(--ai-quest-fg)" }}
-                  >
-                    <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-current" />
-                    <span>{bullet}</span>
-                  </li>
-                ))}
-              </ul>
-            </LiveAnalysisBlock>
-          )}
+      {payload?.currentTopic && (
+        <div className="mb-2 min-w-0">
+          <span
+            className="inline-block max-w-full truncate rounded-full px-2 py-0.5 text-[10px] font-semibold"
+            style={{ background: "var(--brand-light)", color: "var(--brand)" }}
+            title={payload.currentTopic}
+          >
+            {payload.currentTopic}
+          </span>
         </div>
       )}
+
+      <div className="min-h-10 space-y-2.5">
+        {bullets.length > 0 && (
+          <LiveAnalysisBlock title="要点">
+            <ul className="space-y-1.5">
+              {bullets.map((bullet, index) => (
+                <li
+                  key={`${bullet}-${index}`}
+                  className="flex gap-1.5 text-[11px] leading-5"
+                  style={{ color: "var(--text-sub)" }}
+                >
+                  <span
+                    className="mt-2 h-1 w-1 shrink-0 rounded-full"
+                    style={{ background: "var(--brand)" }}
+                  />
+                  <span className="line-clamp-2 min-w-0">{bullet}</span>
+                </li>
+              ))}
+            </ul>
+          </LiveAnalysisBlock>
+        )}
+
+        {liveTopicItems.length > 0 && (
+          <LiveAnalysisBlock title="検出された論点">
+            <ul className="space-y-1.5">
+              {liveTopicItems.map((item) => {
+                const Icon = insightIcons[item.kind as keyof typeof insightIcons] ?? HiLightBulb;
+                const style = insightStyle(item.kind);
+                return (
+                  <li key={item.id} className="flex items-center gap-1.5 text-[11px] leading-5">
+                    <Icon className="h-3 w-3 shrink-0" style={{ color: style.color }} />
+                    <span
+                      className="shrink-0 rounded-sm px-1 py-0.5 text-[9px] font-semibold leading-none"
+                      style={{ background: style.background, color: style.color }}
+                    >
+                      {analysisKindLabel(item.kind)}
+                    </span>
+                    <span
+                      className="min-w-0 flex-1 truncate"
+                      style={{ color: "var(--text-main)" }}
+                      title={item.title}
+                    >
+                      {item.title}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </LiveAnalysisBlock>
+        )}
+
+        {!hasBody && (
+          <p className="text-[11px] leading-5" style={{ color: "var(--text-muted)" }}>
+            発話が蓄積されると要点がここに表示されます。
+          </p>
+        )}
+      </div>
     </section>
   );
 }
@@ -563,7 +621,7 @@ function LiveAnalysisBlock({ title, children }: { title: string; children: React
     <div>
       <p
         className="mb-1 text-[10px] font-bold uppercase tracking-wide"
-        style={{ color: "var(--ai-quest-fg)", opacity: 0.75 }}
+        style={{ color: "var(--text-muted)" }}
       >
         {title}
       </p>
@@ -598,7 +656,10 @@ function LiveAnalysisStatus({ liveAnalysis }: { liveAnalysis: MeetingAIAnalysis 
 
   const updatedLabel = formatUpdatedAtTime(liveAnalysis.updatedAtUtc);
   return (
-    <span className="block min-w-0 truncate text-right text-[10px]" style={{ color: "var(--text-muted)" }}>
+    <span
+      className="block min-w-0 truncate text-right text-[10px]"
+      style={{ color: "var(--text-muted)" }}
+    >
       {updatedLabel ? `${updatedLabel} 更新` : ""}
     </span>
   );

@@ -22,13 +22,14 @@ import {
 } from "~/components/workspace/parts/RoleBadge";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/routing/workspacePaths";
+import { RequestGeneration } from "~/utils/requestGeneration";
 
 type InviteRole = "admin" | "viewer";
 
 type ConfirmState =
-  | { type: "invite"; email: string; role: InviteRole }
-  | { type: "revoke"; invitation: WorkspaceInvitationDto }
-  | { type: "remove"; member: WorkspaceMemberDto }
+  | { type: "invite"; workspaceId: string; email: string; role: InviteRole }
+  | { type: "revoke"; workspaceId: string; invitation: WorkspaceInvitationDto }
+  | { type: "remove"; workspaceId: string; member: WorkspaceMemberDto }
   | null;
 
 export default function WorkspaceSettingsPage() {
@@ -44,6 +45,7 @@ export default function WorkspaceSettingsPage() {
   const [inviteRole, setInviteRole] = useState<InviteRole>("viewer");
   const [members, setMembers] = useState<WorkspaceMemberDto[]>([]);
   const [invitations, setInvitations] = useState<WorkspaceInvitationDto[]>([]);
+  const [loadedWorkspaceId, setLoadedWorkspaceId] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -52,6 +54,9 @@ export default function WorkspaceSettingsPage() {
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
   const [justSaved, setJustSaved] = useState(false);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settingsRequestsRef = useRef(new RequestGeneration());
+  const activeWorkspaceIdRef = useRef(workspaceId);
+  activeWorkspaceIdRef.current = workspaceId;
 
   useEffect(() => {
     return () => {
@@ -66,25 +71,50 @@ export default function WorkspaceSettingsPage() {
     setDescription(workspace.description ?? "");
   }, [workspace.description, workspace.name, workspaceId]);
 
+  useEffect(() => {
+    settingsRequestsRef.current.invalidate();
+    setMembers([]);
+    setInvitations([]);
+    setLoadedWorkspaceId("");
+    setIsLoading(true);
+    setLoadError(null);
+    setActionError(null);
+    setMessage("");
+    setBusyAction("");
+    setConfirmState(null);
+  }, [workspaceId]);
+
   const loadSettings = useCallback(async () => {
+    const generation = settingsRequestsRef.current.begin();
+    const targetWorkspaceId = workspaceId;
     setIsLoading(true);
     setLoadError(null);
     setActionError(null);
     try {
       const [membersResult, invitationsResult] = await Promise.all([
-        listWorkspaceMembers(workspaceId),
+        listWorkspaceMembers(targetWorkspaceId),
         canManage
-          ? listWorkspaceInvitations(workspaceId)
+          ? listWorkspaceInvitations(targetWorkspaceId)
           : Promise.resolve({ invitations: [] as WorkspaceInvitationDto[] }),
       ]);
+      if (!settingsRequestsRef.current.isCurrent(generation)) {
+        return;
+      }
       setMembers(membersResult.members ?? []);
       setInvitations(invitationsResult.invitations ?? []);
+      setLoadedWorkspaceId(targetWorkspaceId);
     } catch (cause) {
+      if (!settingsRequestsRef.current.isCurrent(generation)) {
+        return;
+      }
       setMembers([]);
       setInvitations([]);
+      setLoadedWorkspaceId(targetWorkspaceId);
       setLoadError(errorMessage(cause) || "Workspace設定を取得できませんでした。");
     } finally {
-      setIsLoading(false);
+      if (settingsRequestsRef.current.isCurrent(generation)) {
+        setIsLoading(false);
+      }
     }
   }, [canManage, workspaceId]);
 
@@ -109,11 +139,15 @@ export default function WorkspaceSettingsPage() {
     setBusyAction("rename");
     setActionError(null);
     setMessage("");
+    const targetWorkspaceId = workspaceId;
     try {
-      const updated = await updateWorkspace(workspaceId, {
+      const updated = await updateWorkspace(targetWorkspaceId, {
         name: trimmedName,
         description: description.trim(),
       });
+      if (activeWorkspaceIdRef.current !== targetWorkspaceId) {
+        return;
+      }
       setName(updated.name);
       setDescription(updated.description ?? "");
       // 保存完了が一瞬で分からないため、数秒間「保存しました」をボタンに表示する。
@@ -123,9 +157,14 @@ export default function WorkspaceSettingsPage() {
         savedTimerRef.current = null;
       }, 2500);
     } catch (cause) {
+      if (activeWorkspaceIdRef.current !== targetWorkspaceId) {
+        return;
+      }
       setActionError(errorMessage(cause) || "Workspace情報を更新できませんでした。");
     } finally {
-      setBusyAction("");
+      if (activeWorkspaceIdRef.current === targetWorkspaceId) {
+        setBusyAction("");
+      }
     }
   }
 
@@ -140,16 +179,23 @@ export default function WorkspaceSettingsPage() {
       return;
     }
     setActionError(null);
-    setConfirmState({ type: "invite", email: trimmedEmail, role: inviteRole });
+    setConfirmState({ type: "invite", workspaceId, email: trimmedEmail, role: inviteRole });
   }
 
-  async function sendInvite(targetEmail: string, targetRole: InviteRole) {
+  async function sendInvite(
+    targetWorkspaceId: string,
+    targetEmail: string,
+    targetRole: InviteRole,
+  ) {
     setConfirmState(null);
     setBusyAction("invite");
     setActionError(null);
     setMessage("");
     try {
-      const invitation = await inviteWorkspaceMember(workspaceId, targetEmail, targetRole);
+      const invitation = await inviteWorkspaceMember(targetWorkspaceId, targetEmail, targetRole);
+      if (activeWorkspaceIdRef.current !== targetWorkspaceId) {
+        return;
+      }
       setEmail("");
       setInviteRole("viewer");
       setInvitations((current) => [
@@ -158,65 +204,97 @@ export default function WorkspaceSettingsPage() {
       ]);
       setMessage(`${invitation.email} に招待メールを送信しました。リンクの有効期限は72時間です。`);
     } catch (cause) {
+      if (activeWorkspaceIdRef.current !== targetWorkspaceId) {
+        return;
+      }
       setActionError(errorMessage(cause) || "招待メールを送信できませんでした。");
     } finally {
-      setBusyAction("");
+      if (activeWorkspaceIdRef.current === targetWorkspaceId) {
+        setBusyAction("");
+      }
     }
   }
 
-  async function revokeInvitation(invitation: WorkspaceInvitationDto) {
+  async function revokeInvitation(targetWorkspaceId: string, invitation: WorkspaceInvitationDto) {
     setConfirmState(null);
     setBusyAction(`revoke:${invitation.id}`);
     setActionError(null);
     setMessage("");
     try {
-      await revokeWorkspaceInvitation(workspaceId, invitation.id);
+      await revokeWorkspaceInvitation(targetWorkspaceId, invitation.id);
+      if (activeWorkspaceIdRef.current !== targetWorkspaceId) {
+        return;
+      }
       setInvitations((current) => (current ?? []).filter((item) => item.id !== invitation.id));
       setMessage("招待を取り消しました。この招待リンクは使用できなくなりました。");
     } catch (cause) {
+      if (activeWorkspaceIdRef.current !== targetWorkspaceId) {
+        return;
+      }
       setActionError(errorMessage(cause) || "招待を取り消せませんでした。");
     } finally {
-      setBusyAction("");
+      if (activeWorkspaceIdRef.current === targetWorkspaceId) {
+        setBusyAction("");
+      }
     }
   }
 
-  async function removeMember(member: WorkspaceMemberDto) {
+  async function removeMember(targetWorkspaceId: string, member: WorkspaceMemberDto) {
     setConfirmState(null);
     setBusyAction(`remove:${member.user_id}`);
     setActionError(null);
     setMessage("");
     try {
-      await removeWorkspaceMember(workspaceId, member.user_id);
+      await removeWorkspaceMember(targetWorkspaceId, member.user_id);
+      if (activeWorkspaceIdRef.current !== targetWorkspaceId) {
+        return;
+      }
       setMembers((current) => (current ?? []).filter((item) => item.user_id !== member.user_id));
       setMessage(
         `${member.display_name || member.email} を削除しました。以後このWorkspaceにはアクセスできません。`,
       );
     } catch (cause) {
+      if (activeWorkspaceIdRef.current !== targetWorkspaceId) {
+        return;
+      }
       setActionError(errorMessage(cause) || "メンバーを削除できませんでした。");
     } finally {
-      setBusyAction("");
+      if (activeWorkspaceIdRef.current === targetWorkspaceId) {
+        setBusyAction("");
+      }
     }
   }
 
   async function changeMemberRole(memberId: string, nextRole: InviteRole) {
+    const targetWorkspaceId = workspaceId;
     setBusyAction(`role:${memberId}`);
     setActionError(null);
     setMessage("");
     try {
-      const member = await updateWorkspaceMemberRole(workspaceId, memberId, nextRole);
+      const member = await updateWorkspaceMemberRole(targetWorkspaceId, memberId, nextRole);
+      if (activeWorkspaceIdRef.current !== targetWorkspaceId) {
+        return;
+      }
       setMembers((current) =>
         (current ?? []).map((item) => (item.user_id === memberId ? member : item)),
       );
       setMessage("メンバー権限を更新しました。");
     } catch (cause) {
+      if (activeWorkspaceIdRef.current !== targetWorkspaceId) {
+        return;
+      }
       setActionError(errorMessage(cause) || "メンバー権限を更新できませんでした。");
     } finally {
-      setBusyAction("");
+      if (activeWorkspaceIdRef.current === targetWorkspaceId) {
+        setBusyAction("");
+      }
     }
   }
 
-  const memberList = members ?? [];
-  const invitationList = invitations ?? [];
+  const settingsAreCurrent = loadedWorkspaceId === workspaceId;
+  const pageIsLoading = isLoading || !settingsAreCurrent;
+  const memberList = settingsAreCurrent ? (members ?? []) : [];
+  const invitationList = settingsAreCurrent ? (invitations ?? []) : [];
 
   return (
     // 親レイアウト(main)が md:overflow-hidden のため、ページ側でスクロールを持つ。
@@ -237,8 +315,8 @@ export default function WorkspaceSettingsPage() {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <Metric label="メンバー" value={isLoading ? "-" : memberList.length} />
-              <Metric label="招待中" value={isLoading ? "-" : invitationList.length} />
+              <Metric label="メンバー" value={pageIsLoading ? "-" : memberList.length} />
+              <Metric label="招待中" value={pageIsLoading ? "-" : invitationList.length} />
             </div>
           </div>
 
@@ -299,13 +377,18 @@ export default function WorkspaceSettingsPage() {
         <section className="ds-surface rounded-(--ds-radius-panel) p-6">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <SectionTitle title="メンバー" subtitle="参加済みのメンバー一覧です。" />
-            <DsButton type="button" variant="secondary" disabled={isLoading} onClick={loadSettings}>
+            <DsButton
+              type="button"
+              variant="secondary"
+              disabled={pageIsLoading}
+              onClick={loadSettings}
+            >
               再読み込み
             </DsButton>
           </div>
 
           <div className="mt-4">
-            {isLoading ? (
+            {pageIsLoading ? (
               <EmptyLine>Workspaceメンバーを読み込んでいます...</EmptyLine>
             ) : loadError ? (
               <div className="rounded-(--ds-radius-control) border px-3 py-2 text-[12px] text-red-600">
@@ -355,7 +438,7 @@ export default function WorkspaceSettingsPage() {
                           type="button"
                           variant="secondary"
                           disabled={busyAction === `remove:${member.user_id}`}
-                          onClick={() => setConfirmState({ type: "remove", member })}
+                          onClick={() => setConfirmState({ type: "remove", workspaceId, member })}
                         >
                           {busyAction === `remove:${member.user_id}` ? "削除中..." : "削除"}
                         </DsButton>
@@ -405,7 +488,7 @@ export default function WorkspaceSettingsPage() {
             <div className="mt-5">
               <p className="text-sm font-semibold">招待中</p>
               <div className="mt-2">
-                {isLoading ? (
+                {pageIsLoading ? (
                   <EmptyLine>招待を読み込んでいます...</EmptyLine>
                 ) : invitationList.length === 0 ? (
                   <EmptyLine>招待中のメールアドレスはありません。</EmptyLine>
@@ -428,7 +511,9 @@ export default function WorkspaceSettingsPage() {
                         type="button"
                         variant="secondary"
                         disabled={busyAction === `revoke:${item.id}`}
-                        onClick={() => setConfirmState({ type: "revoke", invitation: item })}
+                        onClick={() =>
+                          setConfirmState({ type: "revoke", workspaceId, invitation: item })
+                        }
                       >
                         {busyAction === `revoke:${item.id}` ? "取消中..." : "取り消す"}
                       </DsButton>
@@ -452,12 +537,14 @@ export default function WorkspaceSettingsPage() {
           </p>
         )}
 
-        {confirmState?.type === "invite" && (
+        {confirmState?.type === "invite" && confirmState.workspaceId === workspaceId && (
           <ConfirmDialog
             title="招待メールの送信"
             confirmLabel="招待メールを送信"
             onCancel={() => setConfirmState(null)}
-            onConfirm={() => sendInvite(confirmState.email, confirmState.role)}
+            onConfirm={() =>
+              sendInvite(confirmState.workspaceId, confirmState.email, confirmState.role)
+            }
             description={
               <div className="flex flex-col gap-2">
                 <p>以下の相手をワークスペース「{workspace.name}」に招待します。</p>
@@ -481,12 +568,12 @@ export default function WorkspaceSettingsPage() {
           />
         )}
 
-        {confirmState?.type === "revoke" && (
+        {confirmState?.type === "revoke" && confirmState.workspaceId === workspaceId && (
           <ConfirmDialog
             title="招待の取り消し"
             confirmLabel="取り消す"
             onCancel={() => setConfirmState(null)}
-            onConfirm={() => revokeInvitation(confirmState.invitation)}
+            onConfirm={() => revokeInvitation(confirmState.workspaceId, confirmState.invitation)}
             description={
               <p>
                 {confirmState.invitation.email} への招待を取り消しますか？
@@ -496,12 +583,12 @@ export default function WorkspaceSettingsPage() {
           />
         )}
 
-        {confirmState?.type === "remove" && (
+        {confirmState?.type === "remove" && confirmState.workspaceId === workspaceId && (
           <ConfirmDialog
             title="メンバーの削除"
             confirmLabel="削除する"
             onCancel={() => setConfirmState(null)}
-            onConfirm={() => removeMember(confirmState.member)}
+            onConfirm={() => removeMember(confirmState.workspaceId, confirmState.member)}
             description={
               <p>
                 {confirmState.member.display_name || confirmState.member.email} をワークスペース「

@@ -1,4 +1,5 @@
 import type { MeetingRealtimeEventDto, MeetingSegmentDto } from "~/api/meetings/meetingEventsApi";
+import type { MeetingDto } from "~/api/meetings/meetingsApi";
 import type {
   AnalysisDeltaPayload,
   AnalysisItem,
@@ -47,6 +48,20 @@ export function meetingRuntimeReducer(
       }
       return next;
     }
+    case "resynced": {
+      let next: MeetingRuntimeState = {
+        ...state,
+        meeting: mergeMeetingSnapshot(state.meeting, action.meeting),
+        segments: mergeSegments(state.segments, action.segments),
+        error: null,
+      };
+      for (const event of [...action.events].sort(
+        (left, right) => (left.seq ?? 0) - (right.seq ?? 0),
+      )) {
+        next = applyRuntimeEvent(next, event);
+      }
+      return next;
+    }
     case "connection":
       return { ...state, connectionStatus: action.status };
     case "event":
@@ -61,6 +76,11 @@ export function meetingRuntimeReducer(
 }
 
 function applyRuntimeEvent(state: MeetingRuntimeState, event: MeetingRealtimeEventDto) {
+  // REST再同期とWebSocket catch-upが競合しても、適用済みsequenceのイベントで
+  // tree/meeting.state等を古い状態へ巻き戻さない。
+  if (event.seq && event.seq <= state.lastSeq) {
+    return state;
+  }
   const nextSeq = event.seq && event.seq > state.lastSeq ? event.seq : state.lastSeq;
   const nextEvents = event.seq ? upsertEvent(state.events, event) : state.events;
   const base = { ...state, events: nextEvents, lastSeq: nextSeq };
@@ -96,6 +116,10 @@ function applyMeetingState(state: MeetingRuntimeState, event: MeetingRealtimeEve
       ? {
           ...state.meeting,
           status: payload.status ?? state.meeting.status,
+          updated_at: new Date(event.ts_ms).toISOString(),
+          ...(payload.status === "ended"
+            ? { ended_at: state.meeting.ended_at || new Date(event.ts_ms).toISOString() }
+            : {}),
         }
       : state.meeting,
   };
@@ -235,6 +259,25 @@ function mergeSegments(current: MeetingSegmentDto[], incoming: MeetingSegmentDto
     byId.set(segment.segment_id, segment);
   }
   return [...byId.values()].sort((a, b) => a.seq - b.seq);
+}
+
+function mergeMeetingSnapshot(current: MeetingDto | null, incoming: MeetingDto) {
+  if (!current) {
+    return incoming;
+  }
+  if (current.status === "ended" && incoming.status !== "ended") {
+    return current;
+  }
+  const currentUpdatedAt = Date.parse(current.updated_at);
+  const incomingUpdatedAt = Date.parse(incoming.updated_at);
+  if (
+    !Number.isNaN(currentUpdatedAt) &&
+    !Number.isNaN(incomingUpdatedAt) &&
+    incomingUpdatedAt < currentUpdatedAt
+  ) {
+    return current;
+  }
+  return { ...current, ...incoming };
 }
 
 function asObject<T>(payload: Record<string, unknown> | unknown): T {

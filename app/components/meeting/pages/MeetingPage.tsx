@@ -5,6 +5,7 @@ import { DsButton } from "~/components/DsButton";
 import { BotStatusToasts } from "~/components/meeting/parts/BotStatusToasts";
 import { LiveStatusBadge } from "~/components/meeting/parts/LiveStatusBadge";
 import { MeetingEndedModal } from "~/components/meeting/parts/MeetingEndedModal";
+import { MeetingEndAction } from "~/components/meeting/parts/MeetingEndAction";
 import { MeetingWorkspaceGrid } from "~/components/meeting/parts/MeetingWorkspaceGrid";
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
@@ -186,6 +187,16 @@ export default function Meeting() {
       ? "この会議は終了済みです。文字起こしの内容は会議詳細画面から確認できます。"
       : null;
   const pageNotice = runtime.error ?? sessionEndError ?? endedNotice ?? transcriptNotice;
+  const connectionRecoveryRequired = runtime.recoveryRequired || transcriptSession.recoveryRequired;
+
+  const retryConnections = useCallback(() => {
+    if (runtime.recoveryRequired) {
+      runtime.retryConnection();
+    }
+    if (transcriptSession.recoveryRequired) {
+      transcriptSession.retryConnection();
+    }
+  }, [runtime, transcriptSession]);
 
   const finishMeeting = useCallback(async () => {
     if (isEndingMeeting || isEndedStatus || showEndedModal) {
@@ -234,13 +245,11 @@ export default function Meeting() {
         actions: (
           <div className="flex flex-wrap items-center justify-end gap-1.5">
             {canManageSessions && (
-              <DsButton
-                disabled={!canEndMeeting || isEndingMeeting || isEndedStatus || showEndedModal}
-                variant="secondary"
-                onClick={finishMeeting}
-              >
-                {isEndingMeeting ? "終了中" : "終了"}
-              </DsButton>
+              <MeetingEndAction
+                disabled={!canEndMeeting || isEndedStatus || showEndedModal}
+                isEnding={isEndingMeeting}
+                onConfirm={finishMeeting}
+              />
             )}
           </div>
         ),
@@ -266,10 +275,15 @@ export default function Meeting() {
 
       {pageNotice && (
         <div
-          className="rounded-(--ds-radius-control) border px-3 py-2 text-[11px]"
+          className="flex items-center justify-between gap-3 rounded-(--ds-radius-control) border px-3 py-2 text-[11px]"
           style={{ borderColor: "var(--ds-border)", color: "var(--text-sub)" }}
         >
-          {pageNotice}
+          <span>{pageNotice}</span>
+          {connectionRecoveryRequired && (
+            <DsButton type="button" variant="secondary" onClick={retryConnections}>
+              再接続
+            </DsButton>
+          )}
         </div>
       )}
 

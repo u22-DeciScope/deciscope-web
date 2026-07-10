@@ -24,16 +24,6 @@ export default defineConfig(({ mode }) => {
       host: "0.0.0.0",
       port: 5193,
       proxy: {
-        "/api/v1/ws/transcript-segments": {
-          target: apiProxyTarget,
-          changeOrigin: true,
-          ws: true,
-        },
-        "/api/v1/transcript-segments": {
-          target: apiProxyTarget,
-          changeOrigin: true,
-          ws: true,
-        },
         "/api/v1/meeting-sessions": {
           target: apiProxyTarget,
           changeOrigin: true,

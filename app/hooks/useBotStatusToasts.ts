@@ -118,25 +118,10 @@ export function useBotStatusToasts(
       return;
     }
 
-    if (transcriptHealth === "transcript_stalled") {
+    const message = transcriptHealthToastMessage(transcriptHealth);
+    if (message) {
       setToasts((current) =>
-        upsertToast(current, {
-          id: "transcript-health",
-          tone: "warning",
-          message:
-            "Botとの接続は維持されていますが、文字起こしが一定時間届いていません。音声がBotに届いていない可能性があります。",
-        }),
-      );
-      return;
-    }
-
-    if (transcriptHealth === "transcript_delayed") {
-      setToasts((current) =>
-        upsertToast(current, {
-          id: "transcript-health",
-          tone: "warning",
-          message: "文字起こしの受信が遅れています。",
-        }),
+        upsertToast(current, { id: "transcript-health", tone: "warning", message }),
       );
       return;
     }
@@ -241,6 +226,25 @@ function removeToast(current: BotStatusToast[], id: string): BotStatusToast[] {
     return current;
   }
   return current.filter((item) => item.id !== id);
+}
+
+// transcriptHealth の状態ごとにトースト文言を返す。silent(強い警告は不要)や
+// ok・nullではトーストを出さないため null を返し、呼び出し側で remove させる。
+function transcriptHealthToastMessage(
+  transcriptHealth: MeetingSessionTranscriptHealth | null,
+): string | null {
+  switch (transcriptHealth) {
+    case "transcript_delayed":
+      return "文字起こしの受信が遅れています。";
+    case "transcript_stalled":
+      return "文字起こしが一定時間届いていません。";
+    case "audio_stalled":
+      return "Botとの接続は維持されていますが、音声がBotに届いていない可能性があります。";
+    case "speech_stalled":
+      return "音声は検出されていますが、文字起こし結果が届いていません。";
+    default:
+      return null;
+  }
 }
 
 // endReason はBot(EchoBot)/Go APIが自由記述で送る文字列("manual_end_requested",
