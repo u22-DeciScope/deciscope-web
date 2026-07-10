@@ -22,6 +22,17 @@ npm run build
 
 ビルド成果物は `build/` 配下に出力されます。
 
+## 本番コンテナ
+
+`Dockerfile.runtime` は、事前に生成した `build/` を本番イメージへ格納します。
+
+```bash
+npm ci
+npm run build
+docker build -f Dockerfile.runtime -t deciscope-web:test .
+docker run --rm -p 3000:3000 deciscope-web:test
+```
+
 ## ローカル確認（任意）
 
 ```bash
