@@ -12,6 +12,8 @@ const finalBubbleGapThresholdMs = 3000;
 type MeetingChatPanelProps = {
   partials: RuntimePartial[];
   segments: MeetingSegmentDto[];
+  // ヘッダー右端に置く操作ボタン(タイムラインの折りたたみなど)。
+  headerAction?: React.ReactNode;
 };
 
 type SegmentBubbleGroup = {
@@ -23,7 +25,7 @@ type SegmentBubbleGroup = {
   time: string;
 };
 
-export function MeetingChatPanel({ partials, segments }: MeetingChatPanelProps) {
+export function MeetingChatPanel({ partials, segments, headerAction }: MeetingChatPanelProps) {
   const visibleSegments = useMemo(
     () => segments.filter((segment) => segment.text.trim()),
     [segments],
@@ -90,6 +92,7 @@ export function MeetingChatPanel({ partials, segments }: MeetingChatPanelProps) 
         >
           {itemCount}
         </span>
+        {headerAction}
       </header>
 
       <div

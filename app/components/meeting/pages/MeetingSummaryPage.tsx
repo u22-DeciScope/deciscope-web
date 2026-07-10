@@ -31,7 +31,6 @@ import { workspacePath } from "~/routing/workspacePaths";
 import { AiFinalSummaryPanel } from "~/components/meeting/summary/AiFinalSummaryPanel";
 import { MeetingSummaryMain } from "~/components/meeting/summary/MeetingSummaryMain";
 import { MeetingReportShareAction } from "~/components/meeting/summary/MeetingReportShareAction";
-import { MeetingSummarySidebar } from "~/components/meeting/summary/MeetingSummarySidebar";
 import { MarkdownReportPanel } from "~/components/meeting/summary/MarkdownReportPanel";
 import { PreMeetingContextPanel } from "~/components/meeting/summary/PreMeetingContextPanel";
 import { SessionReviewWorkspace } from "~/components/meeting/summary/SessionReviewWorkspace";
@@ -202,10 +201,10 @@ export default function MeetingSummary() {
 
   const summary = useMemo(() => {
     if (session) {
-      return summaryFromMeetingSession(session, transcriptSegments, finalAnalysis);
+      return summaryFromMeetingSession(session, transcriptSegments);
     }
     return summaryFromReport(meeting, report);
-  }, [finalAnalysis, meeting, report, session, transcriptSegments]);
+  }, [meeting, report, session, transcriptSegments]);
 
   // 議論ツリー/分析カードは durable イベント(旧経路)を優先し、
   // 無ければライブ分析payloadのtree/itemsで補って終了後も閲覧できるようにする。
@@ -257,10 +256,8 @@ export default function MeetingSummary() {
           </>
         ),
       },
-      rightSidebar: <MeetingSummarySidebar summary={summary} />,
-      rightSidebarClassName: "w-55",
     }),
-    [id, meeting?.title, meetingsPath, session, summary],
+    [id, meeting?.title, meetingsPath, session],
   );
   useWorkspaceChrome(chrome);
 

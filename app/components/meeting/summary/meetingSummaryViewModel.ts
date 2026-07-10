@@ -1,13 +1,8 @@
-import type { FinalSummaryPayload, MeetingAIAnalysis } from "~/api/aiAnalysis/aiAnalysisApi";
 import type { MeetingSessionDto } from "~/api/meetingSessions/meetingSessionsApi";
 import type { MeetingReportDto } from "~/api/meetings/meetingReportsApi";
 import type { MeetingDto } from "~/api/meetings/meetingsApi";
 import type { TranscriptSegment } from "~/api/transcripts/transcriptSegmentsApi";
-import type {
-  MeetingActionSummary,
-  MeetingDecisionSummary,
-  MeetingSummaryViewModel,
-} from "~/components/meeting/summary/meetingSummaryTypes";
+import type { MeetingSummaryViewModel } from "~/components/meeting/summary/meetingSummaryTypes";
 import { formatStatus } from "~/utils/meetingStatusLabels";
 import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
 import { transcriptSpeakerName } from "~/utils/transcriptSegmentView";
@@ -32,9 +27,8 @@ export function summaryFromReport(
 export function summaryFromMeetingSession(
   session: MeetingSessionDto,
   segments: TranscriptSegment[],
-  finalAnalysis?: MeetingAIAnalysis | null,
 ): MeetingSummaryViewModel {
-  const base: MeetingSummaryViewModel = {
+  return {
     title: getMeetingDisplayTitle(session, { component: "meeting-session-summary" }),
     statusLabel: formatStatus(session.status),
     dateRange: formatSessionRange(session),
@@ -44,59 +38,6 @@ export function summaryFromMeetingSession(
     actions: [],
     participants: uniqueSpeakers(segments),
   };
-  return summaryFromFinalAnalysis(base, finalAnalysis);
-}
-
-// final分析(会議終了後の要約)が completed かつ payload を持つ場合のみ、
-// AIサマリー・決定事項・アクションアイテムをベースの summary に上書きマージする。
-// running/failed/payload欠損時はベースの summary をそのまま返す(既存表示を維持)。
-export function summaryFromFinalAnalysis(
-  summary: MeetingSummaryViewModel,
-  finalAnalysis?: MeetingAIAnalysis | null,
-): MeetingSummaryViewModel {
-  if (!finalAnalysis || finalAnalysis.status !== "completed") {
-    return summary;
-  }
-  const payload = finalAnalysis.payload as FinalSummaryPayload | null;
-  if (!payload) {
-    return summary;
-  }
-
-  const overview = payload.overview?.trim();
-  const decisions: MeetingDecisionSummary[] = payload.decisions.map((decision, index) => ({
-    id: index + 1,
-    text: decision.text,
-    votes: "",
-    level: decision.importance ?? "medium",
-  }));
-  const actions: MeetingActionSummary[] = payload.actionItems.map((action, index) => ({
-    id: index + 1,
-    text: action.text,
-    owner: action.owner ?? "",
-    due: action.due ?? "",
-    done: false,
-    priority: action.priority ?? "medium",
-  }));
-
-  return {
-    ...summary,
-    ...(overview ? { aiSummary: aiSummaryDigest(overview) } : {}),
-    ...(decisions.length > 0 ? { decisions } : {}),
-    ...(actions.length > 0 ? { actions } : {}),
-  };
-}
-
-// ヘッダーの「AIサマリー」は短いダイジェストのみを担い、全文は AiFinalSummaryPanel の
-// 「AI最終要約」に任せる。overview の最初の段落を全角120字程度でトランケートする。
-const AI_SUMMARY_DIGEST_MAX_LENGTH = 120;
-
-function aiSummaryDigest(overview: string) {
-  const firstOverviewParagraph = overview.split(/\n{2,}/)[0] ?? overview;
-  const collapsed = firstOverviewParagraph.replace(/\s+/g, " ").trim();
-  if (collapsed.length <= AI_SUMMARY_DIGEST_MAX_LENGTH) {
-    return collapsed;
-  }
-  return `${collapsed.slice(0, AI_SUMMARY_DIGEST_MAX_LENGTH)}…`;
 }
 
 function firstParagraph(content = "") {

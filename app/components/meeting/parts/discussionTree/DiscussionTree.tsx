@@ -7,6 +7,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
+  useStore,
   type Edge,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -19,11 +20,32 @@ import type {
 
 import { type DiscussionFlowNode, nodeTypes } from "./DiscussionNodeView";
 import { NODE_HEIGHT, NODE_WIDTH, layoutPositions, normalizeEdges } from "./discussionTreeLayout";
-import { buildDiscussionTreeModel, collapsibleNodeIds, isNodeVisible } from "./discussionTreeModel";
+import {
+  buildDiscussionTreeModel,
+  collapsibleNodeIds,
+  isNodeVisible,
+  type DiscussionTreeModel,
+} from "./discussionTreeModel";
 import { NodeDetailCard } from "./NodeDetailCard";
 
 // バッジ表示・件数バッジの種別の並び順(安定した順序で見比べやすくする)。
 const KIND_ORDER = ["issue", "question", "risk", "decision", "todo", "topic"];
+
+// ノード選択時に右上へ出る NodeDetailCard の占有幅。w-72(288px) + right-2(8px)。
+// ノードを中央表示するとき、この幅ぶんを避けて「詳細カードに隠れない可視領域」の
+// 中央へ寄せる。NodeDetailCard.tsx のサイズを変えたらここも合わせること。
+const NODE_DETAIL_OVERLAY_WIDTH = 296;
+// 上記の補正を行う最小の可視幅。パネルが狭くて詳細カードを避けた領域にノード
+// (幅260px)を収められない場合は、補正せず単純な中央表示にする。
+const MIN_VISIBLE_WIDTH_FOR_OVERLAY_OFFSET = 320;
+
+// AIアシスタントのカードクリックなど、外部から「この分析itemに対応するノードへ
+// フォーカスしてほしい」という要求。同じitemIdを連続でクリックしても再フォーカス
+// できるよう、要求ごとに増えるtokenを持つ。
+export type DiscussionTreeFocusRequest = {
+  itemId: string;
+  token: number;
+};
 
 type DiscussionTreeProps = {
   nodes: TreeNodePayload[];
@@ -34,6 +56,7 @@ type DiscussionTreeProps = {
   // 隣接カラム(タイムライン)の開閉など、外部要因でこのパネルの表示幅が
   // 変わったことを知らせるシグナル。値が変化した回だけ一度だけ再fitViewする。
   layoutSignal?: boolean;
+  focusItemRequest?: DiscussionTreeFocusRequest | null;
 };
 
 export function DiscussionTree({
@@ -43,6 +66,7 @@ export function DiscussionTree({
   onSelectAnalysisItem,
   updateStatus,
   layoutSignal,
+  focusItemRequest,
 }: DiscussionTreeProps) {
   return (
     <div
@@ -101,6 +125,7 @@ export function DiscussionTree({
               analysisItems={analysisItems}
               onSelectAnalysisItem={onSelectAnalysisItem}
               layoutSignal={layoutSignal}
+              focusItemRequest={focusItemRequest}
             />
           </ReactFlowProvider>
         )}
@@ -115,6 +140,7 @@ function DiscussionFlow({
   analysisItems,
   onSelectAnalysisItem,
   layoutSignal,
+  focusItemRequest,
 }: DiscussionTreeProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -274,20 +300,71 @@ function DiscussionFlow({
     void fitView({ padding: 0.2, duration: 200 });
   }, [layoutSignal, fitView]);
 
+  // パネルの実描画幅(React Flowが計測した値)。詳細カードを避ける補正に使う。
+  const paneWidth = useStore((state) => state.width);
+
+  // ノード選択で右上に NodeDetailCard が開くため、単純なビューポート中央だと
+  // ノードがカードに隠れたり視覚的に右へ寄って見えたりする。パネル幅に余裕が
+  // あるときは、詳細カードを除いた可視領域の中央にノードが来るよう補正する。
+  const centerNodeBesideDetailCard = useCallback(
+    (position: { x: number; y: number }) => {
+      const zoom = 1;
+      const hasRoomForOffset =
+        paneWidth - NODE_DETAIL_OVERLAY_WIDTH >= MIN_VISIBLE_WIDTH_FOR_OVERLAY_OFFSET;
+      // setCenter は指定したflow座標をビューポート中央に置くので、ノード中心より
+      // 右の点を渡すことでノード自体は詳細カードぶんだけ左に表示される。
+      const offsetX = hasRoomForOffset ? NODE_DETAIL_OVERLAY_WIDTH / 2 / zoom : 0;
+      void setCenter(position.x + NODE_WIDTH / 2 + offsetX, position.y + NODE_HEIGHT / 2, {
+        zoom,
+        duration: 400,
+      });
+    },
+    [paneWidth, setCenter],
+  );
+
   const focusNode = useCallback(
     (id: string) => {
       setSelectedId(id);
       setHoveredId(null);
       const node = getNode(id);
       if (node) {
-        void setCenter(node.position.x + NODE_WIDTH / 2, node.position.y + NODE_HEIGHT / 2, {
-          zoom: 1,
-          duration: 400,
-        });
+        centerNodeBesideDetailCard(node.position);
       }
     },
-    [getNode, setCenter],
+    [getNode, centerNodeBesideDetailCard],
   );
+
+  // 外部(AIアシスタントのカードクリック)からのフォーカス要求。対象ノードを
+  // 特定し、折りたたみで隠れていれば祖先を展開してから選択状態にする。実際の
+  // 中央移動は、展開後の再レイアウトが済んだ flowNodes を使う下のuseEffectで行う。
+  const processedFocusTokenRef = useRef<number | null>(null);
+  const [pendingFocusNodeId, setPendingFocusNodeId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!focusItemRequest || processedFocusTokenRef.current === focusItemRequest.token) {
+      return;
+    }
+    processedFocusTokenRef.current = focusItemRequest.token;
+    const targetId = findNodeIdForAnalysisItem(nodes, focusItemRequest.itemId);
+    if (!targetId) {
+      return;
+    }
+    setSelectedId(targetId);
+    setHoveredId(null);
+    setCollapsed((current) => withAncestorsExpanded(current, discussionModel, targetId));
+    setPendingFocusNodeId(targetId);
+  }, [focusItemRequest, nodes, discussionModel]);
+
+  useEffect(() => {
+    if (!pendingFocusNodeId) {
+      return;
+    }
+    const node = flowNodes.find((flowNode) => flowNode.id === pendingFocusNodeId);
+    if (!node) {
+      return;
+    }
+    setPendingFocusNodeId(null);
+    centerNodeBesideDetailCard(node.position);
+  }, [pendingFocusNodeId, flowNodes, centerNodeBesideDetailCard]);
 
   const detailNodeId = selectedId ?? hoveredId;
   const selectedNode = detailNodeId
@@ -437,6 +514,36 @@ function sortedKindCounts(counts: Record<string, number>): Array<{ kind: string;
       return orderA !== orderB ? orderA - orderB : kindA.localeCompare(kindB);
     })
     .map(([kind, count]) => ({ kind, count }));
+}
+
+// 分析itemに対応するツリーノードを探す。ノードidがitemidと一致するものを優先し、
+// 無ければ relatedItemIds に含むノードを使う(relatedItemIdsForNode の逆引き)。
+function findNodeIdForAnalysisItem(nodes: TreeNodePayload[], itemId: string): string | null {
+  const direct = nodes.find((node) => node.id === itemId);
+  if (direct) {
+    return direct.id;
+  }
+  const related = nodes.find((node) => (node.relatedItemIds ?? []).includes(itemId));
+  return related?.id ?? null;
+}
+
+// 対象ノードが見えるように、collapsed 集合から祖先ノードを取り除いた集合を返す。
+// 変化が無ければ同じ参照を返して不要な再レンダを避ける。
+function withAncestorsExpanded(
+  collapsed: Set<string>,
+  model: DiscussionTreeModel,
+  nodeId: string,
+): Set<string> {
+  let next: Set<string> | null = null;
+  let ancestor = model.parentOf.get(nodeId) ?? null;
+  while (ancestor !== null) {
+    if ((next ?? collapsed).has(ancestor)) {
+      next = next ?? new Set(collapsed);
+      next.delete(ancestor);
+    }
+    ancestor = model.parentOf.get(ancestor) ?? null;
+  }
+  return next ?? collapsed;
 }
 
 function relatedItemIdsForNode(node: TreeNodePayload, itemIds: Set<string>) {
