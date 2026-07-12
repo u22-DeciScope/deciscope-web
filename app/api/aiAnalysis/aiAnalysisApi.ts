@@ -56,10 +56,22 @@ export type MeetingAIAnalysis = {
   intervalSeconds?: number;
 };
 
+// 会議終了時にバックエンドが保存するdurableなツリースナップショット。
+// 履歴画面はライブpayloadより先にこれを表示する。
+export type TreeSnapshotPayload = {
+  treeVersion?: number;
+  reason?: string;
+  final?: boolean;
+  generatedAtUtc?: string;
+  tree: TreeUpdatePayload | null;
+};
+
 export type MeetingAIAnalyses = {
   sessionId: string;
   live: MeetingAIAnalysis | null;
   final: MeetingAIAnalysis | null;
+  // 会議終了時に保存されたdurableツリースナップショット(未保存ならnull)。
+  treeSnapshot: TreeSnapshotPayload | null;
   // GETレスポンスのトップレベルに載るlive分析の更新間隔(秒)。
   liveIntervalSeconds?: number;
 };
@@ -118,7 +130,7 @@ export function normalizeAIAnalysis(value: unknown): MeetingAIAnalysis | null {
 
 function normalizeAIAnalyses(value: unknown, fallbackSessionId: string): MeetingAIAnalyses {
   if (!value || typeof value !== "object") {
-    return { sessionId: fallbackSessionId, live: null, final: null };
+    return { sessionId: fallbackSessionId, live: null, final: null, treeSnapshot: null };
   }
   const source = value as Record<string, unknown>;
   const sessionId =
@@ -130,7 +142,44 @@ function normalizeAIAnalyses(value: unknown, fallbackSessionId: string): Meeting
     sessionId,
     live: normalizeAIAnalysis(source.live),
     final: normalizeAIAnalysis(source.final),
+    treeSnapshot: normalizeTreeSnapshot(source.tree),
     ...(liveIntervalSeconds !== undefined ? { liveIntervalSeconds } : {}),
+  };
+}
+
+// tree行(durableスナップショット)のpayloadを正規化する。payloadは
+// {treeVersion, reason, final, generatedAtUtc, tree:{nodes,edges}} 形式。
+function normalizeTreeSnapshot(value: unknown): TreeSnapshotPayload | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const analysis = value as Record<string, unknown>;
+  const payload = analysis.payload;
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  const source = payload as Record<string, unknown>;
+  const treeSource = source.tree;
+  let tree: TreeUpdatePayload | null = null;
+  if (treeSource && typeof treeSource === "object") {
+    const treeRecord = treeSource as Record<string, unknown>;
+    const nodes = normalizeTreeNodes(treeRecord.nodes, new Set<string>());
+    if (nodes.length > 0) {
+      tree = { nodes, edges: normalizeTreeEdges(treeRecord.edges) };
+    }
+  }
+  if (!tree) {
+    return null;
+  }
+  const treeVersion = optionalNumber(source.treeVersion);
+  const reason = optionalString(source.reason);
+  const generatedAtUtc = optionalString(source.generatedAtUtc);
+  return {
+    ...(treeVersion !== undefined ? { treeVersion } : {}),
+    ...(reason ? { reason } : {}),
+    ...(typeof source.final === "boolean" ? { final: source.final } : {}),
+    ...(generatedAtUtc ? { generatedAtUtc } : {}),
+    tree,
   };
 }
 
@@ -279,6 +328,8 @@ function normalizeTreeNodes(value: unknown, itemIds: Set<string>): TreeNodePaylo
         return null;
       }
       const kind = optionalString(source.kind)?.trim();
+      const parentId =
+        optionalString(source.parentId)?.trim() ?? optionalString(source.parent_id)?.trim();
       const label = optionalString(source.label)?.trim();
       const status = optionalString(source.status)?.trim();
       const description = truncateNodeDescription(
@@ -288,6 +339,7 @@ function normalizeTreeNodes(value: unknown, itemIds: Set<string>): TreeNodePaylo
       return {
         id,
         ...(kind ? { kind } : {}),
+        ...(parentId ? { parentId } : {}),
         ...(label ? { label } : {}),
         ...(status ? { status } : {}),
         ...(description ? { description } : {}),

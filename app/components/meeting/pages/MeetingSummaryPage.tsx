@@ -6,6 +6,7 @@ import {
   getWorkspaceMeetingSessionAIAnalyses,
   type LiveAnalysisPayload,
   type MeetingAIAnalysis,
+  type TreeSnapshotPayload,
 } from "~/api/aiAnalysis/aiAnalysisApi";
 import {
   getWorkspaceMeetingSession,
@@ -63,6 +64,7 @@ export default function MeetingSummary() {
   const [markdown, setMarkdown] = useState("");
   const [shareToken, setShareToken] = useState("");
   const [tree, setTree] = useState<TreeUpdatePayload | null>(null);
+  const [treeSnapshot, setTreeSnapshot] = useState<TreeSnapshotPayload | null>(null);
   const [analysisItems, setAnalysisItems] = useState<AnalysisItem[]>([]);
   const [finalAnalysis, setFinalAnalysis] = useState<MeetingAIAnalysis | null>(null);
   const [finalAnalysisPending, setFinalAnalysisPending] = useState(false);
@@ -82,6 +84,7 @@ export default function MeetingSummary() {
     setMarkdown("");
     setTranscriptSegments([]);
     setTree(null);
+    setTreeSnapshot(null);
     setAnalysisItems([]);
     setFinalAnalysis(null);
     setFinalAnalysisPending(false);
@@ -158,6 +161,7 @@ export default function MeetingSummary() {
         setFinalAnalysisError(null);
         setFinalAnalysis(analyses.final);
         setLiveAnalysis(analyses.live);
+        setTreeSnapshot(analyses.treeSnapshot);
         if (analyses.final?.status === "running") {
           // running の間は打ち切らず、完了/失敗になるまでポーリングし続ける。
           timer = setTimeout(() => void poll(), finalAnalysisPollIntervalMs);
@@ -206,10 +210,14 @@ export default function MeetingSummary() {
     return summaryFromReport(meeting, report);
   }, [meeting, report, session, transcriptSegments]);
 
-  // 議論ツリー/分析カードは durable イベント(旧経路)を優先し、
-  // 無ければライブ分析payloadのtree/itemsで補って終了後も閲覧できるようにする。
+  // 議論ツリーは、会議終了時に保存されたdurableスナップショットを最優先し、
+  // 無ければ durable イベント(旧経路)、最後にライブ分析payloadのtreeで補う。
   const livePayload = (liveAnalysis?.payload as LiveAnalysisPayload | null) ?? null;
-  const effectiveTree = tree?.nodes?.length ? tree : (livePayload?.tree ?? null);
+  const effectiveTree = treeSnapshot?.tree?.nodes?.length
+    ? treeSnapshot.tree
+    : tree?.nodes?.length
+      ? tree
+      : (livePayload?.tree ?? null);
   // dismissed だけを除外し、resolved は解決済みカードとして残す。
   const effectiveAnalysisItems =
     analysisItems.length > 0
