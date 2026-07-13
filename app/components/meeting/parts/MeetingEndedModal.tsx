@@ -30,14 +30,14 @@ export function MeetingEndedModal({
             className="text-base font-bold"
             style={{ color: "var(--text-main)" }}
           >
-            {ending ? "会議を終了しています..." : "会議が終了しました"}
+            {ending ? "会議を終了しています" : "会議が終了しました"}
           </h2>
           <p
             className="mt-2 whitespace-pre-line text-sm leading-relaxed"
             style={{ color: "var(--text-sub)" }}
           >
             {ending
-              ? "Botの退出処理を実行しています。"
+              ? "最後の文字起こしとAI分析を整理しています。\n完了するまでこの画面を閉じずにお待ちください。"
               : "BotはTeams会議から退出しました。\n文字起こしの内容は会議詳細画面から確認できます。"}
           </p>
         </div>
