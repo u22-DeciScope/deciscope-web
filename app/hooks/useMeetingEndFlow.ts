@@ -174,13 +174,22 @@ export function useMeetingEndFlow({
     }
   }, [effectiveStatus, sessionId, showEndedModal, workspaceId]);
 
-  return {
-    effectiveStatus,
-    isFinalizing: !showEndedModal && (isRequestingEnd || isEndingStatus),
-    isRequestingEnd,
-    showEndedModal,
-    endedAt: endedAtOverride || observedEndedAt,
-    endError,
-    requestEnd,
-  };
+  const isFinalizing = !showEndedModal && (isRequestingEnd || isEndingStatus);
+  const endedAt = endedAtOverride || observedEndedAt;
+
+  // 戻り値は値が変わらない限り同一参照を保つ。呼び出し側(MeetingPageの
+  // finishMeeting→chrome useMemo→useWorkspaceChrome)の依存が毎レンダー
+  // 不安定になると、chrome登録effectの再実行ループを誘発するため。
+  return useMemo(
+    () => ({
+      effectiveStatus,
+      isFinalizing,
+      isRequestingEnd,
+      showEndedModal,
+      endedAt,
+      endError,
+      requestEnd,
+    }),
+    [effectiveStatus, isFinalizing, isRequestingEnd, showEndedModal, endedAt, endError, requestEnd],
+  );
 }

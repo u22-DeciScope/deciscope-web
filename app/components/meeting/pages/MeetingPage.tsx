@@ -212,6 +212,7 @@ export default function Meeting() {
     }
   }, [runtime, transcriptSession]);
 
+  const requestSessionEnd = endFlow.requestEnd;
   const finishMeeting = useCallback(async () => {
     if (isEndingMeeting || isEndedStatus || showEndedModal) {
       return;
@@ -219,7 +220,7 @@ export default function Meeting() {
     if (sessionId) {
       // session経路: 終了APIのレスポンスstatusをそのまま反映し、endingの間は
       // finalization待機、正式なendedを受信してから完了モーダルへ進む。
-      await endFlow.requestEnd();
+      await requestSessionEnd();
       return;
     }
 
@@ -233,7 +234,7 @@ export default function Meeting() {
         `会議の終了に失敗しました。時間をおいて再度お試しください。${errorMessageSuffix(cause)}`,
       );
     }
-  }, [endFlow, isEndedStatus, isEndingMeeting, runtime, sessionId, showEndedModal]);
+  }, [isEndedStatus, isEndingMeeting, requestSessionEnd, runtime, sessionId, showEndedModal]);
 
   const chrome = useMemo(
     () => ({

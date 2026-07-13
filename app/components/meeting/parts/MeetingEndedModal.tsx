@@ -45,10 +45,14 @@ export function MeetingEndedModal({
         {ending ? (
           <div
             className="h-1.5 overflow-hidden rounded-full"
+            role="progressbar"
+            aria-label="会議の終了処理中"
             style={{ background: "var(--input-bg)" }}
           >
+            {/* 進捗率が取れない処理のため、流れ続けるindeterminateバーで
+                「処理が止まっていない」ことを示す(点滅だけだと停止に見える)。 */}
             <div
-              className="h-full w-1/2 animate-pulse rounded-full"
+              className="ds-progress-indeterminate h-full w-2/5 rounded-full"
               style={{ background: "var(--brand)" }}
             />
           </div>

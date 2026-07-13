@@ -242,4 +242,16 @@ describe("useMeetingEndFlow", () => {
       expect(result.current.effectiveStatus).toBe("stale");
     });
   });
+
+  it("状態が変わらないrerenderでは戻り値の参照が安定している(chrome登録ループの回帰防止)", () => {
+    const { result, rerender } = renderEndFlow();
+    const first = result.current;
+
+    rerender({ observedStatus: "recording", observedEndedAt: "", wsConnected: true });
+    expect(result.current).toBe(first);
+
+    // WS接続状態だけの変化(polling制御用)でも戻り値は同一参照のまま。
+    rerender({ observedStatus: "recording", observedEndedAt: "", wsConnected: false });
+    expect(result.current).toBe(first);
+  });
 });
