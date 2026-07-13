@@ -48,6 +48,9 @@ export type AnalysisDeltaPayload = {
 export type TreeNodePayload = {
   id: string;
   kind?: string;
+  // parentId はバックエンドが正規化した唯一のツリー表示用の親。
+  // 存在する場合、フロントはエッジから親を推論せずこれを使う。
+  parentId?: string;
   label?: string;
   status?: string;
   description?: string;

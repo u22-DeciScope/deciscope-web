@@ -1,8 +1,8 @@
 import type { TreeEdgePayload, TreeNodePayload } from "~/api/meetings/meetingRuntimeTypes";
 
-// normalizeEdges 済みの source→target エッジから「主親(primary parent)」だけを持つ
-// ツリー構造を構築する。root直下に多数のノードが横並びになる問題を、折りたたみ表示
-// (DiscussionTree.tsx側)で解消するための土台となるモデル。
+// バックエンドが正規化した parentId(各ノード唯一の親)からツリー構造を構築する。
+// parentId を持たない旧payloadに対してのみ、後方互換としてエッジBFSで親を推定する。
+// フロント独自の判断で親を付け替えることはしない(不正データへの防御のみ行う)。
 export type DiscussionTreeModel = {
   rootId: string | null;
   parentOf: Map<string, string | null>;
@@ -19,59 +19,10 @@ export function buildDiscussionTreeModel(
   const rootId =
     nodes.find((node) => (node.kind ?? "topic") === "topic")?.id ?? nodes[0]?.id ?? null;
 
-  const adjacency = new Map<string, string[]>();
-  for (const edge of edges) {
-    const targets = adjacency.get(edge.source);
-    if (targets) {
-      targets.push(edge.target);
-    } else {
-      adjacency.set(edge.source, [edge.target]);
-    }
-  }
-
-  const parentOf = new Map<string, string | null>();
-  const depthOf = new Map<string, number>();
-  const visited = new Set<string>();
-
-  if (rootId !== null) {
-    parentOf.set(rootId, null);
-    depthOf.set(rootId, 0);
-    visited.add(rootId);
-
-    const queue: string[] = [rootId];
-    while (queue.length > 0) {
-      const current = queue.shift();
-      if (current === undefined) {
-        continue;
-      }
-      const currentDepth = depthOf.get(current) ?? 0;
-      const targets = adjacency.get(current) ?? [];
-      for (const target of targets) {
-        if (visited.has(target)) {
-          continue;
-        }
-        visited.add(target);
-        parentOf.set(target, current);
-        depthOf.set(target, currentDepth + 1);
-        queue.push(target);
-      }
-    }
-  }
-
-  // BFSで未到達のノードは孤立防止のため root の子として扱う(root が無ければ独立ルート扱い)。
-  for (const node of nodes) {
-    if (visited.has(node.id)) {
-      continue;
-    }
-    visited.add(node.id);
-    if (rootId !== null) {
-      parentOf.set(node.id, rootId);
-      depthOf.set(node.id, 1);
-    } else {
-      parentOf.set(node.id, null);
-      depthOf.set(node.id, 0);
-    }
-  }
+  const hasParentIds = nodes.some((node) => typeof node.parentId === "string" && node.parentId);
+  const { parentOf, depthOf } = hasParentIds
+    ? parentsFromParentIds(nodes, rootId)
+    : parentsFromEdgesBfs(nodes, edges, rootId);
 
   const childrenOf = new Map<string, string[]>();
   for (const node of nodes) {
@@ -134,6 +85,129 @@ export function buildDiscussionTreeModel(
   }
 
   return { rootId, parentOf, childrenOf, depthOf, descendantKindCounts, descendantTotal };
+}
+
+// parentsFromParentIds はバックエンド正規化済みの parentId をそのまま使う。
+// 防御: 存在しない親・自己参照・循環を検出した場合のみ root の子へ退避し、
+// 無限ループや表示不能を防ぐ(親の付け替え判断はしない)。
+function parentsFromParentIds(nodes: TreeNodePayload[], rootId: string | null) {
+  const parentOf = new Map<string, string | null>();
+  const depthOf = new Map<string, number>();
+  const nodeIds = new Set(nodes.map((node) => node.id));
+
+  const rawParent = new Map<string, string | null>();
+  for (const node of nodes) {
+    if (node.id === rootId) {
+      rawParent.set(node.id, null);
+      continue;
+    }
+    const parent = node.parentId;
+    if (parent && parent !== node.id && nodeIds.has(parent)) {
+      rawParent.set(node.id, parent);
+    } else {
+      rawParent.set(node.id, rootId);
+    }
+  }
+
+  // 深さを親チェーンから計算。循環を踏んだノードは root 直下へ退避する。
+  for (const node of nodes) {
+    const seen = new Set<string>();
+    const chain: string[] = [];
+    let current: string | null = node.id;
+    let cyclic = false;
+    while (current !== null && current !== rootId) {
+      if (seen.has(current)) {
+        cyclic = true;
+        break;
+      }
+      seen.add(current);
+      chain.push(current);
+      current = rawParent.get(current) ?? null;
+    }
+    if (cyclic) {
+      rawParent.set(node.id, rootId);
+      parentOf.set(node.id, rootId);
+      depthOf.set(node.id, rootId !== null ? 1 : 0);
+      continue;
+    }
+    // chain は node.id から root 直前までの経路。深さ = 経路長。
+    for (let i = 0; i < chain.length; i++) {
+      const id = chain[i];
+      if (id === undefined || depthOf.has(id)) {
+        continue;
+      }
+      depthOf.set(id, chain.length - i);
+      parentOf.set(id, rawParent.get(id) ?? null);
+    }
+  }
+  if (rootId !== null) {
+    parentOf.set(rootId, null);
+    depthOf.set(rootId, 0);
+  }
+  return { parentOf, depthOf };
+}
+
+// parentsFromEdgesBfs は parentId を持たない旧payload向けの後方互換。
+// root からのBFSで最初に到達した親を採用する(従来挙動)。
+function parentsFromEdgesBfs(
+  nodes: TreeNodePayload[],
+  edges: TreeEdgePayload[],
+  rootId: string | null,
+) {
+  const adjacency = new Map<string, string[]>();
+  for (const edge of edges) {
+    const targets = adjacency.get(edge.source);
+    if (targets) {
+      targets.push(edge.target);
+    } else {
+      adjacency.set(edge.source, [edge.target]);
+    }
+  }
+
+  const parentOf = new Map<string, string | null>();
+  const depthOf = new Map<string, number>();
+  const visited = new Set<string>();
+
+  if (rootId !== null) {
+    parentOf.set(rootId, null);
+    depthOf.set(rootId, 0);
+    visited.add(rootId);
+
+    const queue: string[] = [rootId];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (current === undefined) {
+        continue;
+      }
+      const currentDepth = depthOf.get(current) ?? 0;
+      const targets = adjacency.get(current) ?? [];
+      for (const target of targets) {
+        if (visited.has(target)) {
+          continue;
+        }
+        visited.add(target);
+        parentOf.set(target, current);
+        depthOf.set(target, currentDepth + 1);
+        queue.push(target);
+      }
+    }
+  }
+
+  // BFSで未到達のノードは孤立防止のため root の子として扱う(root が無ければ独立ルート扱い)。
+  for (const node of nodes) {
+    if (visited.has(node.id)) {
+      continue;
+    }
+    visited.add(node.id);
+    if (rootId !== null) {
+      parentOf.set(node.id, rootId);
+      depthOf.set(node.id, 1);
+    } else {
+      parentOf.set(node.id, null);
+      depthOf.set(node.id, 0);
+    }
+  }
+  return { parentOf, depthOf };
 }
 
 // 「root以外で子を持つ全ノード」の id 集合。初期表示(全折りたたみ)と

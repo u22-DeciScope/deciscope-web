@@ -4,7 +4,8 @@ export function isElapsedMeetingStatus(status: string) {
     status === "active" ||
     status === "recording" ||
     status === "speech_error" ||
-    status === "speech_throttled"
+    status === "speech_throttled" ||
+    status === "ending"
   );
 }
 
@@ -56,6 +57,8 @@ export function formatStatus(status: string) {
       return "文字起こし停止中";
     case "speech_throttled":
       return "文字起こし再接続中";
+    case "ending":
+      return "終了処理中";
     case "transcribing":
       return "文字起こし中";
     case "failed":
