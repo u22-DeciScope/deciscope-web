@@ -2,6 +2,7 @@ import { requestJson } from "~/api/core/apiClient";
 import type {
   AnalysisItem,
   TreeEdgePayload,
+  TreeChangesPayload,
   TreeNodePayload,
   TreeUpdatePayload,
 } from "~/api/meetings/meetingRuntimeTypes";
@@ -19,6 +20,8 @@ export type LiveAnalysisPayload = {
   currentTopic?: string;
   items: AnalysisItem[];
   tree: TreeUpdatePayload | null;
+  treeVersion?: number;
+  treeChanges?: TreeChangesPayload;
 };
 
 export type FinalSummaryDecision = {
@@ -195,12 +198,41 @@ function normalizeLivePayload(value: unknown): LiveAnalysisPayload | null {
     : legacyLiveAnalysisItems(source);
   const itemIds = new Set(items.map((item) => item.id));
   const tree = normalizeLiveTree(source.tree, itemIds) ?? synthesizeLiveTree(currentTopic, items);
+  const treeVersion = optionalNumber(source.treeVersion);
+  const treeChanges = normalizeTreeChanges(source.treeChanges);
   return {
     ...(summary ? { summary } : {}),
     ...(currentTopic ? { currentTopic } : {}),
     items,
     tree,
+    ...(treeVersion !== undefined ? { treeVersion } : {}),
+    ...(treeChanges ? { treeChanges } : {}),
   };
+}
+
+function normalizeTreeChanges(value: unknown): TreeChangesPayload | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const source = value as Record<string, unknown>;
+  const treeVersion = optionalNumber(source.treeVersion);
+  if (treeVersion === undefined) {
+    return undefined;
+  }
+  const changes: TreeChangesPayload = { treeVersion };
+  for (const [key, raw] of Object.entries({
+    newNodeIds: source.newNodeIds,
+    updatedNodeIds: source.updatedNodeIds,
+    reparentedNodeIds: source.reparentedNodeIds,
+    resolvedNodeIds: source.resolvedNodeIds,
+    promotedNodeIds: source.promotedNodeIds,
+  })) {
+    const ids = [...new Set(normalizeStringArray(raw))];
+    if (ids.length > 0) {
+      changes[key as keyof Omit<TreeChangesPayload, "treeVersion">] = ids;
+    }
+  }
+  return changes;
 }
 
 function normalizeLiveAnalysisItems(value: unknown[]): AnalysisItem[] {
@@ -219,6 +251,8 @@ function normalizeLiveAnalysisItems(value: unknown[]): AnalysisItem[] {
       const kind = optionalString(source.kind)?.trim() || "issue";
       const severity = optionalString(source.severity)?.trim() || "medium";
       const status = optionalString(source.status)?.trim() || "open";
+      const evidenceSequenceNos = normalizeNumberArray(source.evidenceSequenceNos);
+      const relatedAgendaIds = normalizeStringArray(source.relatedAgendaIds);
       return {
         id,
         kind,
@@ -226,6 +260,8 @@ function normalizeLiveAnalysisItems(value: unknown[]): AnalysisItem[] {
         title: title || truncateItemTitle(body),
         body,
         status,
+        ...(evidenceSequenceNos.length > 0 ? { evidenceSequenceNos } : {}),
+        ...(relatedAgendaIds.length > 0 ? { relatedAgendaIds } : {}),
       };
     })
     .filter((item): item is AnalysisItem => item !== null);
@@ -336,6 +372,8 @@ function normalizeTreeNodes(value: unknown, itemIds: Set<string>): TreeNodePaylo
         optionalString(source.description)?.trim() ?? optionalString(source.summary)?.trim() ?? "",
       );
       const relatedItemIds = normalizeRelatedItemIds(source, id, itemIds);
+      const origin = optionalString(source.origin)?.trim();
+      const agendaRole = optionalString(source.agendaRole)?.trim();
       return {
         id,
         ...(kind ? { kind } : {}),
@@ -344,6 +382,8 @@ function normalizeTreeNodes(value: unknown, itemIds: Set<string>): TreeNodePaylo
         ...(status ? { status } : {}),
         ...(description ? { description } : {}),
         ...(relatedItemIds.length > 0 ? { relatedItemIds } : {}),
+        ...(origin ? { origin } : {}),
+        ...(agendaRole ? { agendaRole } : {}),
       };
     })
     .filter((node): node is TreeNodePayload => node !== null);
@@ -510,6 +550,15 @@ function normalizeStringArray(value: unknown): string[] {
     .filter((item): item is string => typeof item === "string")
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
+}
+
+function normalizeNumberArray(value: unknown): number[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(
+    (item): item is number => typeof item === "number" && Number.isSafeInteger(item) && item > 0,
+  );
 }
 
 function isMeetingAIAnalysisType(value: unknown): value is MeetingAIAnalysisType {

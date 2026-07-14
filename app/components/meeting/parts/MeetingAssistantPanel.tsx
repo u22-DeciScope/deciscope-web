@@ -34,17 +34,19 @@ type MeetingAssistantPanelProps = {
 
 const insightIcons = {
   issue: HiLightBulb,
+  open_issue: HiQuestionMarkCircle,
   question: HiQuestionMarkCircle,
   risk: HiExclamationTriangle,
   decision: HiCheckCircle,
   todo: HiClipboardDocumentList,
 };
 
-type InsightFilter = "live" | "active" | "decision" | "resolved";
+type InsightFilter = "live" | "active" | "question" | "decision" | "resolved";
 
 const insightFilterTabs: Array<{ key: InsightFilter; label: string }> = [
   { key: "live", label: "ライブ" },
   { key: "active", label: "進行中" },
+  { key: "question", label: "質問・未解決" },
   { key: "decision", label: "決定事項" },
   { key: "resolved", label: "解決済" },
 ];
@@ -54,7 +56,14 @@ function matchesInsightFilter(item: AnalysisItem, filter: InsightFilter) {
     case "live":
       return false;
     case "active":
-      return !isResolvedItem(item) && item.kind !== "decision";
+      return (
+        !isResolvedItem(item) &&
+        item.kind !== "decision" &&
+        item.kind !== "question" &&
+        item.kind !== "open_issue"
+      );
+    case "question":
+      return !isResolvedItem(item) && (item.kind === "question" || item.kind === "open_issue");
     case "decision":
       return !isResolvedItem(item) && item.kind === "decision";
     case "resolved":
@@ -74,6 +83,9 @@ function filterForInsightItem(item: AnalysisItem): InsightFilter {
   }
   if (item.kind === "decision") {
     return "decision";
+  }
+  if (item.kind === "question" || item.kind === "open_issue") {
+    return "question";
   }
   return "active";
 }
