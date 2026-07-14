@@ -31,7 +31,7 @@ export function SessionReviewWorkspace({
     // グリッド自体を一定の高さ(ビューポート連動・上下限つき)に固定し、
     // 各パネル(タイムライン/議論ツリー/AIアシスタント)内部のスクロールに任せる。
     <MeetingWorkspaceGrid
-      className="min-h-[560px] shrink-0 pb-1 lg:h-[clamp(560px,72vh,900px)]"
+      className="min-h-140 shrink-0 pb-1 lg:h-[clamp(560px,72vh,900px)]"
       partials={partials}
       segments={finalSegments}
       treeNodes={tree?.nodes ?? []}
