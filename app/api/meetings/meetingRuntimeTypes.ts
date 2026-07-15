@@ -44,8 +44,19 @@ export type AnalysisItem = {
   status: AnalysisItemStatus;
   linked_segment_ids?: string[];
   evidenceSequenceNos?: number[];
+  resolvedAtVersion?: number;
+  resolutionEvidenceSequenceNos?: number[];
+  resolutionReason?: string;
+  reopenedAtVersion?: number;
+  reopenEvidenceSequenceNos?: number[];
+  reopenReason?: string;
   // primary parentとは別の横断agenda参照。複数親edgeには変換しない。
   relatedAgendaIds?: string[];
+  // サーバー管理の分類状態。tentativeは通常のtree nodeとして描画せず、
+  // 候補論点のstaging件数として扱う。
+  classificationStatus?: "assigned" | "tentative" | "unclassified" | string;
+  candidateTopicId?: string;
+  candidateInactive?: boolean;
 };
 
 export type AnalysisDeltaPayload = {

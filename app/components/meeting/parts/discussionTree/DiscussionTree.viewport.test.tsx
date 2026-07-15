@@ -2,7 +2,11 @@ import { StrictMode, type ReactNode } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { TreeEdgePayload, TreeNodePayload } from "~/api/meetings/meetingRuntimeTypes";
+import type {
+  AnalysisItem,
+  TreeEdgePayload,
+  TreeNodePayload,
+} from "~/api/meetings/meetingRuntimeTypes";
 
 const flow = vi.hoisted(() => ({
   fitView: vi.fn(() => Promise.resolve(true)),
@@ -128,5 +132,43 @@ describe("DiscussionTree structural viewport focus", () => {
     );
     await waitFor(() => expect(flow.setCenter).toHaveBeenCalled());
     expect(flow.setCenter.mock.calls[0]?.[2]).toMatchObject({ duration: 0 });
+  });
+
+  it("renders no action projection or reference node under StrictMode", () => {
+    const actionNodes: TreeNodePayload[] = [
+      ...initialNodes,
+      {
+        id: "agenda-actions",
+        kind: "topic",
+        parentId: "root",
+        label: "今後の対応事項",
+        agendaRole: "action_summary",
+      },
+    ];
+    const actionEdges: TreeEdgePayload[] = [
+      ...initialEdges,
+      { id: "root-actions", source: "root", target: "agenda-actions" },
+    ];
+    const items: AnalysisItem[] = [
+      {
+        id: "item-1",
+        kind: "todo",
+        severity: "medium",
+        title: "気象データを確認する",
+        body: "基準風速の判断材料",
+        status: "open",
+        relatedAgendaIds: ["agenda-actions", "agenda-actions"],
+      },
+    ];
+    render(
+      <StrictMode>
+        <DiscussionTree nodes={actionNodes} edges={actionEdges} analysisItems={items} />
+      </StrictMode>,
+    );
+
+    expect(screen.getAllByTestId("flow-node-item-1")).toHaveLength(1);
+    expect(screen.queryByTestId(/flow-node-agenda-reference/)).toBeNull();
+    expect(screen.queryByTestId("discussion-tree-projections")).toBeNull();
+    expect(screen.queryByText("今後の対応事項")).toBeNull();
   });
 });

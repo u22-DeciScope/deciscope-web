@@ -17,6 +17,7 @@ import {
   dimmedColor,
   resolvedBadgeColor,
 } from "~/components/meeting/parts/analysisKindPalette";
+import { buildActionSummaryProjection } from "~/components/meeting/parts/actionSummaryProjection";
 
 type MeetingAssistantPanelProps = {
   insights: AnalysisItem[];
@@ -41,7 +42,7 @@ const insightIcons = {
   todo: HiClipboardDocumentList,
 };
 
-type InsightFilter = "live" | "active" | "question" | "decision" | "resolved";
+export type InsightFilter = "live" | "active" | "question" | "decision" | "resolved" | "action";
 
 const insightFilterTabs: Array<{ key: InsightFilter; label: string }> = [
   { key: "live", label: "ライブ" },
@@ -49,15 +50,16 @@ const insightFilterTabs: Array<{ key: InsightFilter; label: string }> = [
   { key: "question", label: "質問・未解決" },
   { key: "decision", label: "決定事項" },
   { key: "resolved", label: "解決済" },
+  { key: "action", label: "対応事項" },
 ];
 
-function matchesInsightFilter(item: AnalysisItem, filter: InsightFilter) {
+export function matchesInsightFilter(item: AnalysisItem, filter: InsightFilter) {
   switch (filter) {
     case "live":
       return false;
     case "active":
       return (
-        !isResolvedItem(item) &&
+        !isResolvedDisplayItem(item) &&
         item.kind !== "decision" &&
         item.kind !== "question" &&
         item.kind !== "open_issue"
@@ -65,9 +67,11 @@ function matchesInsightFilter(item: AnalysisItem, filter: InsightFilter) {
     case "question":
       return !isResolvedItem(item) && (item.kind === "question" || item.kind === "open_issue");
     case "decision":
-      return !isResolvedItem(item) && item.kind === "decision";
+      return item.kind === "decision";
     case "resolved":
-      return isResolvedItem(item);
+      return isResolvedDisplayItem(item);
+    case "action":
+      return false;
     default:
       return true;
   }
@@ -77,12 +81,12 @@ export function analysisItemElementId(itemId: string) {
   return `ai-analysis-item-${encodeURIComponent(itemId)}`;
 }
 
-function filterForInsightItem(item: AnalysisItem): InsightFilter {
-  if (isResolvedItem(item)) {
-    return "resolved";
-  }
+export function filterForInsightItem(item: AnalysisItem): InsightFilter {
   if (item.kind === "decision") {
     return "decision";
+  }
+  if (isResolvedDisplayItem(item)) {
+    return "resolved";
   }
   if (item.kind === "question" || item.kind === "open_issue") {
     return "question";
@@ -90,8 +94,25 @@ function filterForInsightItem(item: AnalysisItem): InsightFilter {
   return "active";
 }
 
-function isResolvedItem(item: AnalysisItem) {
+export function isResolvedItem(item: AnalysisItem) {
   return item.status === "resolved";
+}
+
+export function isResolvedDisplayItem(item: AnalysisItem) {
+  if (!isResolvedItem(item)) {
+    return false;
+  }
+  return (
+    item.kind === "question" ||
+    item.kind === "open_issue" ||
+    item.kind === "issue" ||
+    item.kind === "risk" ||
+    item.kind === "todo"
+  );
+}
+
+export function isLiveDisplayItem(item: AnalysisItem) {
+  return !isDismissedItem(item) && !isResolvedDisplayItem(item);
 }
 
 function isDismissedItem(item: AnalysisItem) {
@@ -122,20 +143,50 @@ export function MeetingAssistantPanel({
     [livePayload],
   );
   const totalCount = visibleInsights.length + liveItems.length;
+  const allItems = useMemo(() => {
+    const byId = new Map<string, AnalysisItem>();
+    for (const item of [...visibleInsights, ...liveItems]) {
+      byId.set(item.id, item);
+    }
+    return [...byId.values()];
+  }, [liveItems, visibleInsights]);
+  const actionSummaryRows = useMemo(
+    () => buildActionSummaryProjection(livePayload?.tree?.nodes ?? [], allItems),
+    [allItems, livePayload?.tree?.nodes],
+  );
+  const actionItemIds = useMemo(
+    () => new Set(actionSummaryRows.map((row) => row.canonicalItemId)),
+    [actionSummaryRows],
+  );
+  const liveItemIds = useMemo(() => new Set(liveItems.map((item) => item.id)), [liveItems]);
   const filteredLiveItems = useMemo(
-    () => liveItems.filter((item) => matchesInsightFilter(item, filter)),
-    [filter, liveItems],
+    () =>
+      filter === "action"
+        ? liveItems.filter((item) => actionItemIds.has(item.id))
+        : liveItems.filter((item) => matchesInsightFilter(item, filter)),
+    [actionItemIds, filter, liveItems],
   );
   const filteredInsights = useMemo(
-    () => visibleInsights.filter((insight) => matchesInsightFilter(insight, filter)),
-    [filter, visibleInsights],
+    () =>
+      filter === "action"
+        ? visibleInsights.filter(
+            (insight) => actionItemIds.has(insight.id) && !liveItemIds.has(insight.id),
+          )
+        : visibleInsights.filter((insight) => matchesInsightFilter(insight, filter)),
+    [actionItemIds, filter, liveItemIds, visibleInsights],
   );
   const filteredItemCount = filteredLiveItems.length + filteredInsights.length;
+  const liveActiveItemCount = liveItems.filter(isLiveDisplayItem).length;
+  const liveResolvedItemCount = liveItems.filter(isResolvedDisplayItem).length;
+  const resolvedTabItemCount = [...liveItems, ...visibleInsights].filter(
+    isResolvedDisplayItem,
+  ).length;
   const visibleFilterTabs = useMemo(
     () => (showLiveTab ? insightFilterTabs : insightFilterTabs.filter((tab) => tab.key !== "live")),
     [showLiveTab],
   );
   const liveTabActive = showLiveTab && filter === "live";
+  const actionTabActive = filter === "action";
 
   useEffect(() => {
     if (!focusedAnalysisItemId) {
@@ -155,10 +206,13 @@ export function MeetingAssistantPanel({
       return;
     }
     processedFocusIdRef.current = focusedAnalysisItemId;
+    if (filter === "action" && actionItemIds.has(target.id)) {
+      return;
+    }
     if (!matchesInsightFilter(target, filter)) {
       setFilter(filterForInsightItem(target));
     }
-  }, [filter, focusedAnalysisItemId, liveItems, visibleInsights]);
+  }, [actionItemIds, filter, focusedAnalysisItemId, liveItems, visibleInsights]);
 
   useEffect(() => {
     if (!focusedAnalysisItemId || typeof window === "undefined") {
@@ -182,6 +236,12 @@ export function MeetingAssistantPanel({
     <div
       className="flex min-h-0 w-full flex-col overflow-hidden rounded-(--ds-radius-panel) border"
       style={{ background: "var(--ds-surface)", borderColor: "var(--ds-border)" }}
+      data-live-active-items={liveActiveItemCount}
+      data-live-resolved-items={liveResolvedItemCount}
+      data-resolved-tab-items={resolvedTabItemCount}
+      data-action-summary-tabs="1"
+      data-rendered-action-items={actionSummaryRows.length}
+      data-rendered-action-tree-nodes="0"
     >
       <header
         className="flex min-h-11 shrink-0 items-center border-b px-3 py-1"
@@ -211,14 +271,14 @@ export function MeetingAssistantPanel({
       </header>
 
       <div
-        className="flex h-9 w-full shrink-0 items-center gap-0.5 border-b px-1.5"
+        className="flex h-9 w-full shrink-0 items-center gap-0.5 overflow-x-auto border-b px-1.5"
         style={{ borderColor: "var(--node-border)" }}
       >
         {visibleFilterTabs.map((tab) => (
           <button
             key={tab.key}
             type="button"
-            className="min-w-0 flex-1 whitespace-nowrap rounded-md px-0.5 py-1 text-center text-[10px]"
+            className="min-w-14 flex-1 shrink-0 whitespace-nowrap rounded-md px-1 py-1 text-center text-[10px]"
             style={
               tab.key === filter
                 ? { background: "var(--chat-other-bg)", color: "var(--brand)" }
@@ -232,6 +292,19 @@ export function MeetingAssistantPanel({
       </div>
 
       <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-2.5">
+        {livePayload?.degraded && (
+          <section
+            role="status"
+            className="rounded-(--ds-radius-control) border px-2.5 py-2 text-[10px]"
+            style={{
+              background: "color-mix(in srgb, var(--priority-medium) 10%, var(--ds-surface))",
+              borderColor: "var(--priority-medium)",
+              color: "var(--text-sub)",
+            }}
+          >
+            分析ツリーの整合性が低下したため、直前の安全な構造を表示しています。
+          </section>
+        )}
         {liveTabActive &&
           (liveAnalysis ? (
             <LiveAnalysisOverview liveAnalysis={liveAnalysis} payload={livePayload} />
@@ -267,13 +340,19 @@ export function MeetingAssistantPanel({
             </div>
           </section>
         )}
-        {!liveTabActive && totalCount === 0 && (
+        {!liveTabActive && !actionTabActive && totalCount === 0 && (
           <EmptyAssistantState
             title="まだAIメモはありません"
             body="分析イベントが届くと、リスクや質問がここへカード表示されます。"
           />
         )}
-        {!liveTabActive && totalCount > 0 && filteredItemCount === 0 && (
+        {!liveTabActive && actionTabActive && filteredItemCount === 0 && (
+          <EmptyAssistantState
+            title="未完了の対応事項はありません"
+            body="進行中のTODO、または対応TODOがない未解決事項がここに表示されます。"
+          />
+        )}
+        {!liveTabActive && !actionTabActive && totalCount > 0 && filteredItemCount === 0 && (
           <EmptyAssistantState
             title="このタブに表示するカードはありません"
             body="別のタブに切り替えると、他の状態のカードを確認できます。"
@@ -317,8 +396,8 @@ function severityColor(severity: string) {
 // カードヘッダーの種別ラベルの右隣に置く。ノード/カードの共通コンポーネントである
 // ResolvedBadge(discussionTree/NodeDetailCard.tsx, DiscussionNodeView.tsx)と同じ配色
 // (resolvedBadgeColor)を使い、ツリー側との見た目の一貫性を保つ。
-function AnalysisStatusBadge({ status }: { status: string }) {
-  if (status !== "resolved") {
+function AnalysisStatusBadge({ item }: { item: AnalysisItem }) {
+  if (!isResolvedDisplayItem(item)) {
     return null;
   }
   return (
@@ -327,7 +406,7 @@ function AnalysisStatusBadge({ status }: { status: string }) {
       style={{ background: resolvedBadgeColor.bg, color: resolvedBadgeColor.fg }}
     >
       <HiCheck className="h-3 w-3" />
-      解決済
+      {item.kind === "todo" ? "完了済" : "解決済"}
     </span>
   );
 }
@@ -348,7 +427,7 @@ function analysisItemHighlightStyle(highlighted: boolean): React.CSSProperties {
   };
 }
 
-function LiveAnalysisItemCard({
+export function LiveAnalysisItemCard({
   item,
   highlighted,
   onFocusTreeItem,
@@ -359,7 +438,7 @@ function LiveAnalysisItemCard({
 }) {
   const Icon = insightIcons[item.kind as keyof typeof insightIcons] ?? HiLightBulb;
   const style = insightStyle(item.kind);
-  const resolved = isResolvedItem(item);
+  const resolved = isResolvedDisplayItem(item);
   const clickable = Boolean(onFocusTreeItem);
   return (
     <article
@@ -391,7 +470,7 @@ function LiveAnalysisItemCard({
             <Icon className="h-3.5 w-3.5 shrink-0" />
             {analysisKindLabel(item.kind)}
           </div>
-          <AnalysisStatusBadge status={item.status} />
+          <AnalysisStatusBadge item={item} />
         </div>
         <span
           className="rounded-full px-2 py-0.5 text-[10px] font-bold"
@@ -425,7 +504,7 @@ function LiveAnalysisOverview({
 }) {
   const bullets = liveAnalysisBullets(payload);
   const liveTopicItems = useMemo(
-    () => (payload?.items ?? []).filter((item) => item.status !== "dismissed").slice(0, 4),
+    () => (payload?.items ?? []).filter(isLiveDisplayItem).slice(0, 4),
     [payload],
   );
   const hasBody = bullets.length > 0 || liveTopicItems.length > 0;

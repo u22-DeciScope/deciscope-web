@@ -37,6 +37,10 @@ import {
   treeChangeSignature,
 } from "./discussionTreeFocus";
 
+// Compatibility re-export for existing unit tests/importers. The projection
+// is rendered only by MeetingAssistantPanel.
+export { buildActionSummaryProjection } from "../actionSummaryProjection";
+
 // バッジ表示・件数バッジの種別の並び順(安定した順序で見比べやすくする)。
 const KIND_ORDER = [
   "issue",
@@ -190,11 +194,15 @@ function DiscussionFlow({
     [analysisItems],
   );
   const displayTree = useMemo(
-    () => addCrossCuttingAgendaReferences(nodes, edges, analysisItems ?? []),
+    () => stageTentativeTree(nodes, edges, analysisItems ?? []),
     [nodes, edges, analysisItems],
   );
   const displayNodes = displayTree.nodes;
   const displayEdges = displayTree.edges;
+  const tentativeSummary = useMemo(
+    () => buildTentativeSummary(analysisItems ?? []),
+    [analysisItems],
+  );
 
   const treeEdges = useMemo(
     () => normalizeEdges(displayNodes, displayEdges),
@@ -269,7 +277,7 @@ function DiscussionFlow({
 
   // 「active」= ノード一覧の末尾(最新)ノード。折りたたみで非表示になっていても
   // 他ノードへ付け替わらないよう、可視ノードに絞る前のidで判定する。
-  const lastNodeId = nodes.length > 0 ? nodes[nodes.length - 1].id : null;
+  const lastNodeId = displayNodes.length > 0 ? displayNodes[displayNodes.length - 1].id : null;
 
   const flowNodes = useMemo<DiscussionFlowNode[]>(() => {
     const laidOut = layoutPositions(visibleNodes, visibleEdges);
@@ -393,16 +401,16 @@ function DiscussionFlow({
   // a compatibility fallback for old payloads.
   useEffect(() => {
     const previous = previousStructuralNodesRef.current;
-    previousStructuralNodesRef.current = nodes;
+    previousStructuralNodesRef.current = displayNodes;
     if (previous === null) {
       return;
     }
-    const changes = deriveTreeChanges(previous, nodes, treeChanges);
+    const changes = deriveTreeChanges(previous, displayNodes, treeChanges);
     const signature = treeChangeSignature(changes);
     if (processedTreeChangeRef.current === signature) {
       return;
     }
-    const targetIds = focusTargetIds(changes, nodes);
+    const targetIds = focusTargetIds(changes, displayNodes);
     if (targetIds.length === 0) {
       return;
     }
@@ -439,7 +447,7 @@ function DiscussionFlow({
   }, [
     autoFollow,
     hoveredId,
-    nodes,
+    displayNodes,
     queueStructuralFocus,
     recordFocusMetric,
     selectedId,
@@ -718,6 +726,35 @@ function DiscussionFlow({
             全折りたたみ
           </button>
         </Panel>
+        {tentativeSummary.itemCount > 0 && (
+          <Panel
+            position="bottom-right"
+            className="max-h-[48%] w-72 max-w-[48%] overflow-y-auto rounded-(--ds-radius-control) border p-2 shadow-sm"
+            style={{ background: "var(--ds-surface)", borderColor: "var(--ds-border)" }}
+          >
+            <div
+              data-testid="discussion-tree-projections"
+              data-rendered-reference-rows="0"
+              data-rendered-reference-nodes="0"
+              data-action-summary-nodes="0"
+              data-action-summary-rows="0"
+              data-visible-tentative-items="0"
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <section aria-label="候補論点">
+                <p className="text-[10px] font-semibold" style={{ color: "var(--text-sub)" }}>
+                  候補論点 {tentativeSummary.itemCount}件
+                  {tentativeSummary.candidateCount > 0
+                    ? `（${tentativeSummary.candidateCount}分類）`
+                    : ""}
+                </p>
+                <p className="mt-0.5 text-[9px]" style={{ color: "var(--text-muted)" }}>
+                  根拠が揃うまで追加論点の通常ノードには表示しません
+                </p>
+              </section>
+            </div>
+          </Panel>
+        )}
       </ReactFlow>
 
       {selectedNode && (
@@ -738,55 +775,40 @@ function DiscussionFlow({
   );
 }
 
-// Cross-cutting agendas render deterministic reference nodes while keeping
-// the canonical item node and parent untouched. The virtual node points back
-// through relatedItemIds, so hover/click and assistant-card navigation resolve
-// to the same canonical AnalysisItem.
-export function addCrossCuttingAgendaReferences(
+// Tentative items stay in the API payload for audit/promotion, but are not
+// full React Flow nodes. Promotion changes classificationStatus to assigned,
+// so the same canonical id appears exactly once on the next render.
+export function stageTentativeTree(
   nodes: TreeNodePayload[],
   edges: TreeEdgePayload[],
   analysisItems: AnalysisItem[],
 ): { nodes: TreeNodePayload[]; edges: TreeEdgePayload[] } {
-  const nodeIds = new Set(nodes.map((node) => node.id));
-  const referenceNodes: TreeNodePayload[] = [];
-  const referenceEdges: TreeEdgePayload[] = [];
-  const seen = new Set<string>();
-
-  for (const item of analysisItems) {
-    if (!nodeIds.has(item.id)) {
-      continue;
-    }
-    for (const agendaId of item.relatedAgendaIds ?? []) {
-      if (!nodeIds.has(agendaId)) {
-        continue;
-      }
-      const id = `agenda-reference:${agendaId}:${item.id}`;
-      if (seen.has(id)) {
-        continue;
-      }
-      seen.add(id);
-      referenceNodes.push({
-        id,
-        kind: item.kind,
-        parentId: agendaId,
-        label: item.title,
-        status: item.status,
-        description: item.body,
-        relatedItemIds: [item.id],
-        origin: "reference",
-      });
-      referenceEdges.push({
-        id: `${agendaId}->${id}`,
-        source: agendaId,
-        target: id,
-        kind: "reference",
-      });
+  const hiddenIds = new Set(
+    analysisItems
+      .filter((item) => item.classificationStatus === "tentative")
+      .map((item) => item.id),
+  );
+  for (const node of nodes) {
+    if (node.agendaRole === "action_summary") {
+      hiddenIds.add(node.id);
     }
   }
-
+  if (hiddenIds.size === 0) {
+    return { nodes, edges };
+  }
   return {
-    nodes: referenceNodes.length > 0 ? [...nodes, ...referenceNodes] : nodes,
-    edges: referenceEdges.length > 0 ? [...edges, ...referenceEdges] : edges,
+    nodes: nodes.filter((node) => !hiddenIds.has(node.id)),
+    edges: edges.filter((edge) => !hiddenIds.has(edge.source) && !hiddenIds.has(edge.target)),
+  };
+}
+
+export function buildTentativeSummary(analysisItems: AnalysisItem[]) {
+  const tentative = analysisItems.filter(
+    (item) => item.classificationStatus === "tentative" && !item.candidateInactive,
+  );
+  return {
+    itemCount: tentative.length,
+    candidateCount: new Set(tentative.map((item) => item.candidateTopicId).filter(Boolean)).size,
   };
 }
 

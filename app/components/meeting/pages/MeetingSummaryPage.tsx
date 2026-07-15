@@ -223,6 +223,7 @@ export default function MeetingSummary() {
     analysisItems.length > 0
       ? analysisItems
       : (livePayload?.items ?? []).filter((item) => item.status !== "dismissed");
+  const analysisQualityDegraded = treeSnapshot?.degraded || livePayload?.degraded;
 
   async function exportMarkdown() {
     const content = session
@@ -300,6 +301,15 @@ export default function MeetingSummary() {
             currentTitle={summary.title}
             pending={finalAnalysisPending}
           />
+          {analysisQualityDegraded && (
+            <p
+              role="status"
+              className="rounded-(--ds-radius-control) border px-3 py-2 text-[11px]"
+              style={{ borderColor: "var(--priority-medium)", color: "var(--text-sub)" }}
+            >
+              分析ツリーの整合性が低下したため、直前の安全な構造を表示しています。
+            </p>
+          )}
           {hasPreMeetingContext(session) && <PreMeetingContextPanel session={session} />}
           <SessionReviewWorkspace
             session={session}

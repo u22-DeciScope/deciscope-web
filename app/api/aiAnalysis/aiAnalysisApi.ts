@@ -22,6 +22,25 @@ export type LiveAnalysisPayload = {
   tree: TreeUpdatePayload | null;
   treeVersion?: number;
   treeChanges?: TreeChangesPayload;
+  degraded?: boolean;
+  degradedReason?: string;
+  treeIntegrity?: TreeIntegrityDiagnostics;
+};
+
+export type TreeIntegrityDiagnostics = {
+  valid?: boolean;
+  duplicateNodeIds?: string[];
+  crossKindIdCollisions?: string[];
+  reservedItemIds?: string[];
+  selfParentNodeIds?: string[];
+  missingFixedAgendaIds?: string[];
+  movedFixedAgendaIds?: string[];
+  fixedAgendaKindMismatchIds?: string[];
+  actionSummaryTreeNodeIds?: string[];
+  expectedFixedAgendaCount?: number;
+  actualFixedAgendaCount?: number;
+  clientDuplicateNodeIds?: string[];
+  clientCrossKindIdCollisions?: string[];
 };
 
 export type FinalSummaryDecision = {
@@ -67,6 +86,9 @@ export type TreeSnapshotPayload = {
   final?: boolean;
   generatedAtUtc?: string;
   tree: TreeUpdatePayload | null;
+  degraded?: boolean;
+  degradedReason?: string;
+  treeIntegrity?: TreeIntegrityDiagnostics;
 };
 
 export type MeetingAIAnalyses = {
@@ -177,11 +199,16 @@ function normalizeTreeSnapshot(value: unknown): TreeSnapshotPayload | null {
   const treeVersion = optionalNumber(source.treeVersion);
   const reason = optionalString(source.reason);
   const generatedAtUtc = optionalString(source.generatedAtUtc);
+  const degradedReason = optionalString(source.degradedReason)?.trim();
+  const treeIntegrity = normalizeTreeIntegrity(source.treeIntegrity);
   return {
     ...(treeVersion !== undefined ? { treeVersion } : {}),
     ...(reason ? { reason } : {}),
     ...(typeof source.final === "boolean" ? { final: source.final } : {}),
     ...(generatedAtUtc ? { generatedAtUtc } : {}),
+    ...(source.degraded === true ? { degraded: true } : {}),
+    ...(degradedReason ? { degradedReason } : {}),
+    ...(treeIntegrity ? { treeIntegrity } : {}),
     tree,
   };
 }
@@ -197,9 +224,30 @@ function normalizeLivePayload(value: unknown): LiveAnalysisPayload | null {
     ? normalizeLiveAnalysisItems(source.items)
     : legacyLiveAnalysisItems(source);
   const itemIds = new Set(items.map((item) => item.id));
-  const tree = normalizeLiveTree(source.tree, itemIds) ?? synthesizeLiveTree(currentTopic, items);
+  const clientIntegrity = {
+    duplicateNodeIds: [] as string[],
+    crossKindIdCollisions: [] as string[],
+  };
+  const tree =
+    normalizeLiveTree(source.tree, itemIds, clientIntegrity) ??
+    synthesizeLiveTree(currentTopic, items);
   const treeVersion = optionalNumber(source.treeVersion);
   const treeChanges = normalizeTreeChanges(source.treeChanges);
+  const serverIntegrity = normalizeTreeIntegrity(source.treeIntegrity);
+  const clientDegraded = clientIntegrity.duplicateNodeIds.length > 0;
+  const degraded = source.degraded === true || clientDegraded;
+  const treeIntegrity =
+    serverIntegrity || clientDegraded
+      ? {
+          ...(serverIntegrity ?? {}),
+          ...(clientIntegrity.duplicateNodeIds.length > 0
+            ? { clientDuplicateNodeIds: clientIntegrity.duplicateNodeIds }
+            : {}),
+          ...(clientIntegrity.crossKindIdCollisions.length > 0
+            ? { clientCrossKindIdCollisions: clientIntegrity.crossKindIdCollisions }
+            : {}),
+        }
+      : undefined;
   return {
     ...(summary ? { summary } : {}),
     ...(currentTopic ? { currentTopic } : {}),
@@ -207,6 +255,13 @@ function normalizeLivePayload(value: unknown): LiveAnalysisPayload | null {
     tree,
     ...(treeVersion !== undefined ? { treeVersion } : {}),
     ...(treeChanges ? { treeChanges } : {}),
+    ...(degraded ? { degraded: true } : {}),
+    ...(optionalString(source.degradedReason)?.trim()
+      ? { degradedReason: optionalString(source.degradedReason)?.trim() }
+      : clientDegraded
+        ? { degradedReason: "duplicate_node_id_filtered" }
+        : {}),
+    ...(treeIntegrity ? { treeIntegrity } : {}),
   };
 }
 
@@ -252,7 +307,17 @@ function normalizeLiveAnalysisItems(value: unknown[]): AnalysisItem[] {
       const severity = optionalString(source.severity)?.trim() || "medium";
       const status = optionalString(source.status)?.trim() || "open";
       const evidenceSequenceNos = normalizeNumberArray(source.evidenceSequenceNos);
+      const resolutionEvidenceSequenceNos = normalizeNumberArray(
+        source.resolutionEvidenceSequenceNos,
+      );
+      const reopenEvidenceSequenceNos = normalizeNumberArray(source.reopenEvidenceSequenceNos);
+      const resolvedAtVersion = optionalNumber(source.resolvedAtVersion);
+      const reopenedAtVersion = optionalNumber(source.reopenedAtVersion);
+      const resolutionReason = optionalString(source.resolutionReason);
+      const reopenReason = optionalString(source.reopenReason);
       const relatedAgendaIds = normalizeStringArray(source.relatedAgendaIds);
+      const classificationStatus = optionalString(source.classificationStatus)?.trim();
+      const candidateTopicId = optionalString(source.candidateTopicId)?.trim();
       return {
         id,
         kind,
@@ -261,7 +326,18 @@ function normalizeLiveAnalysisItems(value: unknown[]): AnalysisItem[] {
         body,
         status,
         ...(evidenceSequenceNos.length > 0 ? { evidenceSequenceNos } : {}),
+        ...(resolvedAtVersion !== undefined ? { resolvedAtVersion } : {}),
+        ...(resolutionEvidenceSequenceNos.length > 0 ? { resolutionEvidenceSequenceNos } : {}),
+        ...(resolutionReason ? { resolutionReason } : {}),
+        ...(reopenedAtVersion !== undefined ? { reopenedAtVersion } : {}),
+        ...(reopenEvidenceSequenceNos.length > 0 ? { reopenEvidenceSequenceNos } : {}),
+        ...(reopenReason ? { reopenReason } : {}),
         ...(relatedAgendaIds.length > 0 ? { relatedAgendaIds } : {}),
+        ...(classificationStatus ? { classificationStatus } : {}),
+        ...(candidateTopicId ? { candidateTopicId } : {}),
+        ...(typeof source.candidateInactive === "boolean"
+          ? { candidateInactive: source.candidateInactive }
+          : {}),
       };
     })
     .filter((item): item is AnalysisItem => item !== null);
@@ -337,23 +413,31 @@ function truncateItemTitle(text: string, maxLength = 25) {
   return `${text.slice(0, maxLength)}…`;
 }
 
-function normalizeLiveTree(value: unknown, itemIds: Set<string>): TreeUpdatePayload | null {
+function normalizeLiveTree(
+  value: unknown,
+  itemIds: Set<string>,
+  integrity?: { duplicateNodeIds: string[]; crossKindIdCollisions: string[] },
+): TreeUpdatePayload | null {
   if (!value || typeof value !== "object") {
     return null;
   }
   const source = value as Record<string, unknown>;
-  const nodes = normalizeTreeNodes(source.nodes, itemIds);
+  const nodes = normalizeTreeNodes(source.nodes, itemIds, integrity);
   if (nodes.length === 0) {
     return null;
   }
   return { nodes, edges: normalizeTreeEdges(source.edges) };
 }
 
-function normalizeTreeNodes(value: unknown, itemIds: Set<string>): TreeNodePayload[] {
+function normalizeTreeNodes(
+  value: unknown,
+  itemIds: Set<string>,
+  integrity?: { duplicateNodeIds: string[]; crossKindIdCollisions: string[] },
+): TreeNodePayload[] {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value
+  const parsed = value
     .map((node) => {
       if (!node || typeof node !== "object") {
         return null;
@@ -387,6 +471,86 @@ function normalizeTreeNodes(value: unknown, itemIds: Set<string>): TreeNodePaylo
       };
     })
     .filter((node): node is TreeNodePayload => node !== null);
+  const selected = new Map<string, TreeNodePayload>();
+  const order: string[] = [];
+  for (const node of parsed) {
+    const existing = selected.get(node.id);
+    if (!existing) {
+      selected.set(node.id, node);
+      order.push(node.id);
+      continue;
+    }
+    if (integrity) {
+      if (!integrity.duplicateNodeIds.includes(node.id)) {
+        integrity.duplicateNodeIds.push(node.id);
+      }
+      if (existing.kind !== node.kind && !integrity.crossKindIdCollisions.includes(node.id)) {
+        integrity.crossKindIdCollisions.push(node.id);
+      }
+    }
+    if (treeNodeIdentityPriority(node) > treeNodeIdentityPriority(existing)) {
+      selected.set(node.id, node);
+    }
+  }
+  return order
+    .map((id) => selected.get(id))
+    .filter((node): node is TreeNodePayload => Boolean(node));
+}
+
+function treeNodeIdentityPriority(node: TreeNodePayload) {
+  const fixedAgenda =
+    node.kind === "topic" &&
+    node.agendaRole !== "action_summary" &&
+    (node.origin === "agenda" || /^agenda-\d+$/.test(node.id));
+  if (fixedAgenda) {
+    return 100;
+  }
+  if (node.id === "root" && node.kind === "topic") {
+    return 90;
+  }
+  if (node.kind === "topic") {
+    return 60;
+  }
+  if (node.kind === "group") {
+    return 50;
+  }
+  return 10;
+}
+
+function normalizeTreeIntegrity(value: unknown): TreeIntegrityDiagnostics | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const source = value as Record<string, unknown>;
+  const stringArrays: Array<keyof TreeIntegrityDiagnostics> = [
+    "duplicateNodeIds",
+    "crossKindIdCollisions",
+    "reservedItemIds",
+    "selfParentNodeIds",
+    "missingFixedAgendaIds",
+    "movedFixedAgendaIds",
+    "fixedAgendaKindMismatchIds",
+    "actionSummaryTreeNodeIds",
+  ];
+  const diagnostics: TreeIntegrityDiagnostics = {};
+  if (typeof source.valid === "boolean") {
+    diagnostics.valid = source.valid;
+  }
+  for (const key of stringArrays) {
+    const values = normalizeStringArray(source[key]);
+    if (values.length > 0) {
+      diagnostics[key] = values as never;
+    }
+  }
+  const expected = optionalNumber(source.expectedFixedAgendaCount);
+  const actual = optionalNumber(source.actualFixedAgendaCount);
+  if (expected !== undefined) {
+    diagnostics.expectedFixedAgendaCount = expected;
+  }
+  if (actual !== undefined) {
+    diagnostics.actualFixedAgendaCount = actual;
+  }
+  return diagnostics;
 }
 
 function normalizeRelatedItemIds(

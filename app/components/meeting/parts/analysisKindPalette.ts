@@ -77,7 +77,7 @@ export const analysisKindLabels: Record<string, string> = {
   topic: "トピック",
   group: "議論グループ",
   issue: "論点",
-  open_issue: "未解決論点",
+  open_issue: "未解決",
   question: "質問",
   risk: "リスク",
   fact: "確認事項",
