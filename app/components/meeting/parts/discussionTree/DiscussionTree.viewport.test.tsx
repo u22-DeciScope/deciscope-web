@@ -29,12 +29,14 @@ vi.mock("@xyflow/react", () => ({
     children,
     nodes,
     onNodeClick,
+    proOptions,
   }: {
     children: ReactNode;
     nodes: Array<{ id: string }>;
     onNodeClick?: (event: MouseEvent, node: { id: string }) => void;
+    proOptions?: { hideAttribution?: boolean };
   }) => (
-    <div data-testid="react-flow">
+    <div data-testid="react-flow" data-hide-attribution={proOptions?.hideAttribution}>
       {nodes.map((node) => (
         <button
           key={node.id}
@@ -170,5 +172,26 @@ describe("DiscussionTree structural viewport focus", () => {
     expect(screen.queryByTestId(/flow-node-agenda-reference/)).toBeNull();
     expect(screen.queryByTestId("discussion-tree-projections")).toBeNull();
     expect(screen.queryByText("今後の対応事項")).toBeNull();
+  });
+
+  it("hides library attribution and tentative staging details", () => {
+    const tentativeItem: AnalysisItem = {
+      id: "candidate-1",
+      kind: "open_issue",
+      severity: "medium",
+      title: "候補",
+      body: "候補論点の説明",
+      status: "open",
+      classificationStatus: "tentative",
+      candidateTopicId: "candidate-topic-1",
+    };
+
+    render(
+      <DiscussionTree nodes={initialNodes} edges={initialEdges} analysisItems={[tentativeItem]} />,
+    );
+
+    expect(screen.getByTestId("react-flow").getAttribute("data-hide-attribution")).toBe("true");
+    expect(screen.queryByLabelText("候補論点")).toBeNull();
+    expect(screen.queryByText(/根拠が揃うまで/)).toBeNull();
   });
 });

@@ -5,11 +5,7 @@ import type {
   TreeEdgePayload,
   TreeNodePayload,
 } from "~/api/meetings/meetingRuntimeTypes";
-import {
-  buildActionSummaryProjection,
-  buildTentativeSummary,
-  stageTentativeTree,
-} from "./DiscussionTree";
+import { buildActionSummaryProjection, stageTentativeTree } from "./DiscussionTree";
 
 const nodes: TreeNodePayload[] = [
   { id: "root", kind: "topic", label: "会議" },
@@ -119,19 +115,11 @@ describe("discussion tree projections", () => {
     const staged = stageTentativeTree(nodes, edges, tentativeItems);
     expect(staged.nodes.some((node) => node.id === "todo-plant")).toBe(false);
     expect(staged.nodes.some((node) => node.id === "agenda-actions")).toBe(false);
-    expect(buildTentativeSummary(tentativeItems)).toEqual({ itemCount: 1, candidateCount: 1 });
-    expect(buildTentativeSummary([{ ...tentativeItems[0], candidateInactive: true }])).toEqual({
-      itemCount: 0,
-      candidateCount: 0,
-    });
 
     const promoted = stageTentativeTree(nodes, edges, [
       { ...tentativeItems[0], classificationStatus: "assigned", candidateTopicId: undefined },
     ]);
     expect(promoted.nodes.filter((node) => node.id === "todo-plant")).toHaveLength(1);
-    expect(
-      buildTentativeSummary([{ ...tentativeItems[0], classificationStatus: "assigned" }]),
-    ).toEqual({ itemCount: 0, candidateCount: 0 });
   });
 
   it("reduces the observed session_888 action references from eight full nodes to four rows", () => {

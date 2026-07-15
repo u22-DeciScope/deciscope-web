@@ -42,13 +42,50 @@ describe("MeetingAssistantPanel item filters", () => {
     for (const kind of ["decision", "fact", "topic", "group"]) {
       expect(isResolvedDisplayItem(item(kind, kind, "resolved"))).toBe(false);
     }
-    expect(matchesInsightFilter(item("fact", "fact", "resolved"), "active")).toBe(true);
+    expect(matchesInsightFilter(item("todo-completed", "todo", "completed"), "resolved")).toBe(
+      true,
+    );
   });
 
-  it("shows unresolved questions and open issues in their dedicated tab", () => {
-    expect(matchesInsightFilter(item("q", "question", "open"), "question")).toBe(true);
-    expect(matchesInsightFilter(item("o", "open_issue", "updated"), "question")).toBe(true);
-    expect(matchesInsightFilter(item("done", "open_issue", "resolved"), "question")).toBe(false);
+  it("shows questions, open issues, and issues in the unresolved tab", () => {
+    expect(matchesInsightFilter(item("q", "question", "open"), "unresolved")).toBe(true);
+    expect(matchesInsightFilter(item("o", "open_issue", "updated"), "unresolved")).toBe(true);
+    expect(matchesInsightFilter(item("i", "issue", "open"), "unresolved")).toBe(true);
+    expect(matchesInsightFilter(item("done", "open_issue", "resolved"), "unresolved")).toBe(false);
+  });
+
+  it("renders attribute tabs without question UI and hides priority on decision/resolved", () => {
+    const values = [
+      item("risk-card", "risk", "open"),
+      item("question-card", "question", "open"),
+      item("todo-card", "todo", "open"),
+      item("decision-card", "decision", "open"),
+      item("resolved-card", "todo", "resolved"),
+    ];
+    render(<MeetingAssistantPanel insights={values} speakerSummaries={[]} showLiveTab={true} />);
+
+    for (const label of ["ライブ", "リスク", "論点", "TODO", "決定事項", "解決済", "対応事項"]) {
+      expect(screen.getByRole("button", { name: label })).not.toBeNull();
+    }
+    expect(screen.queryByRole("button", { name: /質問/ })).toBeNull();
+
+    const issueTab = screen.getByRole("button", { name: "論点" });
+    expect(issueTab.className).toContain("flex-1");
+    expect(issueTab.className).toContain("basis-0");
+
+    fireEvent.click(issueTab);
+    expect(screen.getByText("question-card")).not.toBeNull();
+    expect(screen.queryByText("質問")).toBeNull();
+    expect(screen.getByText("medium")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "決定事項" }));
+    expect(screen.getByText("decision-card")).not.toBeNull();
+    expect(screen.queryByText("medium")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "解決済" }));
+    expect(screen.getByText("resolved-card")).not.toBeNull();
+    expect(screen.getByText("完了済")).not.toBeNull();
+    expect(screen.queryByText("medium")).toBeNull();
   });
 
   it("keeps live and resolved classifications mutually exclusive", () => {
@@ -58,6 +95,21 @@ describe("MeetingAssistantPanel item filters", () => {
     }
     expect(isLiveDisplayItem(item("decision", "decision", "resolved"))).toBe(true);
     expect(isLiveDisplayItem(item("fact", "fact", "open"))).toBe(true);
+  });
+
+  it("places every supported canonical item in exactly one attribute tab", () => {
+    const filters = ["risk", "unresolved", "todo", "decision", "resolved"] as const;
+    const values = [
+      item("risk", "risk", "open"),
+      item("question", "question", "open"),
+      item("issue", "issue", "open"),
+      item("todo", "todo", "open"),
+      item("decision", "decision", "open"),
+      item("resolved", "open_issue", "resolved"),
+    ];
+    for (const value of values) {
+      expect(filters.filter((filter) => matchesInsightFilter(value, filter))).toHaveLength(1);
+    }
   });
 
   it("renders one logical action tab and focuses the canonical item once", () => {

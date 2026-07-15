@@ -199,10 +199,6 @@ function DiscussionFlow({
   );
   const displayNodes = displayTree.nodes;
   const displayEdges = displayTree.edges;
-  const tentativeSummary = useMemo(
-    () => buildTentativeSummary(analysisItems ?? []),
-    [analysisItems],
-  );
 
   const treeEdges = useMemo(
     () => normalizeEdges(displayNodes, displayEdges),
@@ -630,7 +626,7 @@ function DiscussionFlow({
         fitView
         minZoom={0.2}
         maxZoom={1.25}
-        proOptions={{ hideAttribution: false }}
+        proOptions={{ hideAttribution: true }}
         nodesDraggable={false}
         nodesConnectable={false}
         edgesFocusable={false}
@@ -726,35 +722,6 @@ function DiscussionFlow({
             全折りたたみ
           </button>
         </Panel>
-        {tentativeSummary.itemCount > 0 && (
-          <Panel
-            position="bottom-right"
-            className="max-h-[48%] w-72 max-w-[48%] overflow-y-auto rounded-(--ds-radius-control) border p-2 shadow-sm"
-            style={{ background: "var(--ds-surface)", borderColor: "var(--ds-border)" }}
-          >
-            <div
-              data-testid="discussion-tree-projections"
-              data-rendered-reference-rows="0"
-              data-rendered-reference-nodes="0"
-              data-action-summary-nodes="0"
-              data-action-summary-rows="0"
-              data-visible-tentative-items="0"
-              onPointerDown={(event) => event.stopPropagation()}
-            >
-              <section aria-label="候補論点">
-                <p className="text-[10px] font-semibold" style={{ color: "var(--text-sub)" }}>
-                  候補論点 {tentativeSummary.itemCount}件
-                  {tentativeSummary.candidateCount > 0
-                    ? `（${tentativeSummary.candidateCount}分類）`
-                    : ""}
-                </p>
-                <p className="mt-0.5 text-[9px]" style={{ color: "var(--text-muted)" }}>
-                  根拠が揃うまで追加論点の通常ノードには表示しません
-                </p>
-              </section>
-            </div>
-          </Panel>
-        )}
       </ReactFlow>
 
       {selectedNode && (
@@ -799,16 +766,6 @@ export function stageTentativeTree(
   return {
     nodes: nodes.filter((node) => !hiddenIds.has(node.id)),
     edges: edges.filter((edge) => !hiddenIds.has(edge.source) && !hiddenIds.has(edge.target)),
-  };
-}
-
-export function buildTentativeSummary(analysisItems: AnalysisItem[]) {
-  const tentative = analysisItems.filter(
-    (item) => item.classificationStatus === "tentative" && !item.candidateInactive,
-  );
-  return {
-    itemCount: tentative.length,
-    candidateCount: new Set(tentative.map((item) => item.candidateTopicId).filter(Boolean)).size,
   };
 }
 

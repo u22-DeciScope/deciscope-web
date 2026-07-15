@@ -35,9 +35,9 @@ export const analysisKindPalette: Record<string, AnalysisKindColor> = {
     border: "color-mix(in srgb, var(--tag-idea-fg) 35%, transparent)",
   },
   question: {
-    bg: "var(--ai-quest-bg)",
-    fg: "var(--ai-quest-fg)",
-    border: "var(--ai-quest-border)",
+    bg: "var(--tag-idea-bg)",
+    fg: "var(--tag-idea-fg)",
+    border: "color-mix(in srgb, var(--tag-idea-fg) 35%, transparent)",
   },
   risk: {
     bg: "var(--ai-risk-bg)",
@@ -78,10 +78,10 @@ export const analysisKindLabels: Record<string, string> = {
   group: "議論グループ",
   issue: "論点",
   open_issue: "未解決",
-  question: "質問",
+  question: "未解決",
   risk: "リスク",
   fact: "確認事項",
-  decision: "決定",
+  decision: "決定事項",
   todo: "TODO",
 };
 
