@@ -36,6 +36,7 @@ import {
   analysisTreeVersion,
   initialMeetingAnalysisState,
   meetingAnalysisReducer,
+  treeApplyDecision,
   type MeetingAnalysisAction,
 } from "~/hooks/meetingAnalysisState";
 
@@ -770,11 +771,19 @@ export function useMeetingTranscriptSession(
                 sessionId: incoming.sessionId,
                 analysisType: incoming.analysisType,
                 status: incoming.status,
+                eventStatus: incoming.status,
                 incomingVersion: incoming.version,
+                currentVersion: before.analysisRuntimeStatus.liveVersion,
+                payloadKind: livePayload?.payloadKind ?? null,
+                incomingNodeCount: livePayload?.tree?.nodes?.length ?? 0,
+                incomingEdgeCount: livePayload?.tree?.edges?.length ?? 0,
+                incomingTreeVersion: livePayload?.treeVersion ?? null,
                 liveVersionBefore: before.analysisRuntimeStatus.liveVersion,
                 liveVersionAfter: after.analysisRuntimeStatus.liveVersion,
                 finalVersionBefore: before.analysisRuntimeStatus.finalVersion,
                 finalVersionAfter: after.analysisRuntimeStatus.finalVersion,
+                canonicalNodeCountBefore: analysisTreeNodeCount(before),
+                canonicalNodeCountAfter: analysisTreeNodeCount(after),
                 treeNodeCountBefore: analysisTreeNodeCount(before),
                 treeNodeCountAfter: analysisTreeNodeCount(after),
                 treeReplaced:
@@ -785,6 +794,7 @@ export function useMeetingTranscriptSession(
                   analysisTreeNodeCount(after) === analysisTreeNodeCount(before),
                 treeClearRejected:
                   livePayload?.tree?.nodes?.length === 0 && analysisTreeNodeCount(after) > 0,
+                decision: treeApplyDecision(before.liveAnalysis, incoming),
               });
               const receivedAtMs = Date.now();
               setLiveAnalysisMeta((current) => ({

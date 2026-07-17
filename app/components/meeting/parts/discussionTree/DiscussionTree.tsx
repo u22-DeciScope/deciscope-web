@@ -338,6 +338,47 @@ function DiscussionFlow({
     [visibleEdges, selectedId],
   );
 
+  // 描画状態の観測ログ: canonical(props)・表示フィルタ後・React Flow描画・
+  // 可視判定の各ノード数とviewportを出す。stateからノードが消えたのか、
+  // 表示領域外へ移動しただけなのかをログだけで判別できるようにする。
+  const renderLogSignatureRef = useRef("");
+  useEffect(() => {
+    const signature = [
+      treeChanges?.treeVersion ?? "",
+      nodes.length,
+      displayNodes.length,
+      flowNodes.length,
+      visibleNodes.length,
+    ].join("|");
+    if (renderLogSignatureRef.current === signature) {
+      return;
+    }
+    renderLogSignatureRef.current = signature;
+    console.debug("Discussion tree render state.", {
+      incomingTreeVersion: treeChanges?.treeVersion ?? null,
+      canonicalNodeCount: nodes.length,
+      canonicalEdgeCount: edges.length,
+      displayNodeCount: displayNodes.length,
+      renderedNodeCount: flowNodes.length,
+      renderedEdgeCount: flowEdges.length,
+      visibleNodeCount: visibleNodes.length,
+      focusTargetCount: pendingAutoFocusIds.length + queuedAutoFocusIds.length,
+      viewport: getViewport(),
+      updateReason: "tree_props_changed",
+    });
+  }, [
+    treeChanges,
+    nodes,
+    edges,
+    displayNodes,
+    flowNodes,
+    flowEdges,
+    visibleNodes,
+    pendingAutoFocusIds,
+    queuedAutoFocusIds,
+    getViewport,
+  ]);
+
   // 初回(ノードが空→非空になった最初)だけ自動フィットする。以降のライブ更新・
   // 展開/折りたたみでは自動フィットしない(手動フィットは既存のControlsで可能)。
   const didInitialFitRef = useRef(false);
@@ -742,6 +783,11 @@ function DiscussionFlow({
   );
 }
 
+// バックエンドがtentative itemの受け皿として合成する「追加論点」topicの安定ID。
+// candidate段階のitemはツリーへ表示しないため、この受け皿も子が残らない限り
+// 表示しない(会議開始直後から空のplaceholderが見える問題の修正)。
+const UNCLASSIFIED_TOPIC_ID = "topic-unclassified";
+
 // Tentative items stay in the API payload for audit/promotion, but are not
 // full React Flow nodes. Promotion changes classificationStatus to assigned,
 // so the same canonical id appears exactly once on the next render.
@@ -758,6 +804,22 @@ export function stageTentativeTree(
   for (const node of nodes) {
     if (node.agendaRole === "action_summary") {
       hiddenIds.add(node.id);
+    }
+  }
+  // 「追加論点」(topic-unclassified)は、tentative item除外後に表示できる子が
+  // 一つも無ければ表示しない。実アジェンダだけがroot直下に並ぶ状態を保つ。
+  const hasUnclassified = nodes.some((node) => node.id === UNCLASSIFIED_TOPIC_ID);
+  if (hasUnclassified) {
+    const edgeChildIds = new Set(
+      edges.filter((edge) => edge.source === UNCLASSIFIED_TOPIC_ID).map((edge) => edge.target),
+    );
+    const hasVisibleChild = nodes.some(
+      (node) =>
+        (node.parentId === UNCLASSIFIED_TOPIC_ID || edgeChildIds.has(node.id)) &&
+        !hiddenIds.has(node.id),
+    );
+    if (!hasVisibleChild) {
+      hiddenIds.add(UNCLASSIFIED_TOPIC_ID);
     }
   }
   if (hiddenIds.size === 0) {

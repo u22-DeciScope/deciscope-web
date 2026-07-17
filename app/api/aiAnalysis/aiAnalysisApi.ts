@@ -25,6 +25,16 @@ export type LiveAnalysisPayload = {
   degraded?: boolean;
   degradedReason?: string;
   treeIntegrity?: TreeIntegrityDiagnostics;
+  // full snapshotメタデータ(サーバー付与)。removedNodeIds/mergedNodeIdsは
+  // 「前versionから消えたノード」の明示的な説明で、これに無い大量削除は
+  // クライアント側でlast-known-good treeを保持する判断材料になる。
+  payloadKind?: string;
+  nodeCount?: number;
+  edgeCount?: number;
+  removedNodeIds?: string[];
+  mergedNodeIds?: string[];
+  treeHash?: string;
+  basedOnTreeVersion?: number;
 };
 
 export type TreeIntegrityDiagnostics = {
@@ -248,6 +258,13 @@ function normalizeLivePayload(value: unknown): LiveAnalysisPayload | null {
             : {}),
         }
       : undefined;
+  const payloadKind = optionalString(source.payloadKind)?.trim();
+  const nodeCount = optionalNumber(source.nodeCount);
+  const edgeCount = optionalNumber(source.edgeCount);
+  const removedNodeIds = normalizeStringArray(source.removedNodeIds);
+  const mergedNodeIds = normalizeStringArray(source.mergedNodeIds);
+  const treeHash = optionalString(source.treeHash)?.trim();
+  const basedOnTreeVersion = optionalNumber(source.basedOnTreeVersion);
   return {
     ...(summary ? { summary } : {}),
     ...(currentTopic ? { currentTopic } : {}),
@@ -262,6 +279,13 @@ function normalizeLivePayload(value: unknown): LiveAnalysisPayload | null {
         ? { degradedReason: "duplicate_node_id_filtered" }
         : {}),
     ...(treeIntegrity ? { treeIntegrity } : {}),
+    ...(payloadKind ? { payloadKind } : {}),
+    ...(nodeCount !== undefined ? { nodeCount } : {}),
+    ...(edgeCount !== undefined ? { edgeCount } : {}),
+    ...(removedNodeIds.length > 0 ? { removedNodeIds } : {}),
+    ...(mergedNodeIds.length > 0 ? { mergedNodeIds } : {}),
+    ...(treeHash ? { treeHash } : {}),
+    ...(basedOnTreeVersion !== undefined ? { basedOnTreeVersion } : {}),
   };
 }
 
