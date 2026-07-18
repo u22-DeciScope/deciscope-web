@@ -17,7 +17,6 @@ import {
   dimmedColor,
   resolvedBadgeColor,
 } from "~/components/meeting/parts/analysisKindPalette";
-import { buildActionSummaryProjection } from "~/components/meeting/parts/actionSummaryProjection";
 import { AssistantCardTitle } from "~/components/meeting/parts/AssistantCardTitle";
 
 type MeetingAssistantPanelProps = {
@@ -43,14 +42,7 @@ const insightIcons = {
   todo: HiClipboardDocumentList,
 };
 
-export type InsightFilter =
-  | "live"
-  | "risk"
-  | "unresolved"
-  | "todo"
-  | "decision"
-  | "resolved"
-  | "action";
+export type InsightFilter = "live" | "risk" | "unresolved" | "todo" | "decision" | "resolved";
 
 const insightFilterTabs: Array<{ key: InsightFilter; label: string }> = [
   { key: "live", label: "ライブ" },
@@ -59,7 +51,6 @@ const insightFilterTabs: Array<{ key: InsightFilter; label: string }> = [
   { key: "todo", label: "TODO" },
   { key: "decision", label: "決定事項" },
   { key: "resolved", label: "解決済" },
-  { key: "action", label: "対応事項" },
 ];
 
 export function matchesInsightFilter(item: AnalysisItem, filter: InsightFilter) {
@@ -79,8 +70,6 @@ export function matchesInsightFilter(item: AnalysisItem, filter: InsightFilter) 
       return item.kind === "decision";
     case "resolved":
       return isResolvedDisplayItem(item);
-    case "action":
-      return false;
     default:
       return true;
   }
@@ -155,39 +144,17 @@ export function MeetingAssistantPanel({
     [livePayload],
   );
   const totalCount = visibleInsights.length + liveItems.length;
-  const allItems = useMemo(() => {
-    const byId = new Map<string, AnalysisItem>();
-    for (const item of [...visibleInsights, ...liveItems]) {
-      byId.set(item.id, item);
-    }
-    return [...byId.values()];
-  }, [liveItems, visibleInsights]);
-  const actionSummaryRows = useMemo(
-    () => buildActionSummaryProjection(livePayload?.tree?.nodes ?? [], allItems),
-    [allItems, livePayload?.tree?.nodes],
-  );
-  const actionItemIds = useMemo(
-    () => new Set(actionSummaryRows.map((row) => row.canonicalItemId)),
-    [actionSummaryRows],
-  );
   const liveItemIds = useMemo(() => new Set(liveItems.map((item) => item.id)), [liveItems]);
   const filteredLiveItems = useMemo(
-    () =>
-      filter === "action"
-        ? liveItems.filter((item) => actionItemIds.has(item.id))
-        : liveItems.filter((item) => matchesInsightFilter(item, filter)),
-    [actionItemIds, filter, liveItems],
+    () => liveItems.filter((item) => matchesInsightFilter(item, filter)),
+    [filter, liveItems],
   );
   const filteredInsights = useMemo(
     () =>
-      filter === "action"
-        ? visibleInsights.filter(
-            (insight) => actionItemIds.has(insight.id) && !liveItemIds.has(insight.id),
-          )
-        : visibleInsights.filter(
-            (insight) => !liveItemIds.has(insight.id) && matchesInsightFilter(insight, filter),
-          ),
-    [actionItemIds, filter, liveItemIds, visibleInsights],
+      visibleInsights.filter(
+        (insight) => !liveItemIds.has(insight.id) && matchesInsightFilter(insight, filter),
+      ),
+    [filter, liveItemIds, visibleInsights],
   );
   const filteredItemCount = filteredLiveItems.length + filteredInsights.length;
   const liveActiveItemCount = liveItems.filter(isLiveDisplayItem).length;
@@ -200,7 +167,6 @@ export function MeetingAssistantPanel({
     [showLiveTab],
   );
   const liveTabActive = showLiveTab && filter === "live";
-  const actionTabActive = filter === "action";
 
   useEffect(() => {
     if (!focusedAnalysisItemId) {
@@ -220,13 +186,10 @@ export function MeetingAssistantPanel({
       return;
     }
     processedFocusIdRef.current = focusedAnalysisItemId;
-    if (filter === "action" && actionItemIds.has(target.id)) {
-      return;
-    }
     if (!matchesInsightFilter(target, filter)) {
       setFilter(filterForInsightItem(target));
     }
-  }, [actionItemIds, filter, focusedAnalysisItemId, liveItems, visibleInsights]);
+  }, [filter, focusedAnalysisItemId, liveItems, visibleInsights]);
 
   useEffect(() => {
     if (!focusedAnalysisItemId || typeof window === "undefined") {
@@ -253,9 +216,6 @@ export function MeetingAssistantPanel({
       data-live-active-items={liveActiveItemCount}
       data-live-resolved-items={liveResolvedItemCount}
       data-resolved-tab-items={resolvedTabItemCount}
-      data-action-summary-tabs="1"
-      data-rendered-action-items={actionSummaryRows.length}
-      data-rendered-action-tree-nodes="0"
     >
       <header
         className="flex min-h-11 shrink-0 items-center border-b px-3 py-1"
@@ -285,14 +245,17 @@ export function MeetingAssistantPanel({
       </header>
 
       <div
-        className="flex h-9 w-full shrink-0 items-center gap-0.5 overflow-x-auto border-b px-1.5"
-        style={{ borderColor: "var(--node-border)" }}
+        className="grid h-9 w-full shrink-0 items-center gap-0.5 border-b px-1.5"
+        style={{
+          borderColor: "var(--node-border)",
+          gridTemplateColumns: `repeat(${visibleFilterTabs.length}, minmax(0, 1fr))`,
+        }}
       >
         {visibleFilterTabs.map((tab) => (
           <button
             key={tab.key}
             type="button"
-            className="min-w-16 flex-1 basis-0 shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-center text-[10px]"
+            className="min-w-0 whitespace-nowrap rounded-md px-1 py-1 text-center text-[10px]"
             style={
               tab.key === filter
                 ? { background: "var(--chat-other-bg)", color: "var(--brand)" }
@@ -354,19 +317,13 @@ export function MeetingAssistantPanel({
             </div>
           </section>
         )}
-        {!liveTabActive && !actionTabActive && totalCount === 0 && (
+        {!liveTabActive && totalCount === 0 && (
           <EmptyAssistantState
             title="まだAIメモはありません"
             body="分析イベントが届くと、リスクや質問がここへカード表示されます。"
           />
         )}
-        {!liveTabActive && actionTabActive && filteredItemCount === 0 && (
-          <EmptyAssistantState
-            title="未完了の対応事項はありません"
-            body="進行中のTODO、または対応TODOがない未解決事項がここに表示されます。"
-          />
-        )}
-        {!liveTabActive && !actionTabActive && totalCount > 0 && filteredItemCount === 0 && (
+        {!liveTabActive && totalCount > 0 && filteredItemCount === 0 && (
           <EmptyAssistantState
             title="このタブに表示するカードはありません"
             body="別のタブに切り替えると、他の状態のカードを確認できます。"
@@ -505,10 +462,8 @@ export function LiveAnalysisItemCard({
   );
 }
 
-// ライブタブの概要表示。「現在のトピック」「要点」「進行中」を項目ごとの
-// カードに分けて表示する。ライブ更新の間隔(数秒〜十数秒おき)で summary/items が
-// 出たり消えたりしても高さが跳ねないよう、表示件数の上限(bullets/items 各4件)と
-// 「まだ何もない」時のプレースホルダ表示で高さの急変・レイアウトシフトを抑えている。
+// ライブタブの概要表示。現在のトピックと要点だけに絞り、要点は1件ずつ
+// 独立したカードで表示する。
 function LiveAnalysisOverview({
   liveAnalysis,
   payload,
@@ -517,11 +472,6 @@ function LiveAnalysisOverview({
   payload: LiveAnalysisPayload | null;
 }) {
   const bullets = liveAnalysisBullets(payload);
-  const liveTopicItems = useMemo(
-    () => (payload?.items ?? []).filter(isLiveDisplayItem).slice(0, 4),
-    [payload],
-  );
-  const hasBody = bullets.length > 0 || liveTopicItems.length > 0;
 
   return (
     <>
@@ -541,7 +491,7 @@ function LiveAnalysisOverview({
               className="shrink-0 whitespace-nowrap text-[11px] font-bold"
               style={{ color: "var(--text-main)" }}
             >
-              ライブ分析
+              トピック
             </h2>
           </div>
           <div className="min-w-0 shrink">
@@ -549,68 +499,43 @@ function LiveAnalysisOverview({
           </div>
         </div>
 
-        {payload?.currentTopic && (
-          <div className="mt-2 min-w-0">
-            <span
-              className="inline-block max-w-full truncate rounded-full px-2 py-0.5 text-[10px] font-semibold"
-              style={{ background: "var(--brand-light)", color: "var(--brand)" }}
-              title={payload.currentTopic}
-            >
-              {payload.currentTopic}
-            </span>
-          </div>
-        )}
-
-        {!hasBody && (
-          <p className="mt-2 min-h-10 text-[11px] leading-5" style={{ color: "var(--text-muted)" }}>
-            発話が蓄積されると要点がここに表示されます。
-          </p>
-        )}
+        <p
+          className="mt-2 min-h-5 text-[12px] font-semibold leading-5"
+          style={{ color: payload?.currentTopic ? "var(--text-sub)" : "var(--text-muted)" }}
+        >
+          {payload?.currentTopic || "現在のトピックを分析しています。"}
+        </p>
       </section>
 
       {bullets.length > 0 && (
-        <LiveAnalysisSectionCard title="要点">
-          <ul className="space-y-1.5">
+        <section aria-labelledby="live-analysis-key-points">
+          <div className="mb-2 flex items-center gap-2 px-0.5">
+            <span className="h-4 w-0.5 rounded-full" style={{ background: "var(--brand)" }} />
+            <h2
+              id="live-analysis-key-points"
+              className="text-[12px] font-semibold"
+              style={{ color: "var(--text-main)" }}
+            >
+              要点
+            </h2>
+          </div>
+          <ul className="space-y-2">
             {bullets.map((bullet, index) => (
-              <li
-                key={`${bullet}-${index}`}
-                className="flex gap-1.5 text-[11px] leading-5"
-                style={{ color: "var(--text-sub)" }}
-              >
-                <span
-                  className="mt-2 h-1 w-1 shrink-0 rounded-full"
-                  style={{ background: "var(--brand)" }}
-                />
-                <span className="line-clamp-2 min-w-0">{bullet}</span>
+              <li key={`${bullet}-${index}`}>
+                <article
+                  className="rounded-(--ds-radius-control) border px-3 py-2.5 text-[11px] leading-5"
+                  style={{
+                    background: "var(--ds-surface-muted)",
+                    borderColor: "var(--ds-border)",
+                    color: "var(--text-sub)",
+                  }}
+                >
+                  {bullet}
+                </article>
               </li>
             ))}
           </ul>
-        </LiveAnalysisSectionCard>
-      )}
-
-      {liveTopicItems.length > 0 && (
-        <LiveAnalysisSectionCard title="進行中">
-          <ul className="space-y-1.5">
-            {liveTopicItems.map((item) => {
-              const Icon = insightIcons[item.kind as keyof typeof insightIcons] ?? HiLightBulb;
-              const style = insightStyle(item.kind);
-              return (
-                <li key={item.id} className="flex items-center gap-1.5 text-[11px] leading-5">
-                  <Icon className="h-3 w-3 shrink-0" style={{ color: style.color }} />
-                  <span
-                    className="shrink-0 rounded-sm px-1 py-0.5 text-[9px] font-semibold leading-none"
-                    style={{ background: style.background, color: style.color }}
-                  >
-                    {analysisKindLabel(item.kind)}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <AssistantCardTitle title={item.title} />
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </LiveAnalysisSectionCard>
+        </section>
       )}
     </>
   );
@@ -649,29 +574,6 @@ function EmptyAssistantState({ title, body }: { title: string; body: string }) {
         {body}
       </p>
     </div>
-  );
-}
-
-function LiveAnalysisSectionCard({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section
-      className="rounded-(--ds-radius-control) border p-3.5"
-      style={{ background: "var(--ds-surface-muted)", borderColor: "var(--ds-border)" }}
-    >
-      <div className="mb-2.5 flex items-center gap-2">
-        <span className="h-4 w-0.5 rounded-full" style={{ background: "var(--brand)" }} />
-        <p className="text-[12px] font-semibold" style={{ color: "var(--text-main)" }}>
-          {title}
-        </p>
-      </div>
-      {children}
-    </section>
   );
 }
 

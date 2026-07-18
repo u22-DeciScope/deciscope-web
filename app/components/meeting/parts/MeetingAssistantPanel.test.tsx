@@ -64,14 +64,14 @@ describe("MeetingAssistantPanel item filters", () => {
     ];
     render(<MeetingAssistantPanel insights={values} speakerSummaries={[]} showLiveTab={true} />);
 
-    for (const label of ["ライブ", "リスク", "論点", "TODO", "決定事項", "解決済", "対応事項"]) {
+    for (const label of ["ライブ", "リスク", "論点", "TODO", "決定事項", "解決済"]) {
       expect(screen.getByRole("button", { name: label })).not.toBeNull();
     }
+    expect(screen.queryByRole("button", { name: "対応事項" })).toBeNull();
     expect(screen.queryByRole("button", { name: /質問/ })).toBeNull();
 
     const issueTab = screen.getByRole("button", { name: "論点" });
-    expect(issueTab.className).toContain("flex-1");
-    expect(issueTab.className).toContain("basis-0");
+    expect(issueTab.className).toContain("min-w-0");
 
     fireEvent.click(issueTab);
     expect(screen.getByText("question-card")).not.toBeNull();
@@ -112,7 +112,7 @@ describe("MeetingAssistantPanel item filters", () => {
     }
   });
 
-  it("renders one logical action tab and focuses the canonical item once", () => {
+  it("keeps action-summary related items in the TODO tab without a duplicate tab", () => {
     const todo: AnalysisItem = {
       ...item("item-todo-wind", "todo", "open"),
       title: "気象データを確認する",
@@ -136,7 +136,7 @@ describe("MeetingAssistantPanel item filters", () => {
       },
     };
     const onFocus = vi.fn();
-    const { container } = render(
+    render(
       <StrictMode>
         <MeetingAssistantPanel
           insights={[]}
@@ -147,16 +147,38 @@ describe("MeetingAssistantPanel item filters", () => {
       </StrictMode>,
     );
 
-    expect(screen.getAllByRole("button", { name: "対応事項" })).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "対応事項" }));
+    expect(screen.queryByRole("button", { name: "対応事項" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "TODO" }));
     expect(screen.getAllByText(todo.title)).toHaveLength(1);
     const card = screen.getByText(todo.title).closest("article");
     expect(card).not.toBeNull();
     fireEvent.click(card!);
     expect(onFocus).toHaveBeenCalledTimes(1);
     expect(onFocus).toHaveBeenCalledWith(todo.id);
-    expect(container.firstElementChild?.getAttribute("data-action-summary-tabs")).toBe("1");
-    expect(container.firstElementChild?.getAttribute("data-rendered-action-items")).toBe("1");
-    expect(container.firstElementChild?.getAttribute("data-rendered-action-tree-nodes")).toBe("0");
+  });
+
+  it("renders a plain topic and one card per key point without an in-progress section", () => {
+    const liveAnalysis: MeetingAIAnalysis = {
+      analysisType: "live",
+      status: "completed",
+      version: 2,
+      payload: {
+        currentTopic: "次回リリースの範囲",
+        summary: "対象機能を絞る。公開日を確認する。",
+        items: [item("todo-1", "todo", "open")],
+        tree: { nodes: [], edges: [] },
+      },
+    };
+
+    render(
+      <MeetingAssistantPanel insights={[]} speakerSummaries={[]} liveAnalysis={liveAnalysis} />,
+    );
+
+    expect(screen.getByRole("heading", { name: "トピック" })).not.toBeNull();
+    expect(screen.getByText("次回リリースの範囲").className).not.toContain("rounded-full");
+    expect(screen.getByRole("heading", { name: "要点" })).not.toBeNull();
+    expect(screen.getByText("対象機能を絞る").closest("article")).not.toBeNull();
+    expect(screen.getByText("公開日を確認する").closest("article")).not.toBeNull();
+    expect(screen.queryByText("進行中")).toBeNull();
   });
 });
