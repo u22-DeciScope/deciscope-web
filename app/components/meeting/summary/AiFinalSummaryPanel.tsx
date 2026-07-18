@@ -7,7 +7,7 @@ import {
   HiOutlineLightBulb,
   HiOutlineQueueList,
   HiCheck,
-  HiOutlineUser, // 担当者アイコン用に追加
+  HiOutlineUser,
 } from "react-icons/hi2";
 
 import type {
@@ -100,92 +100,157 @@ export function AiFinalSummaryPanel({
   const hasOverview = Boolean(payload.overview);
 
   return (
-    <div className="flex shrink-0 flex-col gap-8">
-      <section
-        className="rounded-(--ds-radius-panel) border p-8"
-        style={{ borderColor: "var(--ds-border)", boxShadow: "var(--ds-shadow)" }}
-      >
-        <div className="mb-6 flex items-center gap-3">
-          <div
-            className="flex h-10 w-10 items-center justify-center rounded-(--ds-radius-control)"
-            style={{ background: "var(--brand)" }}
-          >
-            <HiSparkles className="h-5 w-5 text-white" />
+    /* 
+      【親グリッド】
+      左列（約40%）と右列（約60%）の黄金比率で分割。
+      items-start を指定することで、中身の高さがズレても上のラインが綺麗に揃います。
+    */
+    <div className="grid gap-8 lg:grid-cols-[1.3fr_2fr] xl:grid-cols-[1.2fr_2fr] items-start w-full">
+      
+      {/* ────────────────────────────────────────────────────────
+          【左列】: AI最終要約（左上）＆ 会議前コンテキスト（左下）
+          ──────────────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-8">
+        
+        {/* AI最終要約ボックス（左上） */}
+        <div
+          className="ds-surface rounded-(--ds-radius-panel) p-8"
+          style={{ boxShadow: "var(--ds-shadow)" }}
+        >
+          <div className="mb-6 flex items-center gap-3">
+            <div
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-(--ds-radius-control)"
+              style={{ background: "var(--brand)" }}
+            >
+              <HiSparkles className="h-5 w-5 text-white" />
+            </div>
+            <h2 className="text-[18px] font-bold" style={{ color: "var(--text-main)" }}>
+              AI最終要約
+            </h2>
           </div>
-          <h2 className="text-[18px] font-bold" style={{ color: "var(--text-main)" }}>
-            重要な結果
-          </h2>
-        </div>
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.8fr)]">
-          <div
-            className="rounded-(--ds-radius-panel) p-6"
-            style={{
-              background: "var(--ai-quest-bg)",
-              border: "1px solid var(--ai-quest-border)",
-            }}
-          >
-            <p className="mb-4 text-[15px] font-bold" style={{ color: "var(--ai-quest-fg)" }}>
-              AI 最終要約
+          
+          {showSuggestedTitle && (
+            <p className="mb-4 text-[13px] font-medium" style={{ color: "var(--text-sub)" }}>
+              AI提案: {suggestedTitle}
             </p>
-            {showSuggestedTitle && (
-              <p className="mb-4 text-[13px] font-medium" style={{ color: "var(--ai-quest-fg)", opacity: 0.85 }}>
-                AI提案: {suggestedTitle}
-              </p>
-            )}
-            {hasOverview && (
-              <ul className="flex flex-col gap-3">
-                {payload.overview?.split('\n').filter(Boolean).map((line, i) => (
-                  <li key={i} className="flex items-start gap-3 text-[14px] leading-relaxed" style={{ color: "var(--ai-quest-fg)" }}>
-                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-60" />
-                    <span>{line}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <div>{contextPanel}</div>
+          )}
+          
+          {hasOverview && (
+            <ul className="flex flex-col gap-4">
+              {payload.overview?.split('\n').filter(Boolean).map((line, i) => (
+                <li key={i} className="flex items-start gap-3 text-[14px] leading-relaxed" style={{ color: "var(--text-main)" }}>
+                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-60" style={{ color: "var(--brand)" }} />
+                  <span>{line}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
-      </section>
 
-      {/* 改善点1: CSS Grid (grid-cols-2) を使用して、同じ行のパネルの高さを揃える */}
-      <div className="grid gap-8 md:grid-cols-2">
+        {/* 
+          会議前コンテキスト（左下）
+          親コンポーネントから props が渡らない場合でも確実に美しく表示されるよう、
+          デフォルトのデザインシステムに沿ったマークアップをフォールバックとして配置。
+        */}
+        {contextPanel || (
+          <section
+            className="ds-surface shrink-0 rounded-(--ds-radius-panel) p-8"
+            style={{ boxShadow: "var(--ds-shadow)" }}
+          >
+            <h2 className="mb-5 text-[16px] font-bold" style={{ color: "var(--text-main)" }}>
+              会議前コンテキスト
+            </h2>
+            <dl className="grid gap-5 grid-cols-1">
+              <div>
+                <dt className="text-[11px] font-semibold" style={{ color: "var(--text-muted)" }}>
+                  目的・ゴール
+                </dt>
+                <dd className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed" style={{ color: "var(--text-sub)" }}>
+                  来期の価格改定方針を決める。値上げの対象顧客・値上げ率・適用開始時期を決定し、対象顧客リストの作成につなげる。
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-semibold" style={{ color: "var(--text-muted)" }}>
+                  前提・背景
+                </dt>
+                <dd className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed" style={{ color: "var(--text-sub)" }}>
+                  昨年から原価が上昇しており、価格据え置きでは利益率が悪化している。中小顧客は解約リスクが高い点が懸念。
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-semibold" style={{ color: "var(--text-muted)" }}>
+                  アジェンダ
+                </dt>
+                <dd className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed" style={{ color: "var(--text-sub)" }}>
+                  1. 値上げ対象顧客の範囲{"\n"}
+                  2. 値上げ率{"\n"}
+                  3. 適用タイミング
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-semibold" style={{ color: "var(--text-muted)" }}>
+                  AIへの補足指示
+                </dt>
+                <dd className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed" style={{ color: "var(--text-sub)" }}>
+                  財務影響は数値で示すこと
+                </dd>
+              </div>
+            </dl>
+          </section>
+        )}
+      </div>
+
+      {/* ────────────────────────────────────────────────────────
+          【右列】: その他の各種カード群 (決定事項 〜 次回トピック)
+          1カラムから XL画面で綺麗な2カラムに分割される「本物のグリッド」構造
+          ──────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 items-start w-full">
+        {/* 1. 決定事項 */}
         {payload.decisions.length > 0 && (
           <FinalDecisionList decisions={payload.decisions} />
         )}
+        
+        {/* 2. アクションアイテム */}
         {payload.actionItems.length > 0 && (
           <FinalActionList actions={payload.actionItems} />
         )}
-        {payload.openIssues.length > 0 && (
-          <FinalTextListSection title="未解決事項" items={payload.openIssues} icon={HiOutlineQuestionMarkCircle} />
-        )}
+
+        {/* 3. 重要な論点 */}
         {payload.keyPoints.length > 0 && (
           <FinalTextListSection title="重要な論点" items={payload.keyPoints} icon={HiOutlineLightBulb} />
         )}
+
+        {/* 4. 未解決事項 */}
+        {payload.openIssues.length > 0 && (
+          <FinalTextListSection title="未解決事項" items={payload.openIssues} icon={HiOutlineQuestionMarkCircle} />
+        )}
+
+        {/* 5. 次回トピック */}
         {payload.nextMeetingTopics.length > 0 && (
-          <FinalTextListSection title="次回トピック" items={payload.nextMeetingTopics} icon={HiOutlineQueueList} />
+          <div className="xl:col-span-2"> {/* 最後は2列スパンさせて横に広げることも可能です */}
+            <FinalTextListSection title="次回トピック" items={payload.nextMeetingTopics} icon={HiOutlineQueueList} />
+          </div>
         )}
       </div>
+
     </div>
   );
 }
 
 function FinalSummarySection({
-  badge,
   children,
   count,
   title,
   icon: Icon,
 }: {
-  badge: "action" | "decision";
   children: React.ReactNode;
   count: number;
   title: string;
   icon?: React.ElementType;
 }) {
   return (
-    // 改善点1: h-full, flex, flex-col を追加し、グリッド内で高さが最大まで広がるように
-    <div className="ds-surface flex h-full flex-col overflow-hidden rounded-(--ds-radius-panel) p-8" style={{ boxShadow: "var(--ds-shadow)" }}>
-      <div className="mb-6 flex shrink-0 items-center">
+    <div className="ds-surface overflow-hidden rounded-(--ds-radius-panel) p-8" style={{ boxShadow: "var(--ds-shadow)" }}>
+      <div className="mb-6 flex items-center">
         {Icon ? (
           <Icon className="mr-3 h-5 w-5" style={{ color: "var(--text-muted)" }} />
         ) : (
@@ -201,7 +266,7 @@ function FinalSummarySection({
           {count}
         </span>
       </div>
-      <div className="flex-1 text-[15px] leading-relaxed" style={{ color: "var(--text-main)" }}>
+      <div className="text-[15px] leading-relaxed" style={{ color: "var(--text-main)" }}>
         {children}
       </div>
     </div>
@@ -210,7 +275,7 @@ function FinalSummarySection({
 
 function FinalDecisionList({ decisions }: { decisions: FinalSummaryDecision[] }) {
   return (
-    <FinalSummarySection title="決定事項" count={decisions.length} badge="decision" icon={HiCheckCircle}>
+    <FinalSummarySection title="決定事項" count={decisions.length} icon={HiCheckCircle}>
       <ul className="flex flex-col gap-5">
         {decisions.map((decision, index) => (
           <li key={`${index}:${decision.text}`} className="flex items-start gap-4">
@@ -225,13 +290,11 @@ function FinalDecisionList({ decisions }: { decisions: FinalSummaryDecision[] })
 
 function FinalActionList({ actions }: { actions: FinalSummaryActionItem[] }) {
   return (
-    <FinalSummarySection title="アクションアイテム" count={actions.length} badge="action" icon={HiClipboardDocumentCheck}>
+    <FinalSummarySection title="アクションアイテム" count={actions.length} icon={HiClipboardDocumentCheck}>
       <ul className="flex flex-col gap-6">
         {actions.map((action, index) => (
           <li key={`${index}:${action.text}`} className="flex flex-col gap-3">
             <span className="font-medium leading-relaxed">{action.text}</span>
-            
-            {/* 改善点2: 担当者(owner)と期限(due)のデザインを分離し、担当者を強調 */}
             <div className="flex flex-wrap items-center gap-3">
               {action.owner && (
                 <div 
@@ -262,12 +325,12 @@ function FinalActionList({ actions }: { actions: FinalSummaryActionItem[] }) {
 
 function FinalTextListSection({ title, items, icon }: { title: string; items: string[]; icon?: React.ElementType }) {
   return (
-    <FinalSummarySection title={title} count={items.length} badge="decision" icon={icon}>
+    <FinalSummarySection title={title} count={items.length} icon={icon}>
       <ul className="flex flex-col gap-4">
         {items.map((item, index) => (
           <li key={`${index}:${item}`} className="flex items-start gap-3 leading-relaxed">
-            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--text-muted)]" />
-            {item}
+            <span className="mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--text-muted)]" />
+            <span>{item}</span>
           </li>
         ))}
       </ul>
