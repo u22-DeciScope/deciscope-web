@@ -14,6 +14,7 @@ import "@xyflow/react/dist/style.css";
 
 import type {
   AnalysisItem,
+  TreeChangesPayload,
   TreeEdgePayload,
   TreeNodePayload,
 } from "~/api/meetings/meetingRuntimeTypes";
@@ -27,9 +28,31 @@ import {
   type DiscussionTreeModel,
 } from "./discussionTreeModel";
 import { NodeDetailCard } from "./NodeDetailCard";
+import {
+  allTargetsVisible,
+  deriveTreeChanges,
+  focusAnimationDuration,
+  focusTargetIds,
+  shouldDeferTreeFocus,
+  treeChangeSignature,
+} from "./discussionTreeFocus";
+
+// Compatibility re-export for existing unit tests/importers. The projection
+// is rendered only by MeetingAssistantPanel.
+export { buildActionSummaryProjection } from "../actionSummaryProjection";
 
 // バッジ表示・件数バッジの種別の並び順(安定した順序で見比べやすくする)。
-const KIND_ORDER = ["issue", "question", "risk", "decision", "todo", "topic"];
+const KIND_ORDER = [
+  "issue",
+  "open_issue",
+  "question",
+  "risk",
+  "fact",
+  "decision",
+  "todo",
+  "group",
+  "topic",
+];
 
 // ノード選択時に右上へ出る NodeDetailCard の占有幅。w-72(288px) + right-2(8px)。
 // ノードを中央表示するとき、この幅ぶんを避けて「詳細カードに隠れない可視領域」の
@@ -38,6 +61,9 @@ const NODE_DETAIL_OVERLAY_WIDTH = 296;
 // 上記の補正を行う最小の可視幅。パネルが狭くて詳細カードを避けた領域にノード
 // (幅260px)を収められない場合は、補正せず単純な中央表示にする。
 const MIN_VISIBLE_WIDTH_FOR_OVERLAY_OFFSET = 320;
+const AUTO_FOLLOW_INTERACTION_GRACE_MS = 4000;
+const AUTO_FOLLOW_COOLDOWN_MS = 2000;
+const STRUCTURAL_HIGHLIGHT_MS = 3000;
 
 // AIアシスタントのカードクリックなど、外部から「この分析itemに対応するノードへ
 // フォーカスしてほしい」という要求。同じitemIdを連続でクリックしても再フォーカス
@@ -57,6 +83,7 @@ type DiscussionTreeProps = {
   // 変わったことを知らせるシグナル。値が変化した回だけ一度だけ再fitViewする。
   layoutSignal?: boolean;
   focusItemRequest?: DiscussionTreeFocusRequest | null;
+  treeChanges?: TreeChangesPayload;
 };
 
 export function DiscussionTree({
@@ -67,6 +94,7 @@ export function DiscussionTree({
   updateStatus,
   layoutSignal,
   focusItemRequest,
+  treeChanges,
 }: DiscussionTreeProps) {
   return (
     <div
@@ -126,6 +154,7 @@ export function DiscussionTree({
               onSelectAnalysisItem={onSelectAnalysisItem}
               layoutSignal={layoutSignal}
               focusItemRequest={focusItemRequest}
+              treeChanges={treeChanges}
             />
           </ReactFlowProvider>
         )}
@@ -141,19 +170,43 @@ function DiscussionFlow({
   onSelectAnalysisItem,
   layoutSignal,
   focusItemRequest,
+  treeChanges,
 }: DiscussionTreeProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const { fitView, getNode, setCenter } = useReactFlow();
+  const [autoFollow, setAutoFollow] = useState(true);
+  const [pendingAutoFocusIds, setPendingAutoFocusIds] = useState<string[]>([]);
+  const [queuedAutoFocusIds, setQueuedAutoFocusIds] = useState<string[]>([]);
+  const [structuralHighlightIds, setStructuralHighlightIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const previousStructuralNodesRef = useRef<TreeNodePayload[] | null>(null);
+  const processedTreeChangeRef = useRef<string | null>(null);
+  const lastManualInteractionAtRef = useRef(0);
+  const lastAutoFocusAtRef = useRef(0);
+  const autoMovingRef = useRef(false);
+  const structuralHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoMoveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusMetricsRef = useRef({ focused: 0, suppressed: 0, alreadyVisible: 0 });
+  const { fitView, getNode, getViewport, setCenter } = useReactFlow();
   const analysisItemIds = useMemo(
     () => new Set((analysisItems ?? []).map((item) => item.id)),
     [analysisItems],
   );
+  const displayTree = useMemo(
+    () => stageTentativeTree(nodes, edges, analysisItems ?? []),
+    [nodes, edges, analysisItems],
+  );
+  const displayNodes = displayTree.nodes;
+  const displayEdges = displayTree.edges;
 
-  const treeEdges = useMemo(() => normalizeEdges(nodes, edges), [nodes, edges]);
+  const treeEdges = useMemo(
+    () => normalizeEdges(displayNodes, displayEdges),
+    [displayNodes, displayEdges],
+  );
   const discussionModel = useMemo(
-    () => buildDiscussionTreeModel(nodes, treeEdges),
-    [nodes, treeEdges],
+    () => buildDiscussionTreeModel(displayNodes, treeEdges),
+    [displayNodes, treeEdges],
   );
 
   // 折りたたみ状態。初期値は空集合(全展開)にし、全体像がまず見える状態にする。
@@ -161,33 +214,41 @@ function DiscussionFlow({
   // 全ノード)へ一括切り替えできる。
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
 
-  const recentlyUpdatedIds = useRecentlyUpdatedNodeIds(nodes);
+  const recentlyUpdatedIds = useRecentlyUpdatedNodeIds(displayNodes);
 
-  const toggleCollapse = useCallback((id: string) => {
-    setCollapsed((current) => {
-      const next = new Set(current);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
+  const markManualInteraction = useCallback(() => {
+    lastManualInteractionAtRef.current = Date.now();
   }, []);
+
+  const toggleCollapse = useCallback(
+    (id: string) => {
+      markManualInteraction();
+      setCollapsed((current) => {
+        const next = new Set(current);
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+        return next;
+      });
+    },
+    [markManualInteraction],
+  );
 
   const visibleIds = useMemo(() => {
     const visible = new Set<string>();
-    for (const node of nodes) {
+    for (const node of displayNodes) {
       if (isNodeVisible(discussionModel, collapsed, node.id)) {
         visible.add(node.id);
       }
     }
     return visible;
-  }, [nodes, discussionModel, collapsed]);
+  }, [displayNodes, discussionModel, collapsed]);
 
   const visibleNodes = useMemo(
-    () => nodes.filter((node) => visibleIds.has(node.id)),
-    [nodes, visibleIds],
+    () => displayNodes.filter((node) => visibleIds.has(node.id)),
+    [displayNodes, visibleIds],
   );
   const visibleEdges = useMemo(
     () => treeEdges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target)),
@@ -212,7 +273,7 @@ function DiscussionFlow({
 
   // 「active」= ノード一覧の末尾(最新)ノード。折りたたみで非表示になっていても
   // 他ノードへ付け替わらないよう、可視ノードに絞る前のidで判定する。
-  const lastNodeId = nodes.length > 0 ? nodes[nodes.length - 1].id : null;
+  const lastNodeId = displayNodes.length > 0 ? displayNodes[displayNodes.length - 1].id : null;
 
   const flowNodes = useMemo<DiscussionFlowNode[]>(() => {
     const laidOut = layoutPositions(visibleNodes, visibleEdges);
@@ -238,7 +299,7 @@ function DiscussionFlow({
           onToggleCollapse: toggleCollapse,
           childKindCounts: sortedKindCounts(kindCounts),
           dimmed: focusIds !== null && !focusIds.has(node.id),
-          recentlyUpdated: recentlyUpdatedIds.has(node.id),
+          recentlyUpdated: recentlyUpdatedIds.has(node.id) || structuralHighlightIds.has(node.id),
         },
       };
     });
@@ -253,6 +314,7 @@ function DiscussionFlow({
     toggleCollapse,
     focusIds,
     recentlyUpdatedIds,
+    structuralHighlightIds,
   ]);
 
   const flowEdges = useMemo<Edge[]>(
@@ -275,6 +337,47 @@ function DiscussionFlow({
       }),
     [visibleEdges, selectedId],
   );
+
+  // 描画状態の観測ログ: canonical(props)・表示フィルタ後・React Flow描画・
+  // 可視判定の各ノード数とviewportを出す。stateからノードが消えたのか、
+  // 表示領域外へ移動しただけなのかをログだけで判別できるようにする。
+  const renderLogSignatureRef = useRef("");
+  useEffect(() => {
+    const signature = [
+      treeChanges?.treeVersion ?? "",
+      nodes.length,
+      displayNodes.length,
+      flowNodes.length,
+      visibleNodes.length,
+    ].join("|");
+    if (renderLogSignatureRef.current === signature) {
+      return;
+    }
+    renderLogSignatureRef.current = signature;
+    console.debug("Discussion tree render state.", {
+      incomingTreeVersion: treeChanges?.treeVersion ?? null,
+      canonicalNodeCount: nodes.length,
+      canonicalEdgeCount: edges.length,
+      displayNodeCount: displayNodes.length,
+      renderedNodeCount: flowNodes.length,
+      renderedEdgeCount: flowEdges.length,
+      visibleNodeCount: visibleNodes.length,
+      focusTargetCount: pendingAutoFocusIds.length + queuedAutoFocusIds.length,
+      viewport: getViewport(),
+      updateReason: "tree_props_changed",
+    });
+  }, [
+    treeChanges,
+    nodes,
+    edges,
+    displayNodes,
+    flowNodes,
+    flowEdges,
+    visibleNodes,
+    pendingAutoFocusIds,
+    queuedAutoFocusIds,
+    getViewport,
+  ]);
 
   // 初回(ノードが空→非空になった最初)だけ自動フィットする。以降のライブ更新・
   // 展開/折りたたみでは自動フィットしない(手動フィットは既存のControlsで可能)。
@@ -302,6 +405,184 @@ function DiscussionFlow({
 
   // パネルの実描画幅(React Flowが計測した値)。詳細カードを避ける補正に使う。
   const paneWidth = useStore((state) => state.width);
+  const paneHeight = useStore((state) => state.height);
+
+  const recordFocusMetric = useCallback(
+    (outcome: "focused" | "suppressed" | "alreadyVisible", targetCount: number) => {
+      focusMetricsRef.current[outcome] += 1;
+      console.debug("Discussion tree structural focus.", {
+        outcome,
+        targetCount,
+        counters: { ...focusMetricsRef.current },
+      });
+    },
+    [],
+  );
+
+  const queueStructuralFocus = useCallback(
+    (targetIds: string[]) => {
+      setCollapsed((current) => {
+        let next = current;
+        for (const targetId of targetIds) {
+          next = withAncestorsExpanded(next, discussionModel, targetId);
+        }
+        return next;
+      });
+      setQueuedAutoFocusIds(targetIds);
+    },
+    [discussionModel],
+  );
+
+  // First render establishes a baseline only. Later versions use the
+  // server-provided structural diff when present, with a local comparison as
+  // a compatibility fallback for old payloads.
+  useEffect(() => {
+    const previous = previousStructuralNodesRef.current;
+    previousStructuralNodesRef.current = displayNodes;
+    if (previous === null) {
+      return;
+    }
+    const changes = deriveTreeChanges(previous, displayNodes, treeChanges);
+    const signature = treeChangeSignature(changes);
+    if (processedTreeChangeRef.current === signature) {
+      return;
+    }
+    const targetIds = focusTargetIds(changes, displayNodes);
+    if (targetIds.length === 0) {
+      return;
+    }
+    processedTreeChangeRef.current = signature;
+
+    setStructuralHighlightIds(new Set(targetIds));
+    if (structuralHighlightTimerRef.current) {
+      clearTimeout(structuralHighlightTimerRef.current);
+    }
+    structuralHighlightTimerRef.current = setTimeout(
+      () => setStructuralHighlightIds(new Set()),
+      STRUCTURAL_HIGHLIGHT_MS,
+    );
+
+    const now = Date.now();
+    if (
+      shouldDeferTreeFocus({
+        autoFollow,
+        selected: selectedId !== null,
+        hovered: hoveredId !== null,
+        now,
+        lastManualInteractionAt: lastManualInteractionAtRef.current,
+        interactionGraceMs: AUTO_FOLLOW_INTERACTION_GRACE_MS,
+        lastAutoFocusAt: lastAutoFocusAtRef.current,
+        cooldownMs: AUTO_FOLLOW_COOLDOWN_MS,
+      })
+    ) {
+      setPendingAutoFocusIds(targetIds);
+      recordFocusMetric("suppressed", targetIds.length);
+      return;
+    }
+    setPendingAutoFocusIds([]);
+    queueStructuralFocus(targetIds);
+  }, [
+    autoFollow,
+    hoveredId,
+    displayNodes,
+    queueStructuralFocus,
+    recordFocusMetric,
+    selectedId,
+    treeChanges,
+  ]);
+
+  useEffect(() => {
+    if (queuedAutoFocusIds.length === 0) {
+      return;
+    }
+    const targets = queuedAutoFocusIds
+      .map((id) => flowNodes.find((node) => node.id === id))
+      .filter((node): node is DiscussionFlowNode => node !== undefined);
+    if (targets.length !== queuedAutoFocusIds.length) {
+      return;
+    }
+    setQueuedAutoFocusIds([]);
+    const viewport = getViewport();
+    if (
+      allTargetsVisible(
+        targets.map((node) => node.position),
+        viewport,
+        { width: paneWidth, height: paneHeight },
+        { width: NODE_WIDTH, height: NODE_HEIGHT },
+      )
+    ) {
+      lastAutoFocusAtRef.current = Date.now();
+      recordFocusMetric("alreadyVisible", targets.length);
+      return;
+    }
+
+    const targetParentIds = new Set(
+      targets.map((node) => discussionModel.parentOf.get(node.id)).filter(Boolean),
+    );
+    const framingNodes = [...targets];
+    if (targets.length > 1 && targetParentIds.size === 1) {
+      const parentId = [...targetParentIds][0];
+      const parent = parentId ? flowNodes.find((node) => node.id === parentId) : undefined;
+      if (parent) {
+        framingNodes.push(parent);
+      }
+    }
+    const reduceMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const duration = focusAnimationDuration(Boolean(reduceMotion));
+    autoMovingRef.current = true;
+    if (targets.length === 1) {
+      const [{ position }] = targets;
+      void setCenter(position.x + NODE_WIDTH / 2, position.y + NODE_HEIGHT / 2, {
+        zoom: viewport.zoom,
+        duration,
+      });
+    } else {
+      const left = Math.min(...framingNodes.map((node) => node.position.x));
+      const top = Math.min(...framingNodes.map((node) => node.position.y));
+      const right = Math.max(...framingNodes.map((node) => node.position.x + NODE_WIDTH));
+      const bottom = Math.max(...framingNodes.map((node) => node.position.y + NODE_HEIGHT));
+      const boundsWidth = right - left;
+      const boundsHeight = bottom - top;
+      const widthZoom = paneWidth > 0 ? (paneWidth * 0.75) / boundsWidth : viewport.zoom;
+      const heightZoom = paneHeight > 0 ? (paneHeight * 0.75) / boundsHeight : viewport.zoom;
+      const targetZoom = Math.max(0.2, Math.min(viewport.zoom, widthZoom, heightZoom, 1));
+      void setCenter(left + boundsWidth / 2, top + boundsHeight / 2, {
+        zoom: targetZoom,
+        duration,
+      });
+    }
+    lastAutoFocusAtRef.current = Date.now();
+    recordFocusMetric("focused", targets.length);
+    if (autoMoveTimerRef.current) {
+      clearTimeout(autoMoveTimerRef.current);
+    }
+    autoMoveTimerRef.current = setTimeout(() => {
+      autoMovingRef.current = false;
+    }, duration + 50);
+  }, [
+    discussionModel,
+    flowNodes,
+    getViewport,
+    paneHeight,
+    paneWidth,
+    queuedAutoFocusIds,
+    recordFocusMetric,
+    setCenter,
+  ]);
+
+  useEffect(
+    () => () => {
+      if (structuralHighlightTimerRef.current) {
+        clearTimeout(structuralHighlightTimerRef.current);
+      }
+      if (autoMoveTimerRef.current) {
+        clearTimeout(autoMoveTimerRef.current);
+      }
+    },
+    [],
+  );
 
   // ノード選択で右上に NodeDetailCard が開くため、単純なビューポート中央だと
   // ノードがカードに隠れたり視覚的に右へ寄って見えたりする。パネル幅に余裕が
@@ -343,8 +624,9 @@ function DiscussionFlow({
     if (!focusItemRequest || processedFocusTokenRef.current === focusItemRequest.token) {
       return;
     }
+    markManualInteraction();
     processedFocusTokenRef.current = focusItemRequest.token;
-    const targetId = findNodeIdForAnalysisItem(nodes, focusItemRequest.itemId);
+    const targetId = findNodeIdForAnalysisItem(displayNodes, focusItemRequest.itemId);
     if (!targetId) {
       return;
     }
@@ -352,7 +634,7 @@ function DiscussionFlow({
     setHoveredId(null);
     setCollapsed((current) => withAncestorsExpanded(current, discussionModel, targetId));
     setPendingFocusNodeId(targetId);
-  }, [focusItemRequest, nodes, discussionModel]);
+  }, [focusItemRequest, displayNodes, discussionModel, markManualInteraction]);
 
   useEffect(() => {
     if (!pendingFocusNodeId) {
@@ -368,11 +650,16 @@ function DiscussionFlow({
 
   const detailNodeId = selectedId ?? hoveredId;
   const selectedNode = detailNodeId
-    ? (nodes.find((node) => node.id === detailNodeId) ?? null)
+    ? (displayNodes.find((node) => node.id === detailNodeId) ?? null)
     : null;
 
   return (
     <>
+      <div className="sr-only" aria-live="polite">
+        {structuralHighlightIds.size > 0
+          ? `議論ツリーに${structuralHighlightIds.size}件の重要な更新があります`
+          : ""}
+      </div>
       <ReactFlow
         nodes={flowNodes}
         edges={flowEdges}
@@ -380,23 +667,71 @@ function DiscussionFlow({
         fitView
         minZoom={0.2}
         maxZoom={1.25}
-        proOptions={{ hideAttribution: false }}
+        proOptions={{ hideAttribution: true }}
         nodesDraggable={false}
         nodesConnectable={false}
         edgesFocusable={false}
-        onNodeClick={(_, node) => setSelectedId(node.id)}
-        onNodeMouseEnter={(_, node) => setHoveredId(node.id)}
+        onMoveStart={(event) => {
+          if (event && !autoMovingRef.current) {
+            markManualInteraction();
+          }
+        }}
+        onNodeClick={(_, node) => {
+          markManualInteraction();
+          setSelectedId(node.id);
+        }}
+        onNodeMouseEnter={(_, node) => {
+          markManualInteraction();
+          setHoveredId(node.id);
+        }}
         onNodeMouseLeave={(_, node) =>
           setHoveredId((current) => (current === node.id ? null : current))
         }
         onPaneClick={() => {
+          markManualInteraction();
           setSelectedId(null);
           setHoveredId(null);
         }}
       >
         <Background variant={BackgroundVariant.Dots} gap={22} color="var(--node-border)" />
         <Controls showInteractive={false} position="bottom-left" />
-        <Panel position="top-right" className="flex gap-1">
+        <Panel position="top-right" className="flex max-w-[80%] flex-wrap justify-end gap-1">
+          {pendingAutoFocusIds.length > 0 && (
+            <button
+              type="button"
+              className="rounded-(--ds-radius-control) border px-2 py-1 text-[10px] font-semibold"
+              style={{
+                background: "var(--brand-light)",
+                borderColor: "var(--brand)",
+                color: "var(--brand)",
+              }}
+              aria-live="polite"
+              onClick={() => {
+                markManualInteraction();
+                const targets = pendingAutoFocusIds;
+                setPendingAutoFocusIds([]);
+                queueStructuralFocus(targets);
+              }}
+            >
+              変化を表示 ({pendingAutoFocusIds.length})
+            </button>
+          )}
+          <button
+            type="button"
+            className="rounded-(--ds-radius-control) border px-2 py-1 text-[10px] font-semibold"
+            style={{
+              background: autoFollow ? "var(--brand-light)" : "var(--ds-surface)",
+              borderColor: autoFollow ? "var(--brand)" : "var(--ds-border)",
+              color: autoFollow ? "var(--brand)" : "var(--text-sub)",
+            }}
+            aria-pressed={autoFollow}
+            onClick={() => {
+              markManualInteraction();
+              setAutoFollow((current) => !current);
+            }}
+          >
+            自動追従 {autoFollow ? "ON" : "OFF"}
+          </button>
           <button
             type="button"
             className="rounded-(--ds-radius-control) border px-2 py-1 text-[10px] font-semibold"
@@ -405,7 +740,10 @@ function DiscussionFlow({
               borderColor: "var(--ds-border)",
               color: "var(--text-sub)",
             }}
-            onClick={() => setCollapsed(new Set())}
+            onClick={() => {
+              markManualInteraction();
+              setCollapsed(new Set());
+            }}
           >
             全展開
           </button>
@@ -417,7 +755,10 @@ function DiscussionFlow({
               borderColor: "var(--ds-border)",
               color: "var(--text-sub)",
             }}
-            onClick={() => setCollapsed(collapsibleNodeIds(discussionModel))}
+            onClick={() => {
+              markManualInteraction();
+              setCollapsed(collapsibleNodeIds(discussionModel));
+            }}
           >
             全折りたたみ
           </button>
@@ -427,7 +768,7 @@ function DiscussionFlow({
       {selectedNode && (
         <NodeDetailCard
           node={selectedNode}
-          nodes={nodes}
+          nodes={displayNodes}
           edges={treeEdges}
           analysisItems={analysisItems ?? []}
           onSelectAnalysisItem={onSelectAnalysisItem}
@@ -440,6 +781,54 @@ function DiscussionFlow({
       )}
     </>
   );
+}
+
+// バックエンドがtentative itemの受け皿として合成する「追加論点」topicの安定ID。
+// candidate段階のitemはツリーへ表示しないため、この受け皿も子が残らない限り
+// 表示しない(会議開始直後から空のplaceholderが見える問題の修正)。
+const UNCLASSIFIED_TOPIC_ID = "topic-unclassified";
+
+// Tentative items stay in the API payload for audit/promotion, but are not
+// full React Flow nodes. Promotion changes classificationStatus to assigned,
+// so the same canonical id appears exactly once on the next render.
+export function stageTentativeTree(
+  nodes: TreeNodePayload[],
+  edges: TreeEdgePayload[],
+  analysisItems: AnalysisItem[],
+): { nodes: TreeNodePayload[]; edges: TreeEdgePayload[] } {
+  const hiddenIds = new Set(
+    analysisItems
+      .filter((item) => item.classificationStatus === "tentative")
+      .map((item) => item.id),
+  );
+  for (const node of nodes) {
+    if (node.agendaRole === "action_summary") {
+      hiddenIds.add(node.id);
+    }
+  }
+  // 「追加論点」(topic-unclassified)は、tentative item除外後に表示できる子が
+  // 一つも無ければ表示しない。実アジェンダだけがroot直下に並ぶ状態を保つ。
+  const hasUnclassified = nodes.some((node) => node.id === UNCLASSIFIED_TOPIC_ID);
+  if (hasUnclassified) {
+    const edgeChildIds = new Set(
+      edges.filter((edge) => edge.source === UNCLASSIFIED_TOPIC_ID).map((edge) => edge.target),
+    );
+    const hasVisibleChild = nodes.some(
+      (node) =>
+        (node.parentId === UNCLASSIFIED_TOPIC_ID || edgeChildIds.has(node.id)) &&
+        !hiddenIds.has(node.id),
+    );
+    if (!hasVisibleChild) {
+      hiddenIds.add(UNCLASSIFIED_TOPIC_ID);
+    }
+  }
+  if (hiddenIds.size === 0) {
+    return { nodes, edges };
+  }
+  return {
+    nodes: nodes.filter((node) => !hiddenIds.has(node.id)),
+    edges: edges.filter((edge) => !hiddenIds.has(edge.source) && !hiddenIds.has(edge.target)),
+  };
 }
 
 // signature = label|description|status。新規idまたはsignature変化idを

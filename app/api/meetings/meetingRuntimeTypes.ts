@@ -23,7 +23,15 @@ export type TranscriptFinalPayload = {
   end_ms?: number;
 };
 
-export type AnalysisItemKind = "issue" | "question" | "risk" | string;
+export type AnalysisItemKind =
+  | "issue"
+  | "open_issue"
+  | "question"
+  | "risk"
+  | "fact"
+  | "decision"
+  | "todo"
+  | string;
 export type AnalysisItemSeverity = "low" | "medium" | "high" | string;
 export type AnalysisItemStatus = "open" | "updated" | "resolved" | "dismissed" | string;
 
@@ -35,6 +43,20 @@ export type AnalysisItem = {
   body: string;
   status: AnalysisItemStatus;
   linked_segment_ids?: string[];
+  evidenceSequenceNos?: number[];
+  resolvedAtVersion?: number;
+  resolutionEvidenceSequenceNos?: number[];
+  resolutionReason?: string;
+  reopenedAtVersion?: number;
+  reopenEvidenceSequenceNos?: number[];
+  reopenReason?: string;
+  // primary parentとは別の横断agenda参照。複数親edgeには変換しない。
+  relatedAgendaIds?: string[];
+  // サーバー管理の分類状態。tentativeは通常のtree nodeとして描画せず、
+  // 候補論点のstaging件数として扱う。
+  classificationStatus?: "assigned" | "tentative" | "unclassified" | string;
+  candidateTopicId?: string;
+  candidateInactive?: boolean;
 };
 
 export type AnalysisDeltaPayload = {
@@ -48,10 +70,15 @@ export type AnalysisDeltaPayload = {
 export type TreeNodePayload = {
   id: string;
   kind?: string;
+  // parentId はバックエンドが正規化した唯一のツリー表示用の親。
+  // 存在する場合、フロントはエッジから親を推論せずこれを使う。
+  parentId?: string;
   label?: string;
   status?: string;
   description?: string;
   relatedItemIds?: string[];
+  origin?: string;
+  agendaRole?: "primary" | "action_summary" | string;
   speaker_label?: string;
   segment_id?: string;
 };
@@ -68,6 +95,15 @@ export type TreeUpdatePayload = {
   mode?: string;
   nodes?: TreeNodePayload[];
   edges?: TreeEdgePayload[];
+};
+
+export type TreeChangesPayload = {
+  treeVersion: number;
+  newNodeIds?: string[];
+  updatedNodeIds?: string[];
+  reparentedNodeIds?: string[];
+  resolvedNodeIds?: string[];
+  promotedNodeIds?: string[];
 };
 
 export type SpeakerSummaryPayload = {

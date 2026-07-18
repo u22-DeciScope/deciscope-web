@@ -209,6 +209,7 @@ export function MeetingWorkspaceGrid({
         updateStatus={liveAnalysisMeta ? <AiUpdateStatusChip meta={liveAnalysisMeta} /> : undefined}
         layoutSignal={timelineCollapsed}
         focusItemRequest={treeFocusRequest}
+        treeChanges={livePayload?.treeChanges}
       />
       <MeetingAssistantPanel
         insights={insights}

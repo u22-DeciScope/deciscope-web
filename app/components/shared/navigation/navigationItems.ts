@@ -1,22 +1,7 @@
-import {
-  HiArrowUpTray,
-  HiCalendarDays,
-  HiHome,
-  HiPlusCircle,
-  HiShieldCheck,
-  HiVideoCamera,
-  HiUsers,
-} from "react-icons/hi2";
+import { HiCalendarDays, HiHome, HiPlusCircle, HiUsers } from "react-icons/hi2";
 import type { IconType } from "react-icons";
 
-export type AppNavigationItemId =
-  | "home"
-  | "new"
-  | "upcoming"
-  | "uploads"
-  | "integrations"
-  | "audit"
-  | "workspace";
+export type AppNavigationItemId = "home" | "new" | "upcoming" | "workspace";
 
 export type AppNavigationItem = {
   id: AppNavigationItemId;
@@ -45,31 +30,10 @@ export const appNavigationItems: AppNavigationItem[] = [
     requiresManagement: true,
   },
   {
-    id: "uploads",
-    label: "ファイル処理",
-    icon: HiArrowUpTray,
-    path: "/uploads",
-    requiresManagement: true,
-  },
-  {
-    id: "integrations",
-    label: "Teams 連携",
-    icon: HiVideoCamera,
-    path: "/settings/integrations",
-    requiresManagement: true,
-  },
-  {
     id: "workspace",
     label: "Workspace設定",
     icon: HiUsers,
     path: "/settings/workspace",
-    requiresManagement: true,
-  },
-  {
-    id: "audit",
-    label: "監査とプライバシー",
-    icon: HiShieldCheck,
-    path: "/settings/audit",
     requiresManagement: true,
   },
 ];

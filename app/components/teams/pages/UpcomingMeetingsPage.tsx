@@ -18,7 +18,6 @@ import { workspacePath } from "~/routing/workspacePaths";
 export default function UpcomingMeetingsPage() {
   const { workspaceId } = useAuthenticatedLayout();
   const meetingsPath = workspacePath(workspaceId, "/meetings");
-  const integrationPath = workspacePath(workspaceId, "/settings/integrations");
   const joinByUrlPath = workspacePath(workspaceId, "/meetings/new?source=teams");
   const [status, setStatus] = useState<TeamsIntegrationStatusDto | null>(null);
   const [meetings, setMeetings] = useState<TeamsUpcomingMeetingDto[]>([]);
@@ -103,7 +102,7 @@ export default function UpcomingMeetingsPage() {
         </p>
       )}
 
-      {!isLoading && !connected && <NotConnectedCard integrationPath={integrationPath} />}
+      {!isLoading && !connected && <NotConnectedCard />}
 
       {connected && (
         <>
@@ -175,7 +174,7 @@ export default function UpcomingMeetingsPage() {
   );
 }
 
-function NotConnectedCard({ integrationPath }: { integrationPath: string }) {
+function NotConnectedCard() {
   return (
     <section
       className="ds-surface flex flex-col items-center gap-3 rounded-(--ds-radius-panel) px-5 py-12 text-center"
@@ -196,9 +195,6 @@ function NotConnectedCard({ integrationPath }: { integrationPath: string }) {
           を参加させられるようになります。
         </p>
       </div>
-      <Link to={integrationPath}>
-        <DsButton>Teams 連携を設定する</DsButton>
-      </Link>
     </section>
   );
 }

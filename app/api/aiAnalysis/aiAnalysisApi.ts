@@ -2,6 +2,7 @@ import { requestJson } from "~/api/core/apiClient";
 import type {
   AnalysisItem,
   TreeEdgePayload,
+  TreeChangesPayload,
   TreeNodePayload,
   TreeUpdatePayload,
 } from "~/api/meetings/meetingRuntimeTypes";
@@ -19,6 +20,37 @@ export type LiveAnalysisPayload = {
   currentTopic?: string;
   items: AnalysisItem[];
   tree: TreeUpdatePayload | null;
+  treeVersion?: number;
+  treeChanges?: TreeChangesPayload;
+  degraded?: boolean;
+  degradedReason?: string;
+  treeIntegrity?: TreeIntegrityDiagnostics;
+  // full snapshotメタデータ(サーバー付与)。removedNodeIds/mergedNodeIdsは
+  // 「前versionから消えたノード」の明示的な説明で、これに無い大量削除は
+  // クライアント側でlast-known-good treeを保持する判断材料になる。
+  payloadKind?: string;
+  nodeCount?: number;
+  edgeCount?: number;
+  removedNodeIds?: string[];
+  mergedNodeIds?: string[];
+  treeHash?: string;
+  basedOnTreeVersion?: number;
+};
+
+export type TreeIntegrityDiagnostics = {
+  valid?: boolean;
+  duplicateNodeIds?: string[];
+  crossKindIdCollisions?: string[];
+  reservedItemIds?: string[];
+  selfParentNodeIds?: string[];
+  missingFixedAgendaIds?: string[];
+  movedFixedAgendaIds?: string[];
+  fixedAgendaKindMismatchIds?: string[];
+  actionSummaryTreeNodeIds?: string[];
+  expectedFixedAgendaCount?: number;
+  actualFixedAgendaCount?: number;
+  clientDuplicateNodeIds?: string[];
+  clientCrossKindIdCollisions?: string[];
 };
 
 export type FinalSummaryDecision = {
@@ -56,10 +88,25 @@ export type MeetingAIAnalysis = {
   intervalSeconds?: number;
 };
 
+// 会議終了時にバックエンドが保存するdurableなツリースナップショット。
+// 履歴画面はライブpayloadより先にこれを表示する。
+export type TreeSnapshotPayload = {
+  treeVersion?: number;
+  reason?: string;
+  final?: boolean;
+  generatedAtUtc?: string;
+  tree: TreeUpdatePayload | null;
+  degraded?: boolean;
+  degradedReason?: string;
+  treeIntegrity?: TreeIntegrityDiagnostics;
+};
+
 export type MeetingAIAnalyses = {
   sessionId: string;
   live: MeetingAIAnalysis | null;
   final: MeetingAIAnalysis | null;
+  // 会議終了時に保存されたdurableツリースナップショット(未保存ならnull)。
+  treeSnapshot: TreeSnapshotPayload | null;
   // GETレスポンスのトップレベルに載るlive分析の更新間隔(秒)。
   liveIntervalSeconds?: number;
 };
@@ -118,7 +165,7 @@ export function normalizeAIAnalysis(value: unknown): MeetingAIAnalysis | null {
 
 function normalizeAIAnalyses(value: unknown, fallbackSessionId: string): MeetingAIAnalyses {
   if (!value || typeof value !== "object") {
-    return { sessionId: fallbackSessionId, live: null, final: null };
+    return { sessionId: fallbackSessionId, live: null, final: null, treeSnapshot: null };
   }
   const source = value as Record<string, unknown>;
   const sessionId =
@@ -130,7 +177,49 @@ function normalizeAIAnalyses(value: unknown, fallbackSessionId: string): Meeting
     sessionId,
     live: normalizeAIAnalysis(source.live),
     final: normalizeAIAnalysis(source.final),
+    treeSnapshot: normalizeTreeSnapshot(source.tree),
     ...(liveIntervalSeconds !== undefined ? { liveIntervalSeconds } : {}),
+  };
+}
+
+// tree行(durableスナップショット)のpayloadを正規化する。payloadは
+// {treeVersion, reason, final, generatedAtUtc, tree:{nodes,edges}} 形式。
+function normalizeTreeSnapshot(value: unknown): TreeSnapshotPayload | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const analysis = value as Record<string, unknown>;
+  const payload = analysis.payload;
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  const source = payload as Record<string, unknown>;
+  const treeSource = source.tree;
+  let tree: TreeUpdatePayload | null = null;
+  if (treeSource && typeof treeSource === "object") {
+    const treeRecord = treeSource as Record<string, unknown>;
+    const nodes = normalizeTreeNodes(treeRecord.nodes, new Set<string>());
+    if (nodes.length > 0) {
+      tree = { nodes, edges: normalizeTreeEdges(treeRecord.edges) };
+    }
+  }
+  if (!tree) {
+    return null;
+  }
+  const treeVersion = optionalNumber(source.treeVersion);
+  const reason = optionalString(source.reason);
+  const generatedAtUtc = optionalString(source.generatedAtUtc);
+  const degradedReason = optionalString(source.degradedReason)?.trim();
+  const treeIntegrity = normalizeTreeIntegrity(source.treeIntegrity);
+  return {
+    ...(treeVersion !== undefined ? { treeVersion } : {}),
+    ...(reason ? { reason } : {}),
+    ...(typeof source.final === "boolean" ? { final: source.final } : {}),
+    ...(generatedAtUtc ? { generatedAtUtc } : {}),
+    ...(source.degraded === true ? { degraded: true } : {}),
+    ...(degradedReason ? { degradedReason } : {}),
+    ...(treeIntegrity ? { treeIntegrity } : {}),
+    tree,
   };
 }
 
@@ -145,13 +234,84 @@ function normalizeLivePayload(value: unknown): LiveAnalysisPayload | null {
     ? normalizeLiveAnalysisItems(source.items)
     : legacyLiveAnalysisItems(source);
   const itemIds = new Set(items.map((item) => item.id));
-  const tree = normalizeLiveTree(source.tree, itemIds) ?? synthesizeLiveTree(currentTopic, items);
+  const clientIntegrity = {
+    duplicateNodeIds: [] as string[],
+    crossKindIdCollisions: [] as string[],
+  };
+  const tree =
+    normalizeLiveTree(source.tree, itemIds, clientIntegrity) ??
+    synthesizeLiveTree(currentTopic, items);
+  const treeVersion = optionalNumber(source.treeVersion);
+  const treeChanges = normalizeTreeChanges(source.treeChanges);
+  const serverIntegrity = normalizeTreeIntegrity(source.treeIntegrity);
+  const clientDegraded = clientIntegrity.duplicateNodeIds.length > 0;
+  const degraded = source.degraded === true || clientDegraded;
+  const treeIntegrity =
+    serverIntegrity || clientDegraded
+      ? {
+          ...(serverIntegrity ?? {}),
+          ...(clientIntegrity.duplicateNodeIds.length > 0
+            ? { clientDuplicateNodeIds: clientIntegrity.duplicateNodeIds }
+            : {}),
+          ...(clientIntegrity.crossKindIdCollisions.length > 0
+            ? { clientCrossKindIdCollisions: clientIntegrity.crossKindIdCollisions }
+            : {}),
+        }
+      : undefined;
+  const payloadKind = optionalString(source.payloadKind)?.trim();
+  const nodeCount = optionalNumber(source.nodeCount);
+  const edgeCount = optionalNumber(source.edgeCount);
+  const removedNodeIds = normalizeStringArray(source.removedNodeIds);
+  const mergedNodeIds = normalizeStringArray(source.mergedNodeIds);
+  const treeHash = optionalString(source.treeHash)?.trim();
+  const basedOnTreeVersion = optionalNumber(source.basedOnTreeVersion);
   return {
     ...(summary ? { summary } : {}),
     ...(currentTopic ? { currentTopic } : {}),
     items,
     tree,
+    ...(treeVersion !== undefined ? { treeVersion } : {}),
+    ...(treeChanges ? { treeChanges } : {}),
+    ...(degraded ? { degraded: true } : {}),
+    ...(optionalString(source.degradedReason)?.trim()
+      ? { degradedReason: optionalString(source.degradedReason)?.trim() }
+      : clientDegraded
+        ? { degradedReason: "duplicate_node_id_filtered" }
+        : {}),
+    ...(treeIntegrity ? { treeIntegrity } : {}),
+    ...(payloadKind ? { payloadKind } : {}),
+    ...(nodeCount !== undefined ? { nodeCount } : {}),
+    ...(edgeCount !== undefined ? { edgeCount } : {}),
+    ...(removedNodeIds.length > 0 ? { removedNodeIds } : {}),
+    ...(mergedNodeIds.length > 0 ? { mergedNodeIds } : {}),
+    ...(treeHash ? { treeHash } : {}),
+    ...(basedOnTreeVersion !== undefined ? { basedOnTreeVersion } : {}),
   };
+}
+
+function normalizeTreeChanges(value: unknown): TreeChangesPayload | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const source = value as Record<string, unknown>;
+  const treeVersion = optionalNumber(source.treeVersion);
+  if (treeVersion === undefined) {
+    return undefined;
+  }
+  const changes: TreeChangesPayload = { treeVersion };
+  for (const [key, raw] of Object.entries({
+    newNodeIds: source.newNodeIds,
+    updatedNodeIds: source.updatedNodeIds,
+    reparentedNodeIds: source.reparentedNodeIds,
+    resolvedNodeIds: source.resolvedNodeIds,
+    promotedNodeIds: source.promotedNodeIds,
+  })) {
+    const ids = [...new Set(normalizeStringArray(raw))];
+    if (ids.length > 0) {
+      changes[key as keyof Omit<TreeChangesPayload, "treeVersion">] = ids;
+    }
+  }
+  return changes;
 }
 
 function normalizeLiveAnalysisItems(value: unknown[]): AnalysisItem[] {
@@ -170,6 +330,18 @@ function normalizeLiveAnalysisItems(value: unknown[]): AnalysisItem[] {
       const kind = optionalString(source.kind)?.trim() || "issue";
       const severity = optionalString(source.severity)?.trim() || "medium";
       const status = optionalString(source.status)?.trim() || "open";
+      const evidenceSequenceNos = normalizeNumberArray(source.evidenceSequenceNos);
+      const resolutionEvidenceSequenceNos = normalizeNumberArray(
+        source.resolutionEvidenceSequenceNos,
+      );
+      const reopenEvidenceSequenceNos = normalizeNumberArray(source.reopenEvidenceSequenceNos);
+      const resolvedAtVersion = optionalNumber(source.resolvedAtVersion);
+      const reopenedAtVersion = optionalNumber(source.reopenedAtVersion);
+      const resolutionReason = optionalString(source.resolutionReason);
+      const reopenReason = optionalString(source.reopenReason);
+      const relatedAgendaIds = normalizeStringArray(source.relatedAgendaIds);
+      const classificationStatus = optionalString(source.classificationStatus)?.trim();
+      const candidateTopicId = optionalString(source.candidateTopicId)?.trim();
       return {
         id,
         kind,
@@ -177,6 +349,19 @@ function normalizeLiveAnalysisItems(value: unknown[]): AnalysisItem[] {
         title: title || truncateItemTitle(body),
         body,
         status,
+        ...(evidenceSequenceNos.length > 0 ? { evidenceSequenceNos } : {}),
+        ...(resolvedAtVersion !== undefined ? { resolvedAtVersion } : {}),
+        ...(resolutionEvidenceSequenceNos.length > 0 ? { resolutionEvidenceSequenceNos } : {}),
+        ...(resolutionReason ? { resolutionReason } : {}),
+        ...(reopenedAtVersion !== undefined ? { reopenedAtVersion } : {}),
+        ...(reopenEvidenceSequenceNos.length > 0 ? { reopenEvidenceSequenceNos } : {}),
+        ...(reopenReason ? { reopenReason } : {}),
+        ...(relatedAgendaIds.length > 0 ? { relatedAgendaIds } : {}),
+        ...(classificationStatus ? { classificationStatus } : {}),
+        ...(candidateTopicId ? { candidateTopicId } : {}),
+        ...(typeof source.candidateInactive === "boolean"
+          ? { candidateInactive: source.candidateInactive }
+          : {}),
       };
     })
     .filter((item): item is AnalysisItem => item !== null);
@@ -252,23 +437,31 @@ function truncateItemTitle(text: string, maxLength = 25) {
   return `${text.slice(0, maxLength)}…`;
 }
 
-function normalizeLiveTree(value: unknown, itemIds: Set<string>): TreeUpdatePayload | null {
+function normalizeLiveTree(
+  value: unknown,
+  itemIds: Set<string>,
+  integrity?: { duplicateNodeIds: string[]; crossKindIdCollisions: string[] },
+): TreeUpdatePayload | null {
   if (!value || typeof value !== "object") {
     return null;
   }
   const source = value as Record<string, unknown>;
-  const nodes = normalizeTreeNodes(source.nodes, itemIds);
+  const nodes = normalizeTreeNodes(source.nodes, itemIds, integrity);
   if (nodes.length === 0) {
     return null;
   }
   return { nodes, edges: normalizeTreeEdges(source.edges) };
 }
 
-function normalizeTreeNodes(value: unknown, itemIds: Set<string>): TreeNodePayload[] {
+function normalizeTreeNodes(
+  value: unknown,
+  itemIds: Set<string>,
+  integrity?: { duplicateNodeIds: string[]; crossKindIdCollisions: string[] },
+): TreeNodePayload[] {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value
+  const parsed = value
     .map((node) => {
       if (!node || typeof node !== "object") {
         return null;
@@ -279,22 +472,109 @@ function normalizeTreeNodes(value: unknown, itemIds: Set<string>): TreeNodePaylo
         return null;
       }
       const kind = optionalString(source.kind)?.trim();
+      const parentId =
+        optionalString(source.parentId)?.trim() ?? optionalString(source.parent_id)?.trim();
       const label = optionalString(source.label)?.trim();
       const status = optionalString(source.status)?.trim();
       const description = truncateNodeDescription(
         optionalString(source.description)?.trim() ?? optionalString(source.summary)?.trim() ?? "",
       );
       const relatedItemIds = normalizeRelatedItemIds(source, id, itemIds);
+      const origin = optionalString(source.origin)?.trim();
+      const agendaRole = optionalString(source.agendaRole)?.trim();
       return {
         id,
         ...(kind ? { kind } : {}),
+        ...(parentId ? { parentId } : {}),
         ...(label ? { label } : {}),
         ...(status ? { status } : {}),
         ...(description ? { description } : {}),
         ...(relatedItemIds.length > 0 ? { relatedItemIds } : {}),
+        ...(origin ? { origin } : {}),
+        ...(agendaRole ? { agendaRole } : {}),
       };
     })
     .filter((node): node is TreeNodePayload => node !== null);
+  const selected = new Map<string, TreeNodePayload>();
+  const order: string[] = [];
+  for (const node of parsed) {
+    const existing = selected.get(node.id);
+    if (!existing) {
+      selected.set(node.id, node);
+      order.push(node.id);
+      continue;
+    }
+    if (integrity) {
+      if (!integrity.duplicateNodeIds.includes(node.id)) {
+        integrity.duplicateNodeIds.push(node.id);
+      }
+      if (existing.kind !== node.kind && !integrity.crossKindIdCollisions.includes(node.id)) {
+        integrity.crossKindIdCollisions.push(node.id);
+      }
+    }
+    if (treeNodeIdentityPriority(node) > treeNodeIdentityPriority(existing)) {
+      selected.set(node.id, node);
+    }
+  }
+  return order
+    .map((id) => selected.get(id))
+    .filter((node): node is TreeNodePayload => Boolean(node));
+}
+
+function treeNodeIdentityPriority(node: TreeNodePayload) {
+  const fixedAgenda =
+    node.kind === "topic" &&
+    node.agendaRole !== "action_summary" &&
+    (node.origin === "agenda" || /^agenda-\d+$/.test(node.id));
+  if (fixedAgenda) {
+    return 100;
+  }
+  if (node.id === "root" && node.kind === "topic") {
+    return 90;
+  }
+  if (node.kind === "topic") {
+    return 60;
+  }
+  if (node.kind === "group") {
+    return 50;
+  }
+  return 10;
+}
+
+function normalizeTreeIntegrity(value: unknown): TreeIntegrityDiagnostics | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const source = value as Record<string, unknown>;
+  const stringArrays: Array<keyof TreeIntegrityDiagnostics> = [
+    "duplicateNodeIds",
+    "crossKindIdCollisions",
+    "reservedItemIds",
+    "selfParentNodeIds",
+    "missingFixedAgendaIds",
+    "movedFixedAgendaIds",
+    "fixedAgendaKindMismatchIds",
+    "actionSummaryTreeNodeIds",
+  ];
+  const diagnostics: TreeIntegrityDiagnostics = {};
+  if (typeof source.valid === "boolean") {
+    diagnostics.valid = source.valid;
+  }
+  for (const key of stringArrays) {
+    const values = normalizeStringArray(source[key]);
+    if (values.length > 0) {
+      diagnostics[key] = values as never;
+    }
+  }
+  const expected = optionalNumber(source.expectedFixedAgendaCount);
+  const actual = optionalNumber(source.actualFixedAgendaCount);
+  if (expected !== undefined) {
+    diagnostics.expectedFixedAgendaCount = expected;
+  }
+  if (actual !== undefined) {
+    diagnostics.actualFixedAgendaCount = actual;
+  }
+  return diagnostics;
 }
 
 function normalizeRelatedItemIds(
@@ -458,6 +738,15 @@ function normalizeStringArray(value: unknown): string[] {
     .filter((item): item is string => typeof item === "string")
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
+}
+
+function normalizeNumberArray(value: unknown): number[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(
+    (item): item is number => typeof item === "number" && Number.isSafeInteger(item) && item > 0,
+  );
 }
 
 function isMeetingAIAnalysisType(value: unknown): value is MeetingAIAnalysisType {

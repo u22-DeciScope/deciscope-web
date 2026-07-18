@@ -60,7 +60,7 @@ POST /v1/workspaces/{workspaceId}/meeting-sessions
 
 会議URL送信時の流れは、workspace-scoped APIでのsession作成、pending navigationの保存、`sessionId` パスへの遷移の順です。`sessionId` をルートパラメータに持たせることで、認証状態の再確認、ページ再読み込み、React stateの破棄を挟んでも会議セッションを復元できます。送信中はボタンをdisabledにし、同じsubmitの二重実行を防ぎます。
 
-ホームの進行中一覧では、Go APIの `GET /v1/workspaces/{workspaceId}/meeting-sessions` と `GET /v1/workspaces/{workspaceId}/meeting-sessions/{sessionId}` のstatusを使ってTeams会議を表示します。`ended`、`failed`、`stale`、`timeout` のTeams sessionは進行中一覧から外れ、最近の会議側に表示されます。Teams会議の「開く」「記録を見る」は `sessionId` を含む会議画面パスへ遷移するため、既存meetingレコードだけを開いて空の会議画面になることを避けます。
+ホームの進行中一覧では、Go APIの `GET /v1/workspaces/{workspaceId}/meeting-sessions` と `GET /v1/workspaces/{workspaceId}/meeting-sessions/{sessionId}` のstatusを使ってTeams会議を表示します。`ended`、`failed`、`stale`、`timeout` のTeams sessionは進行中一覧から外れ、最近の会議側に表示されます。最近の会議は直近5件のみで、全件は「すべて」から会議履歴ページ (`/w/<workspaceId>/meetings/history`) で確認できます。Teams会議の「開く」「記録を見る」は `sessionId` を含む会議画面パスへ遷移するため、既存meetingレコードだけを開いて空の会議画面になることを避けます。
 
 `sessionId` はURLパスを正とします。`localStorage` の `deciscope:meetingSessions:v1` は、作成直後の復帰や旧導線の補助情報としてのみ使います。旧実装の `deciscope:lastSessionId` は最後に作成したsessionの控えとしてのみ更新し、ホーム一覧へは自動移行しません。
 

@@ -6,6 +6,7 @@ import {
   getWorkspaceMeetingSessionAIAnalyses,
   type LiveAnalysisPayload,
   type MeetingAIAnalysis,
+  type TreeSnapshotPayload,
 } from "~/api/aiAnalysis/aiAnalysisApi";
 import {
   getWorkspaceMeetingSession,
@@ -63,6 +64,7 @@ export default function MeetingSummary() {
   const [markdown, setMarkdown] = useState("");
   const [shareToken, setShareToken] = useState("");
   const [tree, setTree] = useState<TreeUpdatePayload | null>(null);
+  const [treeSnapshot, setTreeSnapshot] = useState<TreeSnapshotPayload | null>(null);
   const [analysisItems, setAnalysisItems] = useState<AnalysisItem[]>([]);
   const [finalAnalysis, setFinalAnalysis] = useState<MeetingAIAnalysis | null>(null);
   const [finalAnalysisPending, setFinalAnalysisPending] = useState(false);
@@ -82,6 +84,7 @@ export default function MeetingSummary() {
     setMarkdown("");
     setTranscriptSegments([]);
     setTree(null);
+    setTreeSnapshot(null);
     setAnalysisItems([]);
     setFinalAnalysis(null);
     setFinalAnalysisPending(false);
@@ -158,6 +161,7 @@ export default function MeetingSummary() {
         setFinalAnalysisError(null);
         setFinalAnalysis(analyses.final);
         setLiveAnalysis(analyses.live);
+        setTreeSnapshot(analyses.treeSnapshot);
         if (analyses.final?.status === "running") {
           // running の間は打ち切らず、完了/失敗になるまでポーリングし続ける。
           timer = setTimeout(() => void poll(), finalAnalysisPollIntervalMs);
@@ -206,15 +210,20 @@ export default function MeetingSummary() {
     return summaryFromReport(meeting, report);
   }, [meeting, report, session, transcriptSegments]);
 
-  // 議論ツリー/分析カードは durable イベント(旧経路)を優先し、
-  // 無ければライブ分析payloadのtree/itemsで補って終了後も閲覧できるようにする。
+  // 議論ツリーは、会議終了時に保存されたdurableスナップショットを最優先し、
+  // 無ければ durable イベント(旧経路)、最後にライブ分析payloadのtreeで補う。
   const livePayload = (liveAnalysis?.payload as LiveAnalysisPayload | null) ?? null;
-  const effectiveTree = tree?.nodes?.length ? tree : (livePayload?.tree ?? null);
+  const effectiveTree = treeSnapshot?.tree?.nodes?.length
+    ? treeSnapshot.tree
+    : tree?.nodes?.length
+      ? tree
+      : (livePayload?.tree ?? null);
   // dismissed だけを除外し、resolved は解決済みカードとして残す。
   const effectiveAnalysisItems =
     analysisItems.length > 0
       ? analysisItems
       : (livePayload?.items ?? []).filter((item) => item.status !== "dismissed");
+  const analysisQualityDegraded = treeSnapshot?.degraded || livePayload?.degraded;
 
   async function exportMarkdown() {
     const content = session
@@ -284,15 +293,31 @@ export default function MeetingSummary() {
           {finalAnalysisError}
         </p>
       )}
-      {session ? (
+{session ? (
         <>
-          <SessionSummaryHeader summary={summary} />
-          <AiFinalSummaryPanel
-            final={finalAnalysis}
-            currentTitle={summary.title}
-            pending={finalAnalysisPending}
-          />
-          {hasPreMeetingContext(session) && <PreMeetingContextPanel session={session} />}
+          {/* 1. ヘッダーエリア */}
+          <div className="shrink-0">
+            <SessionSummaryHeader summary={summary} />
+          </div>
+
+          {/* 2. 議事録サマリーの2カラムレイアウトエリア */}
+          <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-3 shrink-0 mb-4">
+            {/* 左側メインカラム（幅 2/3）: AI要約と、すべての決定事項・アクション等の結果リスト */}
+            <div className="flex flex-col gap-4 xl:col-span-2">
+              <AiFinalSummaryPanel
+                final={finalAnalysis}
+                currentTitle={summary.title}
+                pending={finalAnalysisPending}
+              />
+            </div>
+
+            {/* 右側サブカラム（幅 1/3）: 会議前の前提条件・背景・アジェンダ */}
+            <div className="flex flex-col gap-4 xl:col-span-1">
+              {hasPreMeetingContext(session) && <PreMeetingContextPanel session={session} />}
+            </div>
+          </div>
+
+          {/* 3. 操作を行わない領域: 現状のまま完全に維持 */}
           <SessionReviewWorkspace
             session={session}
             segments={transcriptSegments}
@@ -300,8 +325,7 @@ export default function MeetingSummary() {
             analysisItems={effectiveAnalysisItems}
           />
         </>
-      ) : (
-        <>
+      ) : (        <>
           <MeetingSummaryMain meetingsPath={meetingsPath} summary={summary} />
           <MarkdownReportPanel content={markdown || report?.content || ""} />
         </>

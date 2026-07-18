@@ -10,15 +10,12 @@ import { MeetingWorkspaceGrid } from "~/components/meeting/parts/MeetingWorkspac
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { useBotStatusToasts } from "~/hooks/useBotStatusToasts";
+import { useMeetingEndFlow } from "~/hooks/useMeetingEndFlow";
 import { useMeetingTranscriptSession } from "~/hooks/useMeetingTranscriptSession";
 import { useMeetingRuntime } from "~/hooks/useMeetingRuntime";
 import { useMeetingElapsedTime } from "~/hooks/useMeetingElapsedTime";
 import type { LiveAnalysisPayload } from "~/api/aiAnalysis/aiAnalysisApi";
 import { canManageMeetingSessions } from "~/api/auth/authApi";
-import {
-  endWorkspaceMeetingSession,
-  type MeetingSessionStatus,
-} from "~/api/meetingSessions/meetingSessionsApi";
 import {
   findMeetingSessionRecord,
   isTerminalMeetingSessionStatus,
@@ -48,23 +45,37 @@ export default function Meeting() {
   const isSessionOnlyRoute = Boolean(sessionId && id === sessionId);
   const runtimeMeetingId = isSessionOnlyRoute ? undefined : id;
   const runtime = useMeetingRuntime(runtimeMeetingId);
-  const [showEndedModal, setShowEndedModal] = useState(false);
+  // 旧経路(meeting_id直接)の終了完了表示。session経路はuseMeetingEndFlowが管理する。
+  const [legacyShowEndedModal, setLegacyShowEndedModal] = useState(false);
+  const [legacyEndedAt, setLegacyEndedAt] = useState("");
+  const [legacyEndError, setLegacyEndError] = useState<string | null>(null);
+  // endFlow.showEndedModal は下で算出するため、WS切断条件には後述のshowEndedModalを使う。
+  const [endedModalVisible, setEndedModalVisible] = useState(false);
   const transcriptSession = useMeetingTranscriptSession(
     runtimeMeetingId ?? sessionId,
     sessionId,
     workspaceId,
-    { connectWebSocket: !showEndedModal },
+    // finalization(ending)中は最後の文字起こし・tree更新・正式なended通知を
+    // 受信するためWebSocketを維持し、正式な終了確認後にのみ切断する。
+    { connectWebSocket: !endedModalVisible },
   );
+  const endFlow = useMeetingEndFlow({
+    workspaceId,
+    sessionId,
+    observedStatus: transcriptSession.sessionStatus,
+    observedEndedAt: transcriptSession.sessionEndedAt,
+    wsConnected: transcriptSession.connectionStatus === "connected",
+  });
+  const showEndedModal = sessionId ? endFlow.showEndedModal : legacyShowEndedModal;
+  useEffect(() => {
+    setEndedModalVisible(showEndedModal);
+  }, [showEndedModal]);
   const clearedPendingSessionRef = useRef("");
-  const [isEndingSession, setIsEndingSession] = useState(false);
-  const [sessionEndStatusOverride, setSessionEndStatusOverride] =
-    useState<MeetingSessionStatus | null>(null);
-  const [sessionEndedAtOverride, setSessionEndedAtOverride] = useState("");
-  const [sessionEndError, setSessionEndError] = useState<string | null>(null);
+  const sessionEndError = sessionId ? endFlow.endError : legacyEndError;
   const detailTargetId = sessionId || runtimeMeetingId || id || "";
-  // 終了ボタンが押された/押された結果を表示中かどうか。trueの間は「Botが会議から
+  // 終了ボタンが押された/終了処理中/終了表示中かどうか。trueの間は「Botが会議から
   // 退出しました」トースト(想定外の退出向け)を出さない。
-  const isLocalEnd = isEndingSession || sessionEndStatusOverride !== null || showEndedModal;
+  const isLocalEnd = endFlow.isFinalizing || endFlow.isRequestingEnd || showEndedModal;
   const { toasts: botStatusToasts, dismissToast: dismissBotStatusToast } = useBotStatusToasts(
     detailTargetId,
     transcriptSession.sessionStatus,
@@ -114,11 +125,9 @@ export default function Meeting() {
   }, [meetingTitle]);
 
   useEffect(() => {
-    setIsEndingSession(false);
-    setSessionEndStatusOverride(null);
-    setSessionEndedAtOverride("");
-    setSessionEndError(null);
-    setShowEndedModal(false);
+    setLegacyShowEndedModal(false);
+    setLegacyEndedAt("");
+    setLegacyEndError(null);
   }, [runtimeMeetingId, sessionId]);
 
   useEffect(() => {
@@ -146,17 +155,30 @@ export default function Meeting() {
     () => mergeDisplaySegments(runtime.segments, transcriptSession.segments),
     [runtime.segments, transcriptSession.segments],
   );
-  // 議論ツリーは runtime(旧経路)のtreeを優先し、無ければライブ分析のtreeで補う。
+  // 会議終了後はdurableなfinal snapshotを最優先する。取得中/失敗時は
+  // runtimeまたは最後の正常live treeを維持し、暗黙に空へ戻さない。
   const liveAnalysisTree = useMemo(() => {
     const payload = transcriptSession.liveAnalysis?.payload as LiveAnalysisPayload | null;
     return payload?.tree ?? null;
   }, [transcriptSession.liveAnalysis]);
+  const finalSnapshotTree = transcriptSession.finalTreeSnapshot?.tree ?? null;
+  const finalSnapshotNodes = finalSnapshotTree?.nodes ?? [];
   const runtimeTreeNodes = runtime.tree?.nodes ?? [];
   const treeNodes =
-    runtimeTreeNodes.length > 0 ? runtimeTreeNodes : (liveAnalysisTree?.nodes ?? []);
+    finalSnapshotNodes.length > 0
+      ? finalSnapshotNodes
+      : runtimeTreeNodes.length > 0
+        ? runtimeTreeNodes
+        : (liveAnalysisTree?.nodes ?? []);
   const treeEdges =
-    runtimeTreeNodes.length > 0 ? (runtime.tree?.edges ?? []) : (liveAnalysisTree?.edges ?? []);
-  const meetingSessionStatus = sessionEndStatusOverride ?? transcriptSession.sessionStatus;
+    finalSnapshotNodes.length > 0
+      ? (finalSnapshotTree?.edges ?? [])
+      : runtimeTreeNodes.length > 0
+        ? (runtime.tree?.edges ?? [])
+        : (liveAnalysisTree?.edges ?? []);
+  const meetingSessionStatus = sessionId
+    ? endFlow.effectiveStatus
+    : transcriptSession.sessionStatus;
   const statusLabel =
     meetingSessionStatus ??
     runtime.meetingState.status ??
@@ -164,10 +186,13 @@ export default function Meeting() {
     runtime.connectionStatus;
   const displayStatus = formatStatus(statusLabel);
   const isEndedStatus = isTerminalMeetingSessionStatus(statusLabel);
-  const isEndingMeeting = runtime.isEnding || isEndingSession;
+  const isFinalizing = sessionId ? endFlow.isFinalizing : runtime.isEnding;
+  const isEndingMeeting = runtime.isEnding || endFlow.isRequestingEnd || isFinalizing;
   const canEndMeeting = Boolean((runtimeMeetingId || sessionId) && canManageSessions);
-  const endOverlayMode = isEndingMeeting ? "ending" : showEndedModal ? "ended" : null;
-  const sessionEndedAt = sessionEndedAtOverride || transcriptSession.sessionEndedAt;
+  const endOverlayMode = showEndedModal ? "ended" : isEndingMeeting ? "ending" : null;
+  const sessionEndedAt = sessionId
+    ? endFlow.endedAt
+    : legacyEndedAt || transcriptSession.sessionEndedAt;
   const elapsedStartAt =
     transcriptSession.sessionJoinedAt ||
     (isElapsedMeetingStatus(statusLabel) ? transcriptSession.sessionCreatedAt : "");
@@ -198,43 +223,29 @@ export default function Meeting() {
     }
   }, [runtime, transcriptSession]);
 
+  const requestSessionEnd = endFlow.requestEnd;
   const finishMeeting = useCallback(async () => {
     if (isEndingMeeting || isEndedStatus || showEndedModal) {
       return;
     }
-    setSessionEndError(null);
     if (sessionId) {
-      setIsEndingSession(true);
-      try {
-        const session = await endWorkspaceMeetingSession(workspaceId, sessionId);
-        const endedStatus: MeetingSessionStatus = isTerminalMeetingSessionStatus(session.status)
-          ? session.status
-          : "ended";
-        setSessionEndStatusOverride(endedStatus);
-        setSessionEndedAtOverride(session.endedAt ?? new Date().toISOString());
-        setShowEndedModal(true);
-      } catch (cause) {
-        setSessionEndError(
-          `会議の終了に失敗しました。時間をおいて再度お試しください。${errorMessageSuffix(cause)}`,
-        );
-      } finally {
-        setIsEndingSession(false);
-      }
+      // session経路: 終了APIのレスポンスstatusをそのまま反映し、endingの間は
+      // finalization待機、正式なendedを受信してから完了モーダルへ進む。
+      await requestSessionEnd();
       return;
     }
 
-    setSessionEndError(null);
+    setLegacyEndError(null);
     try {
       await runtime.finishMeeting();
-      setSessionEndStatusOverride("ended");
-      setSessionEndedAtOverride(new Date().toISOString());
-      setShowEndedModal(true);
+      setLegacyEndedAt(new Date().toISOString());
+      setLegacyShowEndedModal(true);
     } catch (cause) {
-      setSessionEndError(
+      setLegacyEndError(
         `会議の終了に失敗しました。時間をおいて再度お試しください。${errorMessageSuffix(cause)}`,
       );
     }
-  }, [isEndedStatus, isEndingMeeting, runtime, sessionId, showEndedModal, workspaceId]);
+  }, [isEndedStatus, isEndingMeeting, requestSessionEnd, runtime, sessionId, showEndedModal]);
 
   const chrome = useMemo(
     () => ({

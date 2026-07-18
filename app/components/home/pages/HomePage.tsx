@@ -8,20 +8,22 @@ import {
   listWorkspaceMeetingSessions,
   type MeetingSessionDto,
 } from "~/api/meetingSessions/meetingSessionsApi";
-import { isTerminalMeetingSessionStatus } from "~/api/meetingSessions/meetingSessionRegistry";
 import { DsButton } from "~/components/DsButton";
+import {
+  buildMeetingItems,
+  formatShortDate,
+  formatSource,
+  isActiveMeetingItem,
+  isActiveMeetingStatus,
+  sortByCreatedAtDesc,
+  type MeetingListItem,
+} from "~/components/home/meetingListItems";
+import { MeetingTitleLine } from "~/components/home/parts/MeetingTitleLine";
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
-import {
-  workspaceMeetingPath,
-  workspaceMeetingSummaryPath,
-  workspacePath,
-} from "~/routing/workspacePaths";
-import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
+import { workspacePath } from "~/routing/workspacePaths";
 import { meetingStartDebug } from "~/utils/meetingStartDebug";
 import { formatStatus } from "~/utils/meetingStatusLabels";
-
-const staleActiveSessionMs = 2 * 60 * 60 * 1000;
 
 export default function Home() {
   const { workspace, workspaceId } = useAuthenticatedLayout();
@@ -30,6 +32,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const canCreateMeeting = canManageMeetingSessions(workspace.role);
   const newMeetingPath = workspacePath(workspaceId, "/meetings/new");
+  const meetingHistoryPath = workspacePath(workspaceId, "/meetings/history");
 
   useEffect(() => {
     let active = true;
@@ -77,10 +80,13 @@ export default function Home() {
     return sortByCreatedAtDesc(active);
   }, [meetingItems]);
   const activeMeetings = useMemo(() => allActiveMeetings.slice(0, 3), [allActiveMeetings]);
-  const recentMeetings = useMemo(
-    () => meetingItems.filter((meeting) => !isActiveMeetingItem(meeting)).slice(0, 5),
+  // 終了した会議の全件。統計カードは全件数を表示し、「最近の会議」リストは
+  // 先頭5件だけを表示する(切り詰め後の件数を統計に使うと会議数と合わなくなる)。
+  const finishedMeetings = useMemo(
+    () => meetingItems.filter((meeting) => !isActiveMeetingItem(meeting)),
     [meetingItems],
   );
+  const recentMeetings = useMemo(() => finishedMeetings.slice(0, 5), [finishedMeetings]);
 
   // 主見出しはワークスペース名 + role badge のみ。ユーザー名・日付は表示しない。
   const chrome = useMemo(
@@ -119,7 +125,7 @@ export default function Home() {
           { label: "進行中の会議", value: String(allActiveMeetings.length), color: "var(--brand)" },
           {
             label: "終了した会議",
-            value: String(recentMeetings.length),
+            value: String(finishedMeetings.length),
             color: "var(--success)",
           },
           { label: "会議数", value: String(meetingItems.length), color: "var(--warning)" },
@@ -163,7 +169,7 @@ export default function Home() {
         className="ds-surface overflow-hidden rounded-(--ds-radius-panel)"
         style={{ boxShadow: "var(--ds-shadow)" }}
       >
-        <SectionHeader title="最近の会議" actionLabel="すべて" />
+        <SectionHeader title="最近の会議" actionLabel="すべて" actionTo={meetingHistoryPath} />
         <div>
           {!isLoading && !error && recentMeetings.length === 0 && (
             <EmptyRow label="終了した会議はまだありません。" />
@@ -205,24 +211,6 @@ export default function Home() {
   );
 }
 
-type MeetingListItem = {
-  id: string;
-  title: string;
-  // Teams側の会議名(graphTitle)。表示タイトルと異なる場合のみ、会議名の横に
-  // 薄い文字で補助表示する。
-  teamsTitle?: string;
-  status: string;
-  source: string;
-  created_at: string;
-  updated_at: string;
-  ended_at?: string;
-  detailId: string;
-  to: string;
-  recentTo: string;
-  actionLabel: string;
-  isTeamsSession: boolean;
-};
-
 function MeetingRow({ meeting }: { meeting: MeetingListItem }) {
   return (
     <div className="flex items-center gap-4 px-5 py-3">
@@ -254,31 +242,15 @@ function MeetingRow({ meeting }: { meeting: MeetingListItem }) {
   );
 }
 
-// 会議名の行。ユーザー入力のタイトルを主表示し、Teams側の会議名が別にある場合は
-// 少し間をあけて薄い文字で補助表示する。
-function MeetingTitleLine({ teamsTitle, title }: { teamsTitle?: string; title: string }) {
-  return (
-    <div className="flex min-w-0 items-baseline gap-2">
-      <p
-        className="min-w-0 shrink truncate text-[13px] font-medium"
-        style={{ color: "var(--text-main)" }}
-      >
-        {title}
-      </p>
-      {teamsTitle && (
-        <p
-          className="min-w-0 shrink truncate text-[11px]"
-          style={{ color: "var(--text-muted)" }}
-          title={`Teams上の会議名: ${teamsTitle}`}
-        >
-          {teamsTitle}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function SectionHeader({ actionLabel, title }: { actionLabel?: string; title: string }) {
+function SectionHeader({
+  actionLabel,
+  actionTo,
+  title,
+}: {
+  actionLabel?: string;
+  actionTo?: string;
+  title: string;
+}) {
   return (
     <div
       className="flex h-10 items-center justify-between border-b px-5"
@@ -290,11 +262,16 @@ function SectionHeader({ actionLabel, title }: { actionLabel?: string; title: st
           {title}
         </span>
       </div>
-      {actionLabel && (
-        <button type="button" className="text-[11px] font-medium text-(--brand)">
-          {actionLabel}
-        </button>
-      )}
+      {actionLabel &&
+        (actionTo ? (
+          <Link to={actionTo} className="text-[11px] font-medium text-(--brand)">
+            {actionLabel}
+          </Link>
+        ) : (
+          <button type="button" className="text-[11px] font-medium text-(--brand)">
+            {actionLabel}
+          </button>
+        ))}
     </div>
   );
 }
@@ -305,143 +282,4 @@ function EmptyRow({ label }: { label: string }) {
       {label}
     </div>
   );
-}
-
-function buildMeetingItems(sessions: MeetingSessionDto[], workspaceId: string) {
-  const items = sessions.map((session) => sessionToListItem(session, workspaceId));
-  return items.sort((a, b) => dateValue(b.updated_at) - dateValue(a.updated_at));
-}
-
-function sessionToListItem(session: MeetingSessionDto, workspaceId: string): MeetingListItem {
-  const meetingPath = workspaceMeetingPath(workspaceId, session.sessionId);
-  const status = displaySessionStatus(session);
-  const createdAt = session.createdAt ?? session.requestedAt ?? session.updatedAt ?? "";
-  const updatedAt = session.updatedAt ?? session.lastBotStatusAt ?? createdAt;
-  const endedAt =
-    session.endedAt ?? (isTerminalMeetingSessionStatus(session.status) ? updatedAt : undefined);
-  const displayTitle = getMeetingDisplayTitle(session, { component: "dashboard-session-card" });
-  const graphTitle = session.graphTitle?.trim();
-  return {
-    id: session.sessionId,
-    title: displayTitle,
-    ...(graphTitle && graphTitle !== displayTitle ? { teamsTitle: graphTitle } : {}),
-    status,
-    source: "teams_bot",
-    created_at: createdAt,
-    updated_at: updatedAt,
-    ended_at: endedAt,
-    detailId: session.sessionId,
-    to: meetingPath,
-    recentTo: isTerminalMeetingSessionStatus(status)
-      ? workspaceMeetingSummaryPath(workspaceId, session.sessionId)
-      : meetingPath,
-    actionLabel: isActiveMeetingStatus(status, true) ? "開く" : "記録を見る",
-    isTeamsSession: true,
-  };
-}
-
-function isActiveMeetingItem(item: MeetingListItem) {
-  if (!isActiveMeetingStatus(item.status, item.isTeamsSession)) {
-    return false;
-  }
-  if (!item.isTeamsSession) {
-    return true;
-  }
-  const activeAgeMs = Date.now() - Date.parse(item.updated_at);
-  const isFresh = activeAgeMs <= staleActiveSessionMs;
-  if (!isFresh) {
-    meetingStartDebug("dashboard", "active session excluded as stale on dashboard", {
-      sessionId: item.detailId,
-      title: item.title,
-      status: item.status,
-      updatedAt: item.updated_at,
-      activeAgeMs,
-      staleActiveSessionMs,
-    });
-  }
-  return isFresh;
-}
-
-function isActiveMeetingStatus(status: string, isTeamsSession: boolean) {
-  if (isTeamsSession) {
-    return (
-      status === "requested" ||
-      status === "pending_join" ||
-      status === "command_sent" ||
-      status === "joining" ||
-      status === "joined" ||
-      status === "active" ||
-      status === "recording" ||
-      status === "speech_error" ||
-      status === "speech_throttled"
-    );
-  }
-  return status === "started";
-}
-
-function sortByCreatedAtDesc(items: MeetingListItem[]) {
-  return [...items].sort((a, b) => dateValue(b.created_at) - dateValue(a.created_at));
-}
-
-function dateValue(value?: string) {
-  if (!value) {
-    return 0;
-  }
-  const time = Date.parse(value);
-  return Number.isNaN(time) ? 0 : time;
-}
-
-function formatShortDate(value?: string) {
-  if (!value) {
-    return "";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString("ja-JP", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function displaySessionStatus(session: MeetingSessionDto) {
-  const updatedAt = session.updatedAt ?? session.lastBotStatusAt ?? session.createdAt ?? "";
-  if (
-    isActiveMeetingStatus(session.status, true) &&
-    updatedAt &&
-    Date.now() - Date.parse(updatedAt) > staleActiveSessionMs
-  ) {
-    meetingStartDebug("dashboard", "session card status overridden", {
-      reason: "stale_active_session",
-      sessionId: session.sessionId,
-      title: session.title,
-      titleSource: session.titleSource ?? null,
-      originalStatus: session.status,
-      updatedAt,
-    });
-    return "stale";
-  }
-  meetingStartDebug("dashboard", "session card title source", {
-    sessionId: session.sessionId,
-    title: session.title,
-    titleSource: session.titleSource ?? null,
-    status: session.status,
-  });
-  return session.status;
-}
-
-function formatSource(source: string) {
-  switch (source) {
-    case "fixture_replay":
-      return "テストデータ";
-    case "teams_bot":
-      return "Teams";
-    case "upload":
-      return "ファイル";
-    default:
-      return source;
-  }
 }

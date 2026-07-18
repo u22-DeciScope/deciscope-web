@@ -10,6 +10,9 @@ export type MeetingSessionStatus =
   | "recording"
   | "speech_error"
   | "speech_throttled"
+  // ending: 終了要求後、APIがfinalization(最終文字起こしflush・tree・summary)を
+  // 実行している状態。terminalではない。endedへ丸めてはいけない。
+  | "ending"
   | "ended"
   | "failed"
   | "stale"
@@ -73,6 +76,7 @@ const meetingSessionStatuses: MeetingSessionStatus[] = [
   "recording",
   "speech_error",
   "speech_throttled",
+  "ending",
   "ended",
   "failed",
   "stale",
