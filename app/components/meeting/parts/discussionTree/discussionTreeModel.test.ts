@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildDiscussionTreeModel } from "./discussionTreeModel";
+import { buildDiscussionTreeModel, collapsibleNodeIds } from "./discussionTreeModel";
 import type { TreeEdgePayload, TreeNodePayload } from "~/api/meetings/meetingRuntimeTypes";
 
 const edge = (source: string, target: string): TreeEdgePayload => ({
@@ -67,5 +67,26 @@ describe("buildDiscussionTreeModel", () => {
     expect(model.parentOf.get("issue-1")).toBe("topic-main");
     // BFS未到達ノードは root の子として救済される(従来挙動の防御)。
     expect(model.parentOf.get("orphan")).toBe("topic-main");
+  });
+
+  it("root→agenda→group→detailの深さ3を保持し、groupを折りたたみ対象にする", () => {
+    const nodes: TreeNodePayload[] = [
+      { id: "root", kind: "topic", label: "会議" },
+      { id: "agenda-1", kind: "topic", parentId: "root", label: "渡り鳥調査" },
+      { id: "group-sites", kind: "group", parentId: "agenda-1", label: "観測地点" },
+      { id: "risk-sites", kind: "risk", parentId: "group-sites", label: "地点不足" },
+      { id: "decision-sites", kind: "decision", parentId: "group-sites", label: "三地点" },
+    ];
+
+    const model = buildDiscussionTreeModel(nodes, []);
+    expect(model.depthOf.get("risk-sites")).toBe(3);
+    expect(model.depthOf.get("decision-sites")).toBe(3);
+    expect(model.childrenOf.get("group-sites")).toEqual(["risk-sites", "decision-sites"]);
+    expect(model.descendantKindCounts.get("agenda-1")).toMatchObject({
+      group: 1,
+      risk: 1,
+      decision: 1,
+    });
+    expect(collapsibleNodeIds(model).has("group-sites")).toBe(true);
   });
 });

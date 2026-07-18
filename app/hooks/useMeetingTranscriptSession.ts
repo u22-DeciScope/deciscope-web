@@ -1,9 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from "react";
 
 import {
   getWorkspaceMeetingSessionAIAnalyses,
   type LiveAnalysisPayload,
-  type MeetingAIAnalysis,
 } from "~/api/aiAnalysis/aiAnalysisApi";
 import {
   getWorkspaceMeetingSession,
@@ -24,6 +31,14 @@ import {
 } from "~/api/transcripts/transcriptSegmentsApi";
 import { meetingStartDebug } from "~/utils/meetingStartDebug";
 import { isPermanentRealtimeApiError, realtimeRecoveryDecision } from "~/utils/realtimeRecovery";
+import {
+  analysisTreeNodeCount,
+  analysisTreeVersion,
+  initialMeetingAnalysisState,
+  meetingAnalysisReducer,
+  treeApplyDecision,
+  type MeetingAnalysisAction,
+} from "~/hooks/meetingAnalysisState";
 
 export type TranscriptSessionConnectionStatus =
   | "idle"
@@ -103,8 +118,17 @@ export function useMeetingTranscriptSession(
   const [transcriptHealth, setTranscriptHealth] = useState<MeetingSessionTranscriptHealth | null>(
     null,
   );
-  const [liveAnalysis, setLiveAnalysis] = useState<MeetingAIAnalysis | null>(null);
-  const [finalAnalysis, setFinalAnalysis] = useState<MeetingAIAnalysis | null>(null);
+  const [analysisState, dispatchAnalysis] = useReducer(meetingAnalysisReducer, undefined, () =>
+    initialMeetingAnalysisState(),
+  );
+  const analysisStateRef = useRef(analysisState);
+  analysisStateRef.current = analysisState;
+  const applyAnalysisAction = useCallback((action: MeetingAnalysisAction) => {
+    analysisStateRef.current = meetingAnalysisReducer(analysisStateRef.current, action);
+    dispatchAnalysis(action);
+  }, []);
+  const liveAnalysis = analysisState.liveAnalysis;
+  const finalAnalysis = analysisState.finalSummary;
   const [liveAnalysisMeta, setLiveAnalysisMeta] =
     useState<LiveAnalysisMeta>(initialLiveAnalysisMeta);
   const [connectionStatus, setConnectionStatus] =
@@ -145,8 +169,17 @@ export function useMeetingTranscriptSession(
         }
         return status;
       });
+      applyAnalysisAction({ type: "meeting_status", status });
+      if (isTerminalMeetingSessionStatus(status)) {
+        meetingStartDebug("meeting-page", "analysis tree preserved", {
+          meetingStatus: status,
+          treePreserved: analysisTreeNodeCount(analysisStateRef.current) > 0,
+          treeNodeCountAfter: analysisTreeNodeCount(analysisStateRef.current),
+          reason: "meeting_ended",
+        });
+      }
     },
-    [],
+    [applyAnalysisAction],
   );
 
   const appendSegments = useCallback(
@@ -301,8 +334,7 @@ export function useMeetingTranscriptSession(
       setSessionEndReason("");
       setBotConnectionLost(false);
       setTranscriptHealth(null);
-      setLiveAnalysis(null);
-      setFinalAnalysis(null);
+      applyAnalysisAction({ type: "session_changed", sessionId: "" });
       setLiveAnalysisMeta(initialLiveAnalysisMeta);
       setConnectionStatus("idle");
       setError(null);
@@ -325,8 +357,7 @@ export function useMeetingTranscriptSession(
     setSessionEndedAt("");
     setBotConnectionLost(false);
     setTranscriptHealth(null);
-    setLiveAnalysis(null);
-    setFinalAnalysis(null);
+    applyAnalysisAction({ type: "session_changed", sessionId: normalizedSessionId });
     setLiveAnalysisMeta(initialLiveAnalysisMeta);
     setConnectionStatus("loading");
     setError(null);
@@ -469,15 +500,9 @@ export function useMeetingTranscriptSession(
           return;
         }
         const live = analyses.live;
-        if (live) {
-          setLiveAnalysis((current) => (shouldReplaceAIAnalysis(current, live) ? live : current));
-        }
-        const final = analyses.final;
-        if (final) {
-          setFinalAnalysis((current) =>
-            shouldReplaceAIAnalysis(current, final) ? final : current,
-          );
-        }
+        const analysisBefore = analysisStateRef.current;
+        applyAnalysisAction({ type: "rest_snapshot", analyses });
+        const analysisAfter = analysisStateRef.current;
         const intervalSeconds = analyses.liveIntervalSeconds;
         setLiveAnalysisMeta((current) => {
           // WSイベントを既に受信済みならintervalSecondsの補完のみ行う。
@@ -501,6 +526,15 @@ export function useMeetingTranscriptSession(
           liveVersion: analyses.live?.version ?? null,
           finalStatus: analyses.final?.status ?? null,
           finalVersion: analyses.final?.version ?? null,
+          finalTreeSnapshotVersion: analyses.treeSnapshot?.treeVersion ?? null,
+          treeNodeCountBefore: analysisTreeNodeCount(analysisBefore),
+          treeNodeCountAfter: analysisTreeNodeCount(analysisAfter),
+          treeReplaced:
+            analysisTreeNodeCount(analysisBefore) !== analysisTreeNodeCount(analysisAfter) ||
+            analysisTreeVersion(analysisBefore) !== analysisTreeVersion(analysisAfter),
+          treePreserved:
+            analysisTreeNodeCount(analysisBefore) > 0 &&
+            analysisTreeNodeCount(analysisBefore) === analysisTreeNodeCount(analysisAfter),
         });
       } catch (cause) {
         meetingStartDebug("meeting-page", "ai analyses load failed", {
@@ -638,6 +672,7 @@ export function useMeetingTranscriptSession(
             if (isTerminalMeetingSessionStatus(parsed.sessionStatus.status)) {
               setBotConnectionLost(false);
               setTranscriptHealth(null);
+              void loadAIAnalyses();
             }
             meetingStartDebug("meeting-page", "session status received", {
               sessionId: parsed.sessionStatus.sessionId,
@@ -723,28 +758,43 @@ export function useMeetingTranscriptSession(
 
             const incoming = parsed.aiAnalysis;
             if (incoming.analysisType === "live") {
-              // 切り分け用の軽量デバッグログ。受信1回につき1行、version/items数/
-              // treeのnode・edge数と、shouldReplaceAIAnalysisがfalseでstate反映を
-              // skipした場合はその理由(version比較)を出す。
+              // Debug logging is gated by meetingStartDebug and records both
+              // type-specific versions and the last-known-good tree count.
               const livePayload = incoming.payload as LiveAnalysisPayload | null;
-              setLiveAnalysis((current) => {
-                const applied = shouldReplaceAIAnalysis(current, incoming);
-                meetingStartDebug("meeting-page", "live analysis received", {
-                  sessionId: incoming.sessionId,
-                  status: incoming.status,
-                  version: incoming.version,
-                  itemsCount: livePayload?.items?.length ?? null,
-                  treeNodesCount: livePayload?.tree?.nodes?.length ?? null,
-                  treeEdgesCount: livePayload?.tree?.edges?.length ?? null,
-                  applied,
-                  ...(applied
-                    ? {}
-                    : {
-                        skipReason: "version_not_newer",
-                        currentVersion: current?.version ?? null,
-                      }),
-                });
-                return applied ? mergeAIAnalysisPayload(current, incoming) : current;
+              const before = analysisStateRef.current;
+              const after = meetingAnalysisReducer(before, {
+                type: "analysis_event",
+                analysis: incoming,
+              });
+              applyAnalysisAction({ type: "analysis_event", analysis: incoming });
+              meetingStartDebug("meeting-page", "analysisEventReceived", {
+                sessionId: incoming.sessionId,
+                analysisType: incoming.analysisType,
+                status: incoming.status,
+                eventStatus: incoming.status,
+                incomingVersion: incoming.version,
+                currentVersion: before.analysisRuntimeStatus.liveVersion,
+                payloadKind: livePayload?.payloadKind ?? null,
+                incomingNodeCount: livePayload?.tree?.nodes?.length ?? 0,
+                incomingEdgeCount: livePayload?.tree?.edges?.length ?? 0,
+                incomingTreeVersion: livePayload?.treeVersion ?? null,
+                liveVersionBefore: before.analysisRuntimeStatus.liveVersion,
+                liveVersionAfter: after.analysisRuntimeStatus.liveVersion,
+                finalVersionBefore: before.analysisRuntimeStatus.finalVersion,
+                finalVersionAfter: after.analysisRuntimeStatus.finalVersion,
+                canonicalNodeCountBefore: analysisTreeNodeCount(before),
+                canonicalNodeCountAfter: analysisTreeNodeCount(after),
+                treeNodeCountBefore: analysisTreeNodeCount(before),
+                treeNodeCountAfter: analysisTreeNodeCount(after),
+                treeReplaced:
+                  analysisTreeNodeCount(after) !== analysisTreeNodeCount(before) ||
+                  analysisTreeVersion(after) !== analysisTreeVersion(before),
+                treePreserved:
+                  analysisTreeNodeCount(before) > 0 &&
+                  analysisTreeNodeCount(after) === analysisTreeNodeCount(before),
+                treeClearRejected:
+                  livePayload?.tree?.nodes?.length === 0 && analysisTreeNodeCount(after) > 0,
+                decision: treeApplyDecision(before.liveAnalysis, incoming),
               });
               const receivedAtMs = Date.now();
               setLiveAnalysisMeta((current) => ({
@@ -763,17 +813,29 @@ export function useMeetingTranscriptSession(
                     : { generating: false, failed: true }),
               }));
             } else {
-              setFinalAnalysis((current) =>
-                shouldReplaceAIAnalysis(current, incoming)
-                  ? mergeAIAnalysisPayload(current, incoming)
-                  : current,
-              );
-              meetingStartDebug("meeting-page", "ai analysis received", {
+              const before = analysisStateRef.current;
+              const after = meetingAnalysisReducer(before, {
+                type: "analysis_event",
+                analysis: incoming,
+              });
+              applyAnalysisAction({ type: "analysis_event", analysis: incoming });
+              meetingStartDebug("meeting-page", "analysisEventReceived", {
                 sessionId: incoming.sessionId,
                 analysisType: incoming.analysisType,
                 status: incoming.status,
-                version: incoming.version,
+                incomingVersion: incoming.version,
+                liveVersionBefore: before.analysisRuntimeStatus.liveVersion,
+                liveVersionAfter: after.analysisRuntimeStatus.liveVersion,
+                finalVersionBefore: before.analysisRuntimeStatus.finalVersion,
+                finalVersionAfter: after.analysisRuntimeStatus.finalVersion,
+                treeNodeCountBefore: analysisTreeNodeCount(before),
+                treeNodeCountAfter: analysisTreeNodeCount(after),
+                treePreserved: analysisTreeNodeCount(before) > 0,
+                reason: "final_event_without_tree",
               });
+              if (incoming.status === "completed") {
+                void loadAIAnalyses();
+              }
             }
             return;
           }
@@ -835,6 +897,13 @@ export function useMeetingTranscriptSession(
         }
         clearReconnectTimer(connectTimeoutRef);
         socketRef.current = null;
+        applyAnalysisAction({ type: "websocket_closed" });
+        meetingStartDebug("meeting-page", "analysis tree preserved", {
+          sessionId: normalizedSessionId,
+          websocketClosed: true,
+          treePreserved: analysisTreeNodeCount(analysisStateRef.current) > 0,
+          treeNodeCountAfter: analysisTreeNodeCount(analysisStateRef.current),
+        });
         if (!shouldReconnectRef.current) {
           setConnectionStatus("closed");
           meetingStartDebug("meeting-page", "WebSocket closed", {
@@ -957,9 +1026,18 @@ export function useMeetingTranscriptSession(
       meetingStartDebug("meeting-page", "transcript subscription closed", {
         sessionId: normalizedSessionId,
         reason: "effect_cleanup",
+        componentUnmounted: true,
+        treePreserved: analysisTreeNodeCount(analysisStateRef.current) > 0,
       });
     };
-  }, [appendSegments, applyPartial, applySessionStatus, normalizedSessionId, workspaceId]);
+  }, [
+    appendSegments,
+    applyAnalysisAction,
+    applyPartial,
+    applySessionStatus,
+    normalizedSessionId,
+    workspaceId,
+  ]);
 
   useEffect(() => {
     const wasEnabled = previousConnectEnabledRef.current;
@@ -982,8 +1060,16 @@ export function useMeetingTranscriptSession(
       socketRef.current.close(1000, "meeting ended");
       socketRef.current = null;
     }
+    applyAnalysisAction({ type: "websocket_closed" });
+    meetingStartDebug("meeting-page", "analysis tree preserved", {
+      sessionId: normalizedSessionId,
+      websocketClosed: true,
+      treePreserved: analysisTreeNodeCount(analysisStateRef.current) > 0,
+      treeNodeCountAfter: analysisTreeNodeCount(analysisStateRef.current),
+      reason: "meeting_ended_socket_close",
+    });
     setConnectionStatus((current) => (current === "idle" ? current : "closed"));
-  }, [connectWebSocket, normalizedSessionId]);
+  }, [applyAnalysisAction, connectWebSocket, normalizedSessionId]);
 
   const retryConnection = useCallback(() => {
     retryConnectionRef.current?.();
@@ -1003,6 +1089,8 @@ export function useMeetingTranscriptSession(
       transcriptHealth,
       liveAnalysis,
       finalAnalysis,
+      finalTreeSnapshot: analysisState.finalTreeSnapshot,
+      analysisRuntimeStatus: analysisState.analysisRuntimeStatus,
       liveAnalysisMeta,
       connectionStatus,
       error,
@@ -1021,6 +1109,8 @@ export function useMeetingTranscriptSession(
       connectionStatus,
       error,
       finalAnalysis,
+      analysisState.analysisRuntimeStatus,
+      analysisState.finalTreeSnapshot,
       liveAnalysis,
       liveAnalysisMeta,
       meetingId,
@@ -1039,30 +1129,6 @@ export function useMeetingTranscriptSession(
       transcriptHealth,
     ],
   );
-}
-
-function shouldReplaceAIAnalysis(
-  current: MeetingAIAnalysis | null,
-  incoming: MeetingAIAnalysis | null,
-) {
-  if (!incoming) {
-    return false;
-  }
-  if (!current) {
-    return true;
-  }
-  return incoming.version >= current.version;
-}
-
-// running(ephemeral)イベント等でincoming.payloadがnullの場合、既存payloadを保持する防御。
-function mergeAIAnalysisPayload(
-  current: MeetingAIAnalysis | null,
-  incoming: MeetingAIAnalysis,
-): MeetingAIAnalysis {
-  if (incoming.payload === null && current?.payload) {
-    return { ...incoming, payload: current.payload };
-  }
-  return incoming;
 }
 
 function transcriptSegmentToMeetingSegment(

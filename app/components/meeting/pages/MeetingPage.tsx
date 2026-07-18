@@ -155,16 +155,27 @@ export default function Meeting() {
     () => mergeDisplaySegments(runtime.segments, transcriptSession.segments),
     [runtime.segments, transcriptSession.segments],
   );
-  // 議論ツリーは runtime(旧経路)のtreeを優先し、無ければライブ分析のtreeで補う。
+  // 会議終了後はdurableなfinal snapshotを最優先する。取得中/失敗時は
+  // runtimeまたは最後の正常live treeを維持し、暗黙に空へ戻さない。
   const liveAnalysisTree = useMemo(() => {
     const payload = transcriptSession.liveAnalysis?.payload as LiveAnalysisPayload | null;
     return payload?.tree ?? null;
   }, [transcriptSession.liveAnalysis]);
+  const finalSnapshotTree = transcriptSession.finalTreeSnapshot?.tree ?? null;
+  const finalSnapshotNodes = finalSnapshotTree?.nodes ?? [];
   const runtimeTreeNodes = runtime.tree?.nodes ?? [];
   const treeNodes =
-    runtimeTreeNodes.length > 0 ? runtimeTreeNodes : (liveAnalysisTree?.nodes ?? []);
+    finalSnapshotNodes.length > 0
+      ? finalSnapshotNodes
+      : runtimeTreeNodes.length > 0
+        ? runtimeTreeNodes
+        : (liveAnalysisTree?.nodes ?? []);
   const treeEdges =
-    runtimeTreeNodes.length > 0 ? (runtime.tree?.edges ?? []) : (liveAnalysisTree?.edges ?? []);
+    finalSnapshotNodes.length > 0
+      ? (finalSnapshotTree?.edges ?? [])
+      : runtimeTreeNodes.length > 0
+        ? (runtime.tree?.edges ?? [])
+        : (liveAnalysisTree?.edges ?? []);
   const meetingSessionStatus = sessionId
     ? endFlow.effectiveStatus
     : transcriptSession.sessionStatus;

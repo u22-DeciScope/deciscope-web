@@ -19,20 +19,35 @@ export const analysisKindPalette: Record<string, AnalysisKindColor> = {
     fg: "var(--tag-topic-fg)",
     border: "color-mix(in srgb, var(--tag-topic-fg) 35%, transparent)",
   },
+  group: {
+    bg: "var(--brand-light)",
+    fg: "var(--brand)",
+    border: "color-mix(in srgb, var(--brand) 35%, transparent)",
+  },
   issue: {
     bg: "var(--tag-idea-bg)",
     fg: "var(--tag-idea-fg)",
     border: "color-mix(in srgb, var(--tag-idea-fg) 35%, transparent)",
   },
+  open_issue: {
+    bg: "var(--tag-idea-bg)",
+    fg: "var(--tag-idea-fg)",
+    border: "color-mix(in srgb, var(--tag-idea-fg) 35%, transparent)",
+  },
   question: {
-    bg: "var(--ai-quest-bg)",
-    fg: "var(--ai-quest-fg)",
-    border: "var(--ai-quest-border)",
+    bg: "var(--tag-idea-bg)",
+    fg: "var(--tag-idea-fg)",
+    border: "color-mix(in srgb, var(--tag-idea-fg) 35%, transparent)",
   },
   risk: {
     bg: "var(--ai-risk-bg)",
     fg: "var(--ai-risk-fg)",
     border: "var(--ai-risk-border)",
+  },
+  fact: {
+    bg: "var(--ai-point-bg)",
+    fg: "var(--ai-point-fg)",
+    border: "var(--ai-point-border)",
   },
   decision: {
     bg: "var(--badge-decision-bg)",
@@ -49,7 +64,9 @@ export const analysisKindPalette: Record<string, AnalysisKindColor> = {
 const defaultAnalysisKind = "issue";
 
 export function analysisKindColor(kind?: string | null): AnalysisKindColor {
-  return analysisKindPalette[kind ?? defaultAnalysisKind] ?? analysisKindPalette[defaultAnalysisKind];
+  return (
+    analysisKindPalette[kind ?? defaultAnalysisKind] ?? analysisKindPalette[defaultAnalysisKind]
+  );
 }
 
 // 種別(kind)の日本語表示ラベル。AIアシスタントパネルのカードで定義されていた
@@ -58,10 +75,13 @@ export function analysisKindColor(kind?: string | null): AnalysisKindColor {
 // 未知のkindはフォールバックとして生の値をそのまま表示する。
 export const analysisKindLabels: Record<string, string> = {
   topic: "トピック",
+  group: "議論グループ",
   issue: "論点",
-  question: "質問",
+  open_issue: "未解決",
+  question: "未解決",
   risk: "リスク",
-  decision: "決定",
+  fact: "確認事項",
+  decision: "決定事項",
   todo: "TODO",
 };
 

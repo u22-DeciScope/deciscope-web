@@ -223,6 +223,7 @@ export default function MeetingSummary() {
     analysisItems.length > 0
       ? analysisItems
       : (livePayload?.items ?? []).filter((item) => item.status !== "dismissed");
+  const analysisQualityDegraded = treeSnapshot?.degraded || livePayload?.degraded;
 
   async function exportMarkdown() {
     const content = session
