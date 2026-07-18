@@ -293,24 +293,31 @@ export default function MeetingSummary() {
           {finalAnalysisError}
         </p>
       )}
-      {session ? (
+{session ? (
         <>
-          <SessionSummaryHeader summary={summary} />
-          <AiFinalSummaryPanel
-            final={finalAnalysis}
-            currentTitle={summary.title}
-            pending={finalAnalysisPending}
-          />
-          {analysisQualityDegraded && (
-            <p
-              role="status"
-              className="rounded-(--ds-radius-control) border px-3 py-2 text-[11px]"
-              style={{ borderColor: "var(--priority-medium)", color: "var(--text-sub)" }}
-            >
-              分析ツリーの整合性が低下したため、直前の安全な構造を表示しています。
-            </p>
-          )}
-          {hasPreMeetingContext(session) && <PreMeetingContextPanel session={session} />}
+          {/* 1. ヘッダーエリア */}
+          <div className="shrink-0">
+            <SessionSummaryHeader summary={summary} />
+          </div>
+
+          {/* 2. 議事録サマリーの2カラムレイアウトエリア */}
+          <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-3 shrink-0 mb-4">
+            {/* 左側メインカラム（幅 2/3）: AI要約と、すべての決定事項・アクション等の結果リスト */}
+            <div className="flex flex-col gap-4 xl:col-span-2">
+              <AiFinalSummaryPanel
+                final={finalAnalysis}
+                currentTitle={summary.title}
+                pending={finalAnalysisPending}
+              />
+            </div>
+
+            {/* 右側サブカラム（幅 1/3）: 会議前の前提条件・背景・アジェンダ */}
+            <div className="flex flex-col gap-4 xl:col-span-1">
+              {hasPreMeetingContext(session) && <PreMeetingContextPanel session={session} />}
+            </div>
+          </div>
+
+          {/* 3. 操作を行わない領域: 現状のまま完全に維持 */}
           <SessionReviewWorkspace
             session={session}
             segments={transcriptSegments}
@@ -318,8 +325,7 @@ export default function MeetingSummary() {
             analysisItems={effectiveAnalysisItems}
           />
         </>
-      ) : (
-        <>
+      ) : (        <>
           <MeetingSummaryMain meetingsPath={meetingsPath} summary={summary} />
           <MarkdownReportPanel content={markdown || report?.content || ""} />
         </>
