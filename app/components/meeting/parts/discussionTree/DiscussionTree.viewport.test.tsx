@@ -84,6 +84,14 @@ describe("DiscussionTree structural viewport focus", () => {
     });
   });
 
+  it("uses a branching icon and omits the old explanatory subtitle", () => {
+    render(<DiscussionTree nodes={initialNodes} edges={initialEdges} />);
+
+    const title = screen.getByText("議論ツリー");
+    expect(title.closest("header")?.querySelector("svg")).not.toBeNull();
+    expect(screen.queryByText("論点・リスク・決定事項の関係")).toBeNull();
+  });
+
   it("moves once for one tree version even under StrictMode", async () => {
     const view = render(
       <StrictMode>

@@ -38,10 +38,14 @@ export type AnalysisItemStatus = "open" | "updated" | "resolved" | "dismissed" |
 export type AnalysisItem = {
   id: string;
   kind: AnalysisItemKind;
+  subtype?: "discussion" | "confirmation" | "question" | "investigation" | string;
   severity: AnalysisItemSeverity;
   title: string;
   body: string;
   status: AnalysisItemStatus;
+  informationStatus?: "grounded" | "tentative" | string;
+  inactive?: boolean;
+  suppressionReason?: string;
   linked_segment_ids?: string[];
   evidenceSequenceNos?: number[];
   resolvedAtVersion?: number;
@@ -70,6 +74,7 @@ export type AnalysisDeltaPayload = {
 export type TreeNodePayload = {
   id: string;
   kind?: string;
+  subtype?: "discussion" | "confirmation" | "question" | "investigation" | string;
   // parentId はバックエンドが正規化した唯一のツリー表示用の親。
   // 存在する場合、フロントはエッジから親を推論せずこれを使う。
   parentId?: string;
@@ -79,6 +84,10 @@ export type TreeNodePayload = {
   relatedItemIds?: string[];
   origin?: string;
   agendaRole?: "primary" | "action_summary" | string;
+  agendaRefs?: string[];
+  mergedFromNodeIds?: string[];
+  agendaSplitGroupId?: string;
+  materialized?: boolean;
   speaker_label?: string;
   segment_id?: string;
 };

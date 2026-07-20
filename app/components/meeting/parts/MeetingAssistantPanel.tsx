@@ -15,6 +15,7 @@ import {
   analysisKindColor,
   analysisKindLabel,
   dimmedColor,
+  issueSubtypeLabel,
   resolvedBadgeColor,
 } from "~/components/meeting/parts/analysisKindPalette";
 import { AssistantCardTitle } from "~/components/meeting/parts/AssistantCardTitle";
@@ -44,6 +45,10 @@ const insightIcons = {
 
 export type InsightFilter = "live" | "risk" | "unresolved" | "todo" | "decision" | "resolved";
 
+function isIssueKind(kind: string) {
+  return ["issue", "open_issue", "question", "confirmation", "investigation"].includes(kind);
+}
+
 const insightFilterTabs: Array<{ key: InsightFilter; label: string }> = [
   { key: "live", label: "ライブ" },
   { key: "risk", label: "リスク" },
@@ -60,10 +65,7 @@ export function matchesInsightFilter(item: AnalysisItem, filter: InsightFilter) 
     case "risk":
       return item.kind === "risk" && !isResolvedDisplayItem(item);
     case "unresolved":
-      return (
-        !isResolvedDisplayItem(item) &&
-        (item.kind === "question" || item.kind === "open_issue" || item.kind === "issue")
-      );
+      return !isResolvedDisplayItem(item) && isIssueKind(item.kind);
     case "todo":
       return item.kind === "todo" && !isResolvedDisplayItem(item);
     case "decision":
@@ -89,7 +91,7 @@ export function filterForInsightItem(item: AnalysisItem): InsightFilter {
   if (item.kind === "risk") {
     return "risk";
   }
-  if (item.kind === "question" || item.kind === "open_issue" || item.kind === "issue") {
+  if (isIssueKind(item.kind)) {
     return "unresolved";
   }
   return item.kind === "todo" ? "todo" : "live";
@@ -103,13 +105,7 @@ export function isResolvedDisplayItem(item: AnalysisItem) {
   if (!isResolvedItem(item)) {
     return false;
   }
-  return (
-    item.kind === "question" ||
-    item.kind === "open_issue" ||
-    item.kind === "issue" ||
-    item.kind === "risk" ||
-    item.kind === "todo"
-  );
+  return isIssueKind(item.kind) || item.kind === "risk" || item.kind === "todo";
 }
 
 export function isLiveDisplayItem(item: AnalysisItem) {
@@ -117,7 +113,7 @@ export function isLiveDisplayItem(item: AnalysisItem) {
 }
 
 function isDismissedItem(item: AnalysisItem) {
-  return item.status === "dismissed";
+  return item.status === "dismissed" || item.inactive === true;
 }
 
 export function MeetingAssistantPanel({
@@ -230,9 +226,6 @@ export function MeetingAssistantPanel({
         <div className="ml-2 min-w-0 flex-1">
           <p className="text-[12px] font-bold" style={{ color: "var(--text-main)" }}>
             AI アシスタント
-          </p>
-          <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-            論点・リスク・次の一手
           </p>
         </div>
         {updateStatus && <span className="mr-2 min-w-0 shrink">{updateStatus}</span>}
@@ -442,6 +435,14 @@ export function LiveAnalysisItemCard({
             {analysisKindLabel(item.kind)}
           </div>
           <AnalysisStatusBadge item={item} />
+          {item.kind === "issue" && item.subtype && item.subtype !== "discussion" && (
+            <span
+              className="ml-1 inline-flex shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+              style={{ background: "var(--ds-surface)", color: style.color }}
+            >
+              {issueSubtypeLabel(item.subtype)}
+            </span>
+          )}
         </div>
         {item.kind !== "decision" && !resolved && (
           <span
@@ -475,20 +476,13 @@ function LiveAnalysisOverview({
 
   return (
     <>
-      <section
-        className="rounded-(--ds-radius-control) border p-3"
-        style={{ background: "var(--ds-surface-muted)", borderColor: "var(--ds-border)" }}
-      >
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span
-              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-white"
-              style={{ background: "var(--brand)" }}
-            >
-              <HiSparkles className="h-3 w-3" />
-            </span>
+      <section aria-labelledby="live-analysis-topic">
+        <div className="mb-2 flex items-center justify-between gap-2 px-0.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="h-4 w-0.5 rounded-full" style={{ background: "var(--brand)" }} />
             <h2
-              className="shrink-0 whitespace-nowrap text-[11px] font-bold"
+              id="live-analysis-topic"
+              className="text-[13px] font-bold tracking-[0.01em]"
               style={{ color: "var(--text-main)" }}
             >
               トピック
@@ -498,13 +492,16 @@ function LiveAnalysisOverview({
             <LiveAnalysisStatus liveAnalysis={liveAnalysis} />
           </div>
         </div>
-
-        <p
-          className="mt-2 min-h-5 text-[12px] font-semibold leading-5"
-          style={{ color: payload?.currentTopic ? "var(--text-sub)" : "var(--text-muted)" }}
+        <article
+          className="rounded-(--ds-radius-control) border px-3.5 py-3 text-[13px] font-medium leading-6 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+          style={{
+            background: "var(--ds-surface-muted)",
+            borderColor: "var(--ds-border)",
+            color: payload?.currentTopic ? "var(--text-main)" : "var(--text-muted)",
+          }}
         >
           {payload?.currentTopic || "現在のトピックを分析しています。"}
-        </p>
+        </article>
       </section>
 
       {bullets.length > 0 && (
@@ -513,7 +510,7 @@ function LiveAnalysisOverview({
             <span className="h-4 w-0.5 rounded-full" style={{ background: "var(--brand)" }} />
             <h2
               id="live-analysis-key-points"
-              className="text-[12px] font-semibold"
+              className="text-[13px] font-bold tracking-[0.01em]"
               style={{ color: "var(--text-main)" }}
             >
               要点
@@ -523,11 +520,11 @@ function LiveAnalysisOverview({
             {bullets.map((bullet, index) => (
               <li key={`${bullet}-${index}`}>
                 <article
-                  className="rounded-(--ds-radius-control) border px-3 py-2.5 text-[11px] leading-5"
+                  className="rounded-(--ds-radius-control) border px-3.5 py-3 text-[13px] font-medium leading-6 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
                   style={{
                     background: "var(--ds-surface-muted)",
                     borderColor: "var(--ds-border)",
-                    color: "var(--text-sub)",
+                    color: "var(--text-main)",
                   }}
                 >
                   {bullet}

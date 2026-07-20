@@ -18,8 +18,8 @@ function item(id: string, kind: string, status: string): AnalysisItem {
 }
 
 describe("MeetingAssistantPanel item filters", () => {
-  it("uses the short open issue label everywhere", () => {
-    expect(analysisKindLabel("open_issue")).toBe("未解決");
+  it("uses the canonical issue label for legacy open issues", () => {
+    expect(analysisKindLabel("open_issue")).toBe("論点");
   });
   it("keeps all decisions in the decision tab even for legacy resolved payloads", () => {
     const decisions = [
@@ -54,10 +54,41 @@ describe("MeetingAssistantPanel item filters", () => {
     expect(matchesInsightFilter(item("done", "open_issue", "resolved"), "unresolved")).toBe(false);
   });
 
-  it("renders attribute tabs without question UI and hides priority on decision/resolved", () => {
+  it("keeps confirmation issues separate from TODO and moves them by status", () => {
+    const confirmationOpen = {
+      ...item("confirmation-open", "issue", "open"),
+      subtype: "confirmation",
+    };
+    const confirmationResolved = {
+      ...item("confirmation-resolved", "issue", "resolved"),
+      subtype: "confirmation",
+    };
+    const todo = item("confirmation-todo", "todo", "open");
+
+    expect(matchesInsightFilter(confirmationOpen, "unresolved")).toBe(true);
+    expect(matchesInsightFilter(confirmationOpen, "todo")).toBe(false);
+    expect(matchesInsightFilter(confirmationResolved, "resolved")).toBe(true);
+    expect(matchesInsightFilter(confirmationResolved, "unresolved")).toBe(false);
+    expect(matchesInsightFilter(todo, "todo")).toBe(true);
+    expect(matchesInsightFilter(todo, "unresolved")).toBe(false);
+  });
+
+  it("does not render reversibly suppressed items", () => {
+    const suppressed = {
+      ...item("suppressed", "issue", "open"),
+      subtype: "discussion",
+      inactive: true,
+      suppressionReason: "discourse_only",
+    };
+    render(<MeetingAssistantPanel insights={[suppressed]} speakerSummaries={[]} />);
+
+    expect(screen.queryByText("suppressed")).toBeNull();
+  });
+
+  it("renders attribute tabs with issue subtype UI and hides priority on decision/resolved", () => {
     const values = [
       item("risk-card", "risk", "open"),
-      item("question-card", "question", "open"),
+      { ...item("question-card", "issue", "open"), subtype: "question" },
       item("todo-card", "todo", "open"),
       item("decision-card", "decision", "open"),
       item("resolved-card", "todo", "resolved"),
@@ -75,7 +106,7 @@ describe("MeetingAssistantPanel item filters", () => {
 
     fireEvent.click(issueTab);
     expect(screen.getByText("question-card")).not.toBeNull();
-    expect(screen.queryByText("質問")).toBeNull();
+    expect(screen.getByText("質問")).not.toBeNull();
     expect(screen.getByText("medium")).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "決定事項" }));
@@ -175,10 +206,19 @@ describe("MeetingAssistantPanel item filters", () => {
     );
 
     expect(screen.getByRole("heading", { name: "トピック" })).not.toBeNull();
-    expect(screen.getByText("次回リリースの範囲").className).not.toContain("rounded-full");
+    const topicCard = screen.getByText("次回リリースの範囲").closest("article");
+    const keyPointCard = screen.getByText("対象機能を絞る").closest("article");
+    expect(topicCard).not.toBeNull();
+    expect(topicCard?.className).toBe(keyPointCard?.className);
+    expect(topicCard?.className).toContain("text-[13px]");
+    expect(topicCard?.getAttribute("style")).toContain("var(--text-main)");
+    expect(
+      screen.getByRole("heading", { name: "トピック" }).closest("section")?.querySelector("svg"),
+    ).toBeNull();
     expect(screen.getByRole("heading", { name: "要点" })).not.toBeNull();
-    expect(screen.getByText("対象機能を絞る").closest("article")).not.toBeNull();
+    expect(keyPointCard).not.toBeNull();
     expect(screen.getByText("公開日を確認する").closest("article")).not.toBeNull();
     expect(screen.queryByText("進行中")).toBeNull();
+    expect(screen.queryByText("論点・リスク・次の一手")).toBeNull();
   });
 });

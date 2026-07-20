@@ -18,13 +18,14 @@ export function buildActionSummaryProjection(
   analysisItems: AnalysisItem[],
 ): ActionSummaryProjectionRow[] {
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
-  const sourceAgendaIds = new Set(
-    nodes.filter((node) => node.agendaRole === "action_summary").map((node) => node.id),
-  );
+  const sourceAgendaIds = new Set<string>();
   const legacyRelatedItems = new Set<string>();
   for (const node of nodes) {
     if (node.agendaRole !== "action_summary") {
       continue;
+    }
+    for (const agendaId of node.agendaRefs ?? []) {
+      sourceAgendaIds.add(agendaId);
     }
     for (const itemId of node.relatedItemIds ?? []) {
       legacyRelatedItems.add(itemId);

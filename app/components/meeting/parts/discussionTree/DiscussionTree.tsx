@@ -11,6 +11,7 @@ import {
   type Edge,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { HiOutlineShare } from "react-icons/hi2";
 
 import type {
   AnalysisItem,
@@ -96,6 +97,10 @@ export function DiscussionTree({
   focusItemRequest,
   treeChanges,
 }: DiscussionTreeProps) {
+  const displayedNodeCount = useMemo(
+    () => visibleDiscussionTreeNodeCount(nodes, edges, analysisItems ?? []),
+    [analysisItems, edges, nodes],
+  );
   return (
     <div
       className="flex min-h-80 min-w-0 flex-col overflow-hidden rounded-(--ds-radius-panel) border md:min-h-0"
@@ -106,15 +111,14 @@ export function DiscussionTree({
         style={{ borderColor: "var(--node-border)" }}
       >
         <span
-          className="h-2.5 w-2.5 shrink-0 rounded-full shadow-[0_0_0_4px_var(--brand-light)]"
-          style={{ background: "var(--brand)" }}
-        />
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+          style={{ background: "var(--brand-light)", color: "var(--brand)" }}
+        >
+          <HiOutlineShare className="h-4 w-4" />
+        </span>
         <div className="ml-2 min-w-0 flex-1">
           <p className="text-[12px] font-bold" style={{ color: "var(--text-main)" }}>
             議論ツリー
-          </p>
-          <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-            論点・リスク・決定事項の関係
           </p>
         </div>
         {updateStatus && <span className="mr-2 min-w-0 shrink">{updateStatus}</span>}
@@ -122,12 +126,12 @@ export function DiscussionTree({
           className="shrink-0 rounded-full px-2 py-1 text-[10px] font-bold"
           style={{ background: "var(--brand-light)", color: "var(--brand)" }}
         >
-          {nodes.length}
+          {displayedNodeCount}
         </span>
       </div>
 
       <div className="relative min-h-0 flex-1">
-        {nodes.length === 0 ? (
+        {displayedNodeCount === 0 ? (
           <div className="p-4">
             <div
               className="rounded-(--ds-radius-control) border px-4 py-5 text-[12px]"
@@ -287,6 +291,7 @@ function DiscussionFlow({
         data: {
           id: node.id,
           tag: node.kind ?? "topic",
+          subtype: node.subtype ?? "",
           status: node.status ?? "",
           speaker: node.speaker_label ?? "",
           label: node.label ?? node.id,
@@ -806,6 +811,38 @@ export function stageTentativeTree(
       hiddenIds.add(node.id);
     }
   }
+
+  // Legacy payloads may still contain the old fixed agenda skeleton. An
+  // agenda-origin/materialized topic with no visible child carries no meeting
+  // information, so keep it out of both the canvas and the displayed count.
+  let agendaTopicRemoved = true;
+  while (agendaTopicRemoved) {
+    agendaTopicRemoved = false;
+    for (const node of nodes) {
+      const agendaTopic =
+        node.kind === "topic" &&
+        node.id !== "root" &&
+        (node.origin === "agenda" ||
+          node.materialized === true ||
+          (node.agendaRefs?.length ?? 0) > 0);
+      if (!agendaTopic || hiddenIds.has(node.id)) {
+        continue;
+      }
+      const hasVisibleChild = nodes.some((candidate) => {
+        if (hiddenIds.has(candidate.id)) {
+          return false;
+        }
+        return (
+          candidate.parentId === node.id ||
+          edges.some((edge) => edge.source === node.id && edge.target === candidate.id)
+        );
+      });
+      if (!hasVisibleChild) {
+        hiddenIds.add(node.id);
+        agendaTopicRemoved = true;
+      }
+    }
+  }
   // 「追加論点」(topic-unclassified)は、tentative item除外後に表示できる子が
   // 一つも無ければ表示しない。実アジェンダだけがroot直下に並ぶ状態を保つ。
   const hasUnclassified = nodes.some((node) => node.id === UNCLASSIFIED_TOPIC_ID);
@@ -829,6 +866,14 @@ export function stageTentativeTree(
     nodes: nodes.filter((node) => !hiddenIds.has(node.id)),
     edges: edges.filter((edge) => !hiddenIds.has(edge.source) && !hiddenIds.has(edge.target)),
   };
+}
+
+export function visibleDiscussionTreeNodeCount(
+  nodes: TreeNodePayload[],
+  edges: TreeEdgePayload[],
+  analysisItems: AnalysisItem[],
+) {
+  return stageTentativeTree(nodes, edges, analysisItems).nodes.length;
 }
 
 // signature = label|description|status。新規idまたはsignature変化idを

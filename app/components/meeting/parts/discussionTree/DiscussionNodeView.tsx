@@ -4,6 +4,7 @@ import { HiCheck } from "react-icons/hi2";
 import {
   analysisKindLabel,
   dimmedColor,
+  issueSubtypeLabel,
   resolvedBadgeColor,
 } from "~/components/meeting/parts/analysisKindPalette";
 
@@ -13,6 +14,7 @@ import { NODE_HEIGHT, NODE_WIDTH } from "./discussionTreeLayout";
 export type DiscussionNodeData = {
   id: string;
   tag: string;
+  subtype?: string;
   status: string;
   speaker: string;
   label: string;
@@ -73,7 +75,7 @@ export function DiscussionNodeView({ data, selected }: NodeProps<DiscussionFlowN
           className="shrink-0 rounded-sm px-1.25 py-0.75 text-[9px] font-semibold leading-none"
           style={{ background: style.bg, color: style.fg }}
         >
-          {analysisKindLabel(data.tag)}
+          {data.tag === "issue" ? issueSubtypeLabel(data.subtype) : analysisKindLabel(data.tag)}
         </span>
         {resolved && (
           <span

@@ -8,6 +8,7 @@ import type {
 import {
   analysisKindLabel,
   dimmedColor,
+  issueSubtypeLabel,
   resolvedBadgeColor,
 } from "~/components/meeting/parts/analysisKindPalette";
 
@@ -76,7 +77,9 @@ export function NodeDetailCard({
           className="shrink-0 rounded-sm px-1.25 py-0.75 text-[9px] font-semibold leading-none"
           style={{ background: style.bg, color: style.fg }}
         >
-          {analysisKindLabel(node.kind ?? "topic")}
+          {node.kind === "issue"
+            ? issueSubtypeLabel(node.subtype)
+            : analysisKindLabel(node.kind ?? "topic")}
         </span>
         {node.status === "resolved" && <ResolvedBadge />}
         <span

@@ -35,10 +35,23 @@ export type LiveAnalysisPayload = {
   mergedNodeIds?: string[];
   treeHash?: string;
   basedOnTreeVersion?: number;
+  agendaAnchors?: AgendaAnchorPayload[];
+};
+
+export type AgendaAnchorPayload = {
+  agendaId: string;
+  originalTitle: string;
+  normalizedSubject?: string;
+  order?: number;
+  role?: string;
+  status: "planned" | "materialized" | "discussed" | "merged" | "not_discussed" | string;
+  materializedTopicIds: string[];
 };
 
 export type TreeIntegrityDiagnostics = {
   valid?: boolean;
+  agendaReferenceIntegrityValid?: boolean;
+  agendaNodeIdNamespaceValid?: boolean;
   duplicateNodeIds?: string[];
   crossKindIdCollisions?: string[];
   reservedItemIds?: string[];
@@ -47,6 +60,12 @@ export type TreeIntegrityDiagnostics = {
   movedFixedAgendaIds?: string[];
   fixedAgendaKindMismatchIds?: string[];
   actionSummaryTreeNodeIds?: string[];
+  agendaTopicIdCollisions?: string[];
+  unknownAgendaRefs?: string[];
+  orphanAgendaRefs?: string[];
+  orphanMaterializedTopicIds?: string[];
+  agendaMaterializationMismatches?: string[];
+  legacyAgendaEdgeNodeIds?: string[];
   expectedFixedAgendaCount?: number;
   actualFixedAgendaCount?: number;
   clientDuplicateNodeIds?: string[];
@@ -265,6 +284,7 @@ function normalizeLivePayload(value: unknown): LiveAnalysisPayload | null {
   const mergedNodeIds = normalizeStringArray(source.mergedNodeIds);
   const treeHash = optionalString(source.treeHash)?.trim();
   const basedOnTreeVersion = optionalNumber(source.basedOnTreeVersion);
+  const agendaAnchors = normalizeAgendaAnchors(source.agendaAnchors);
   return {
     ...(summary ? { summary } : {}),
     ...(currentTopic ? { currentTopic } : {}),
@@ -286,7 +306,40 @@ function normalizeLivePayload(value: unknown): LiveAnalysisPayload | null {
     ...(mergedNodeIds.length > 0 ? { mergedNodeIds } : {}),
     ...(treeHash ? { treeHash } : {}),
     ...(basedOnTreeVersion !== undefined ? { basedOnTreeVersion } : {}),
+    ...(agendaAnchors.length > 0 ? { agendaAnchors } : {}),
   };
+}
+
+function normalizeAgendaAnchors(value: unknown): AgendaAnchorPayload[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object") {
+      return [];
+    }
+    const source = candidate as Record<string, unknown>;
+    const agendaId = optionalString(source.agendaId)?.trim();
+    const originalTitle = optionalString(source.originalTitle)?.trim();
+    const status = optionalString(source.status)?.trim();
+    if (!agendaId || !originalTitle || !status) {
+      return [];
+    }
+    const normalizedSubject = optionalString(source.normalizedSubject)?.trim();
+    const role = optionalString(source.role)?.trim();
+    const order = optionalNumber(source.order);
+    return [
+      {
+        agendaId,
+        originalTitle,
+        status,
+        materializedTopicIds: normalizeStringArray(source.materializedTopicIds),
+        ...(normalizedSubject ? { normalizedSubject } : {}),
+        ...(role ? { role } : {}),
+        ...(order !== undefined ? { order } : {}),
+      },
+    ];
+  });
 }
 
 function normalizeTreeChanges(value: unknown): TreeChangesPayload | undefined {
@@ -327,9 +380,14 @@ function normalizeLiveAnalysisItems(value: unknown[]): AnalysisItem[] {
         return null;
       }
       const id = optionalString(source.id)?.trim() || `live-item-${index}`;
-      const kind = optionalString(source.kind)?.trim() || "issue";
+      const classification = normalizeSemanticClassification(
+        optionalString(source.kind)?.trim() || "issue",
+        optionalString(source.subtype)?.trim(),
+        optionalString(source.status)?.trim() || "open",
+      );
+      const kind = classification.kind;
       const severity = optionalString(source.severity)?.trim() || "medium";
-      const status = optionalString(source.status)?.trim() || "open";
+      const status = classification.status;
       const evidenceSequenceNos = normalizeNumberArray(source.evidenceSequenceNos);
       const resolutionEvidenceSequenceNos = normalizeNumberArray(
         source.resolutionEvidenceSequenceNos,
@@ -345,10 +403,18 @@ function normalizeLiveAnalysisItems(value: unknown[]): AnalysisItem[] {
       return {
         id,
         kind,
+        ...(classification.subtype ? { subtype: classification.subtype } : {}),
         severity,
         title: title || truncateItemTitle(body),
         body,
         status,
+        ...(optionalString(source.informationStatus)?.trim()
+          ? { informationStatus: optionalString(source.informationStatus)?.trim() }
+          : {}),
+        ...(typeof source.inactive === "boolean" ? { inactive: source.inactive } : {}),
+        ...(optionalString(source.suppressionReason)?.trim()
+          ? { suppressionReason: optionalString(source.suppressionReason)?.trim() }
+          : {}),
         ...(evidenceSequenceNos.length > 0 ? { evidenceSequenceNos } : {}),
         ...(resolvedAtVersion !== undefined ? { resolvedAtVersion } : {}),
         ...(resolutionEvidenceSequenceNos.length > 0 ? { resolutionEvidenceSequenceNos } : {}),
@@ -368,7 +434,7 @@ function normalizeLiveAnalysisItems(value: unknown[]): AnalysisItem[] {
 }
 
 // 旧v1形式のライブ分析payloadから items を合成する(後方互換)。
-// concerns→risk / openQuestions→question / decisions→decision / actionItems→todo。
+// concerns→risk / openQuestions→issue+question / decisions→decision / actionItems→todo。
 function legacyLiveAnalysisItems(source: Record<string, unknown>): AnalysisItem[] {
   const items: AnalysisItem[] = [];
 
@@ -376,7 +442,7 @@ function legacyLiveAnalysisItems(source: Record<string, unknown>): AnalysisItem[
     items.push(legacyLiveAnalysisItem("risk", index, text));
   });
   normalizeStringArray(source.openQuestions).forEach((text, index) => {
-    items.push(legacyLiveAnalysisItem("question", index, text));
+    items.push({ ...legacyLiveAnalysisItem("issue", index, text), subtype: "question" });
   });
   legacyTextObjects(source.decisions).forEach(({ text }, index) => {
     items.push(legacyLiveAnalysisItem("decision", index, text));
@@ -471,20 +537,34 @@ function normalizeTreeNodes(
       if (!id) {
         return null;
       }
-      const kind = optionalString(source.kind)?.trim();
+      const rawKind = optionalString(source.kind)?.trim();
+      const classification = normalizeSemanticClassification(
+        rawKind || "issue",
+        optionalString(source.subtype)?.trim(),
+        optionalString(source.status)?.trim() || "open",
+      );
+      const kind = rawKind === "topic" || rawKind === "group" ? rawKind : classification.kind;
       const parentId =
         optionalString(source.parentId)?.trim() ?? optionalString(source.parent_id)?.trim();
       const label = optionalString(source.label)?.trim();
-      const status = optionalString(source.status)?.trim();
+      const status =
+        rawKind === "topic" || rawKind === "group"
+          ? optionalString(source.status)?.trim()
+          : classification.status;
       const description = truncateNodeDescription(
         optionalString(source.description)?.trim() ?? optionalString(source.summary)?.trim() ?? "",
       );
       const relatedItemIds = normalizeRelatedItemIds(source, id, itemIds);
       const origin = optionalString(source.origin)?.trim();
       const agendaRole = optionalString(source.agendaRole)?.trim();
+      const agendaRefs = normalizeStringArray(source.agendaRefs);
+      const mergedFromNodeIds = normalizeStringArray(source.mergedFromNodeIds);
+      const agendaSplitGroupId = optionalString(source.agendaSplitGroupId)?.trim();
+      const materialized = source.materialized === true;
       return {
         id,
         ...(kind ? { kind } : {}),
+        ...(classification.subtype && kind === "issue" ? { subtype: classification.subtype } : {}),
         ...(parentId ? { parentId } : {}),
         ...(label ? { label } : {}),
         ...(status ? { status } : {}),
@@ -492,6 +572,10 @@ function normalizeTreeNodes(
         ...(relatedItemIds.length > 0 ? { relatedItemIds } : {}),
         ...(origin ? { origin } : {}),
         ...(agendaRole ? { agendaRole } : {}),
+        ...(agendaRefs.length > 0 ? { agendaRefs } : {}),
+        ...(mergedFromNodeIds.length > 0 ? { mergedFromNodeIds } : {}),
+        ...(agendaSplitGroupId ? { agendaSplitGroupId } : {}),
+        ...(materialized ? { materialized: true } : {}),
       };
     })
     .filter((node): node is TreeNodePayload => node !== null);
@@ -521,11 +605,41 @@ function normalizeTreeNodes(
     .filter((node): node is TreeNodePayload => Boolean(node));
 }
 
+function normalizeSemanticClassification(kind: string, subtype?: string, status = "open") {
+  const normalizedKind = kind.toLowerCase().trim();
+  const normalizedSubtype = subtype?.toLowerCase().trim();
+  if (normalizedKind === "open_issue") {
+    return {
+      kind: "issue",
+      subtype: normalizedSubtype || "discussion",
+      status: ["open", "updated", "resolved"].includes(status) ? status : "open",
+    };
+  }
+  if (["confirmation", "question", "investigation"].includes(normalizedKind)) {
+    return { kind: "issue", subtype: normalizedKind, status };
+  }
+  if (normalizedKind === "resolved") {
+    return { kind: "issue", subtype: "discussion", status: "resolved" };
+  }
+  if (normalizedKind === "issue") {
+    return {
+      kind: "issue",
+      subtype: ["discussion", "confirmation", "question", "investigation"].includes(
+        normalizedSubtype ?? "",
+      )
+        ? normalizedSubtype
+        : "discussion",
+      status,
+    };
+  }
+  return { kind: normalizedKind, subtype: undefined, status };
+}
+
 function treeNodeIdentityPriority(node: TreeNodePayload) {
   const fixedAgenda =
     node.kind === "topic" &&
     node.agendaRole !== "action_summary" &&
-    (node.origin === "agenda" || /^agenda-\d+$/.test(node.id));
+    (node.origin === "agenda" || (node.agendaRefs?.length ?? 0) > 0 || node.materialized === true);
   if (fixedAgenda) {
     return 100;
   }
@@ -555,10 +669,22 @@ function normalizeTreeIntegrity(value: unknown): TreeIntegrityDiagnostics | unde
     "movedFixedAgendaIds",
     "fixedAgendaKindMismatchIds",
     "actionSummaryTreeNodeIds",
+    "agendaTopicIdCollisions",
+    "unknownAgendaRefs",
+    "orphanAgendaRefs",
+    "orphanMaterializedTopicIds",
+    "agendaMaterializationMismatches",
+    "legacyAgendaEdgeNodeIds",
   ];
   const diagnostics: TreeIntegrityDiagnostics = {};
   if (typeof source.valid === "boolean") {
     diagnostics.valid = source.valid;
+  }
+  if (typeof source.agendaReferenceIntegrityValid === "boolean") {
+    diagnostics.agendaReferenceIntegrityValid = source.agendaReferenceIntegrityValid;
+  }
+  if (typeof source.agendaNodeIdNamespaceValid === "boolean") {
+    diagnostics.agendaNodeIdNamespaceValid = source.agendaNodeIdNamespaceValid;
   }
   for (const key of stringArrays) {
     const values = normalizeStringArray(source[key]);
