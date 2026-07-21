@@ -21,6 +21,8 @@ describe("normalizeAIAnalysis live tree changes", () => {
             classificationStatus: "tentative",
             candidateTopicId: "topic-wind",
             candidateInactive: true,
+            linked_segment_ids: ["segment-4"],
+            evidenceSequenceNos: [4],
           },
         ],
         treeVersion: 8,
@@ -40,6 +42,9 @@ describe("normalizeAIAnalysis live tree changes", () => {
               agendaRefs: ["agenda-1"],
               agendaSplitGroupId: "agenda-1",
               materialized: true,
+              speaker_label: "佐藤",
+              segment_id: "segment-4",
+              evidenceSequenceNos: [4],
             },
             {
               id: "open-wind",
@@ -60,6 +65,8 @@ describe("normalizeAIAnalysis live tree changes", () => {
       classificationStatus: "tentative",
       candidateTopicId: "topic-wind",
       candidateInactive: true,
+      linked_segment_ids: ["segment-4"],
+      evidenceSequenceNos: [4],
     });
     expect(payload.treeVersion).toBe(8);
     expect(payload.treeChanges).toEqual({
@@ -75,6 +82,9 @@ describe("normalizeAIAnalysis live tree changes", () => {
       agendaRefs: ["agenda-1"],
       agendaSplitGroupId: "agenda-1",
       materialized: true,
+      speaker_label: "佐藤",
+      segment_id: "segment-4",
+      evidenceSequenceNos: [4],
     });
   });
 

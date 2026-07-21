@@ -90,6 +90,8 @@ export type TreeNodePayload = {
   materialized?: boolean;
   speaker_label?: string;
   segment_id?: string;
+  linked_segment_ids?: string[];
+  evidenceSequenceNos?: number[];
 };
 
 export type TreeEdgePayload = {

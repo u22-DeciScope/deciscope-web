@@ -11,6 +11,12 @@ import {
   issueSubtypeLabel,
   resolvedBadgeColor,
 } from "~/components/meeting/parts/analysisKindPalette";
+import {
+  analysisItemMomentLabel,
+  humanizeAgendaReferences,
+  treeNodeMomentLabel,
+  type MeetingMomentIndex,
+} from "~/components/meeting/parts/meetingDisplayMetadata";
 
 import { tagStyle } from "./discussionTags";
 
@@ -33,6 +39,8 @@ export function NodeDetailCard({
   nodes,
   edges,
   analysisItems,
+  momentIndex,
+  agendaLabels,
   onSelectAnalysisItem,
   onClose,
   onFocusNode,
@@ -41,6 +49,8 @@ export function NodeDetailCard({
   nodes: TreeNodePayload[];
   edges: TreeEdgePayload[];
   analysisItems: AnalysisItem[];
+  momentIndex: MeetingMomentIndex;
+  agendaLabels: Map<string, string>;
   onSelectAnalysisItem?: (id: string) => void;
   onClose: () => void;
   onFocusNode: (id: string) => void;
@@ -59,6 +69,7 @@ export function NodeDetailCard({
     .map((id) => analysisItemById.get(id))
     .filter((item): item is AnalysisItem => item !== undefined);
   const style = tagStyle[node.kind ?? "topic"] ?? tagStyle.topic;
+  const momentLabel = treeNodeMomentLabel(node, analysisItems, momentIndex);
 
   return (
     <div
@@ -99,26 +110,46 @@ export function NodeDetailCard({
       </header>
 
       <div className="min-h-0 space-y-3 overflow-y-auto p-3">
-        {node.speaker_label && (
-          <p className="text-[10px] font-semibold" style={{ color: "var(--text-sub)" }}>
-            {node.speaker_label}
+        {(node.speaker_label || momentLabel) && (
+          <p
+            className="flex items-center justify-between gap-2 text-[10px] font-semibold"
+            style={{ color: "var(--text-sub)" }}
+          >
+            <span>{node.speaker_label}</span>
+            {momentLabel && <time className="shrink-0">{momentLabel}</time>}
           </p>
         )}
         <p className="text-[12px] leading-normal" style={{ color: "var(--text-main)" }}>
-          {node.label ?? node.id}
+          {humanizeAgendaReferences(node.label ?? node.id, agendaLabels)}
         </p>
         {node.description && (
           <p className="text-[11px] leading-5" style={{ color: "var(--text-sub)" }}>
-            {node.description}
+            {humanizeAgendaReferences(node.description, agendaLabels)}
           </p>
         )}
 
         <RelatedAnalysisItemList
           items={relatedAnalysisItems}
+          momentIndex={momentIndex}
+          agendaLabels={agendaLabels}
           onSelectAnalysisItem={onSelectAnalysisItem}
         />
-        <RelatedNodeList title="親ノード" items={parents} onFocusNode={onFocusNode} />
-        <RelatedNodeList title="子ノード" items={children} onFocusNode={onFocusNode} />
+        <RelatedNodeList
+          title="親ノード"
+          items={parents}
+          analysisItems={analysisItems}
+          momentIndex={momentIndex}
+          agendaLabels={agendaLabels}
+          onFocusNode={onFocusNode}
+        />
+        <RelatedNodeList
+          title="子ノード"
+          items={children}
+          analysisItems={analysisItems}
+          momentIndex={momentIndex}
+          agendaLabels={agendaLabels}
+          onFocusNode={onFocusNode}
+        />
       </div>
     </div>
   );
@@ -142,9 +173,13 @@ function relatedItemIdsForNode(node: TreeNodePayload, analysisItemById: Map<stri
 
 function RelatedAnalysisItemList({
   items,
+  momentIndex,
+  agendaLabels,
   onSelectAnalysisItem,
 }: {
   items: AnalysisItem[];
+  momentIndex: MeetingMomentIndex;
+  agendaLabels: Map<string, string>;
   onSelectAnalysisItem?: (id: string) => void;
 }) {
   if (items.length === 0) {
@@ -162,6 +197,7 @@ function RelatedAnalysisItemList({
           const resolved = item.status === "resolved";
           const baseBackground = `color-mix(in srgb, ${style.bg} 55%, var(--node-bg))`;
           const baseBorder = `color-mix(in srgb, ${style.fg} 35%, transparent)`;
+          const momentLabel = analysisItemMomentLabel(item, momentIndex);
           return (
             <button
               key={item.id}
@@ -181,8 +217,16 @@ function RelatedAnalysisItemList({
                 {analysisKindLabel(item.kind)}
               </span>
               <span className="truncate text-[11px]" style={{ color: "var(--text-main)" }}>
-                {item.title || item.id}
+                {humanizeAgendaReferences(item.title || item.id, agendaLabels)}
               </span>
+              {momentLabel && (
+                <time
+                  className="ml-auto shrink-0 text-[9px]"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {momentLabel}
+                </time>
+              )}
               {resolved && (
                 <span className="ml-auto shrink-0">
                   <ResolvedBadge />
@@ -199,10 +243,16 @@ function RelatedAnalysisItemList({
 function RelatedNodeList({
   title,
   items,
+  analysisItems,
+  momentIndex,
+  agendaLabels,
   onFocusNode,
 }: {
   title: string;
   items: TreeNodePayload[];
+  analysisItems: AnalysisItem[];
+  momentIndex: MeetingMomentIndex;
+  agendaLabels: Map<string, string>;
   onFocusNode: (id: string) => void;
 }) {
   if (items.length === 0) {
@@ -220,6 +270,7 @@ function RelatedNodeList({
           const resolved = item.status === "resolved";
           const baseBackground = `color-mix(in srgb, ${style.bg} 55%, var(--node-bg))`;
           const baseBorder = `color-mix(in srgb, ${style.fg} 35%, transparent)`;
+          const momentLabel = treeNodeMomentLabel(item, analysisItems, momentIndex);
           return (
             <button
               key={item.id}
@@ -239,8 +290,16 @@ function RelatedNodeList({
                 {analysisKindLabel(item.kind ?? "topic")}
               </span>
               <span className="truncate text-[11px]" style={{ color: "var(--text-main)" }}>
-                {item.label ?? item.id}
+                {humanizeAgendaReferences(item.label ?? item.id, agendaLabels)}
               </span>
+              {momentLabel && (
+                <time
+                  className="ml-auto shrink-0 text-[9px]"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {momentLabel}
+                </time>
+              )}
               {resolved && (
                 <span className="ml-auto shrink-0">
                   <ResolvedBadge />

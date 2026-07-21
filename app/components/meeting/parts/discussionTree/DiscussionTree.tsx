@@ -13,12 +13,19 @@ import {
 import "@xyflow/react/dist/style.css";
 import { HiOutlineShare } from "react-icons/hi2";
 
+import type { MeetingSegmentDto } from "~/api/meetings/meetingEventsApi";
 import type {
   AnalysisItem,
   TreeChangesPayload,
   TreeEdgePayload,
   TreeNodePayload,
 } from "~/api/meetings/meetingRuntimeTypes";
+import {
+  buildAgendaLabelMap,
+  buildMeetingMomentIndex,
+  humanizeAgendaReferences,
+  treeNodeMomentLabel,
+} from "~/components/meeting/parts/meetingDisplayMetadata";
 
 import { type DiscussionFlowNode, nodeTypes } from "./DiscussionNodeView";
 import { NODE_HEIGHT, NODE_WIDTH, layoutPositions, normalizeEdges } from "./discussionTreeLayout";
@@ -78,6 +85,7 @@ type DiscussionTreeProps = {
   nodes: TreeNodePayload[];
   edges: TreeEdgePayload[];
   analysisItems?: AnalysisItem[];
+  segments?: MeetingSegmentDto[];
   onSelectAnalysisItem?: (id: string) => void;
   updateStatus?: React.ReactNode;
   // 隣接カラム(タイムライン)の開閉など、外部要因でこのパネルの表示幅が
@@ -91,6 +99,7 @@ export function DiscussionTree({
   nodes,
   edges,
   analysisItems,
+  segments,
   onSelectAnalysisItem,
   updateStatus,
   layoutSignal,
@@ -155,6 +164,7 @@ export function DiscussionTree({
               nodes={nodes}
               edges={edges}
               analysisItems={analysisItems}
+              segments={segments}
               onSelectAnalysisItem={onSelectAnalysisItem}
               layoutSignal={layoutSignal}
               focusItemRequest={focusItemRequest}
@@ -171,6 +181,7 @@ function DiscussionFlow({
   nodes,
   edges,
   analysisItems,
+  segments,
   onSelectAnalysisItem,
   layoutSignal,
   focusItemRequest,
@@ -217,6 +228,9 @@ function DiscussionFlow({
   // 「全折りたたみ」ボタンで collapsibleNodeIds() の集合(root以外で子を持つ
   // 全ノード)へ一括切り替えできる。
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+
+  const momentIndex = useMemo(() => buildMeetingMomentIndex(segments ?? []), [segments]);
+  const agendaLabels = useMemo(() => buildAgendaLabelMap(displayNodes), [displayNodes]);
 
   const recentlyUpdatedIds = useRecentlyUpdatedNodeIds(displayNodes);
 
@@ -294,8 +308,9 @@ function DiscussionFlow({
           subtype: node.subtype ?? "",
           status: node.status ?? "",
           speaker: node.speaker_label ?? "",
-          label: node.label ?? node.id,
-          description: node.description ?? "",
+          label: humanizeAgendaReferences(node.label ?? node.id, agendaLabels),
+          description: humanizeAgendaReferences(node.description ?? "", agendaLabels),
+          momentLabel: treeNodeMomentLabel(node, analysisItems ?? [], momentIndex),
           relatedCount: relatedItemIdsForNode(node, analysisItemIds).length,
           active: node.id === lastNodeId,
           hasChildren: (discussionModel.childrenOf.get(node.id) ?? []).length > 0,
@@ -320,6 +335,9 @@ function DiscussionFlow({
     focusIds,
     recentlyUpdatedIds,
     structuralHighlightIds,
+    agendaLabels,
+    analysisItems,
+    momentIndex,
   ]);
 
   const flowEdges = useMemo<Edge[]>(
@@ -684,6 +702,13 @@ function DiscussionFlow({
         onNodeClick={(_, node) => {
           markManualInteraction();
           setSelectedId(node.id);
+          const selectedNode = displayNodes.find((candidate) => candidate.id === node.id);
+          const itemId = selectedNode
+            ? relatedItemIdsForNode(selectedNode, analysisItemIds)[0]
+            : undefined;
+          if (itemId) {
+            onSelectAnalysisItem?.(itemId);
+          }
         }}
         onNodeMouseEnter={(_, node) => {
           markManualInteraction();
@@ -776,6 +801,8 @@ function DiscussionFlow({
           nodes={displayNodes}
           edges={treeEdges}
           analysisItems={analysisItems ?? []}
+          momentIndex={momentIndex}
+          agendaLabels={agendaLabels}
           onSelectAnalysisItem={onSelectAnalysisItem}
           onClose={() => {
             setSelectedId(null);

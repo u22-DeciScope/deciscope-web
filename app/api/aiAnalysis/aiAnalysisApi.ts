@@ -388,6 +388,9 @@ function normalizeLiveAnalysisItems(value: unknown[]): AnalysisItem[] {
       const kind = classification.kind;
       const severity = optionalString(source.severity)?.trim() || "medium";
       const status = classification.status;
+      const linkedSegmentIds = normalizeStringArray(
+        source.linked_segment_ids ?? source.linkedSegmentIds,
+      );
       const evidenceSequenceNos = normalizeNumberArray(source.evidenceSequenceNos);
       const resolutionEvidenceSequenceNos = normalizeNumberArray(
         source.resolutionEvidenceSequenceNos,
@@ -415,6 +418,7 @@ function normalizeLiveAnalysisItems(value: unknown[]): AnalysisItem[] {
         ...(optionalString(source.suppressionReason)?.trim()
           ? { suppressionReason: optionalString(source.suppressionReason)?.trim() }
           : {}),
+        ...(linkedSegmentIds.length > 0 ? { linked_segment_ids: linkedSegmentIds } : {}),
         ...(evidenceSequenceNos.length > 0 ? { evidenceSequenceNos } : {}),
         ...(resolvedAtVersion !== undefined ? { resolvedAtVersion } : {}),
         ...(resolutionEvidenceSequenceNos.length > 0 ? { resolutionEvidenceSequenceNos } : {}),
@@ -561,6 +565,14 @@ function normalizeTreeNodes(
       const mergedFromNodeIds = normalizeStringArray(source.mergedFromNodeIds);
       const agendaSplitGroupId = optionalString(source.agendaSplitGroupId)?.trim();
       const materialized = source.materialized === true;
+      const speakerLabel =
+        optionalString(source.speaker_label)?.trim() ?? optionalString(source.speakerLabel)?.trim();
+      const segmentId =
+        optionalString(source.segment_id)?.trim() ?? optionalString(source.segmentId)?.trim();
+      const linkedSegmentIds = normalizeStringArray(
+        source.linked_segment_ids ?? source.linkedSegmentIds,
+      );
+      const evidenceSequenceNos = normalizeNumberArray(source.evidenceSequenceNos);
       return {
         id,
         ...(kind ? { kind } : {}),
@@ -576,6 +588,10 @@ function normalizeTreeNodes(
         ...(mergedFromNodeIds.length > 0 ? { mergedFromNodeIds } : {}),
         ...(agendaSplitGroupId ? { agendaSplitGroupId } : {}),
         ...(materialized ? { materialized: true } : {}),
+        ...(speakerLabel ? { speaker_label: speakerLabel } : {}),
+        ...(segmentId ? { segment_id: segmentId } : {}),
+        ...(linkedSegmentIds.length > 0 ? { linked_segment_ids: linkedSegmentIds } : {}),
+        ...(evidenceSequenceNos.length > 0 ? { evidenceSequenceNos } : {}),
       };
     })
     .filter((node): node is TreeNodePayload => node !== null);

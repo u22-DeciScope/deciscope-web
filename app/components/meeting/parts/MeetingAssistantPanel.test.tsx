@@ -188,7 +188,7 @@ describe("MeetingAssistantPanel item filters", () => {
     expect(onFocus).toHaveBeenCalledWith(todo.id);
   });
 
-  it("renders a plain topic and one card per key point without an in-progress section", () => {
+  it("renders card updates and key points without the removed topic section", async () => {
     const liveAnalysis: MeetingAIAnalysis = {
       analysisType: "live",
       status: "completed",
@@ -205,20 +205,96 @@ describe("MeetingAssistantPanel item filters", () => {
       <MeetingAssistantPanel insights={[]} speakerSummaries={[]} liveAnalysis={liveAnalysis} />,
     );
 
-    expect(screen.getByRole("heading", { name: "トピック" })).not.toBeNull();
-    const topicCard = screen.getByText("次回リリースの範囲").closest("article");
+    expect(screen.queryByRole("heading", { name: "トピック" })).toBeNull();
+    expect(screen.queryByText("次回リリースの範囲")).toBeNull();
+    expect(screen.getByRole("heading", { name: "カードの更新" })).not.toBeNull();
+    expect(await screen.findByText("追加")).not.toBeNull();
+    expect(screen.getByText("todo-1")).not.toBeNull();
     const keyPointCard = screen.getByText("対象機能を絞る").closest("article");
-    expect(topicCard).not.toBeNull();
-    expect(topicCard?.className).toBe(keyPointCard?.className);
-    expect(topicCard?.className).toContain("text-[13px]");
-    expect(topicCard?.getAttribute("style")).toContain("var(--text-main)");
-    expect(
-      screen.getByRole("heading", { name: "トピック" }).closest("section")?.querySelector("svg"),
-    ).toBeNull();
     expect(screen.getByRole("heading", { name: "要点" })).not.toBeNull();
     expect(keyPointCard).not.toBeNull();
+    expect(keyPointCard?.className).toContain("text-[13px]");
     expect(screen.getByText("公開日を確認する").closest("article")).not.toBeNull();
     expect(screen.queryByText("進行中")).toBeNull();
     expect(screen.queryByText("論点・リスク・次の一手")).toBeNull();
+  });
+
+  it("shows elapsed time, human-readable agenda names, and card field changes", async () => {
+    const firstItem: AnalysisItem = {
+      ...item("todo-agenda", "todo", "open"),
+      title: "agenda-1 の確認",
+      body: "agenda-1 の資料を確認する",
+      evidenceSequenceNos: [2],
+      relatedAgendaIds: ["agenda-1"],
+    };
+    const analysis = (version: number, value: AnalysisItem): MeetingAIAnalysis => ({
+      analysisType: "live",
+      status: "completed",
+      version,
+      updatedAtUtc: `2026-07-21T10:0${version}:00Z`,
+      payload: {
+        summary: "agenda-1 の資料を確認する。",
+        items: [value],
+        tree: {
+          nodes: [
+            { id: "root", kind: "topic", label: "会議" },
+            { id: "agenda-1", kind: "topic", parentId: "root", label: "予算計画" },
+            { id: value.id, kind: "todo", parentId: "agenda-1", label: value.title },
+          ],
+          edges: [],
+        },
+        agendaAnchors: [
+          {
+            agendaId: "agenda-1",
+            originalTitle: "予算計画",
+            status: "discussed",
+            materializedTopicIds: [],
+          },
+        ],
+      },
+    });
+    const segments = [
+      {
+        meeting_id: "meeting-1",
+        seq: 2,
+        segment_id: "segment-2",
+        speaker_label: "佐藤",
+        text: "資料を確認します",
+        start_ms: 125_000,
+        end_ms: 130_000,
+        created_at: "2026-07-21T10:01:00Z",
+      },
+    ];
+
+    const view = render(
+      <MeetingAssistantPanel
+        insights={[]}
+        speakerSummaries={[]}
+        segments={segments}
+        liveAnalysis={analysis(1, firstItem)}
+      />,
+    );
+
+    expect(await screen.findByText("予算計画 の確認")).not.toBeNull();
+    expect(screen.getAllByText("経過 02:05").length).toBeGreaterThan(0);
+    expect(screen.getByText("予算計画 の資料を確認する")).not.toBeNull();
+    expect(screen.queryByText(/agenda-1/)).toBeNull();
+
+    view.rerender(
+      <MeetingAssistantPanel
+        insights={[]}
+        speakerSummaries={[]}
+        segments={segments}
+        liveAnalysis={analysis(2, {
+          ...firstItem,
+          body: "予算上限を確認し、資料を更新する",
+          status: "resolved",
+        })}
+      />,
+    );
+
+    expect(await screen.findByText("未解決")).not.toBeNull();
+    expect(screen.getAllByText("解決済").length).toBeGreaterThan(1);
+    expect(screen.getByText("予算上限を確認し、資料を更新する")).not.toBeNull();
   });
 });

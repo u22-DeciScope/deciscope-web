@@ -205,6 +205,7 @@ export function MeetingWorkspaceGrid({
         nodes={treeNodes}
         edges={treeEdges}
         analysisItems={relatedAnalysisItems}
+        segments={segments}
         onSelectAnalysisItem={handleSelectAnalysisItem}
         updateStatus={liveAnalysisMeta ? <AiUpdateStatusChip meta={liveAnalysisMeta} /> : undefined}
         layoutSignal={timelineCollapsed}
@@ -214,6 +215,8 @@ export function MeetingWorkspaceGrid({
       <MeetingAssistantPanel
         insights={insights}
         speakerSummaries={speakerSummaries}
+        segments={segments}
+        treeNodes={treeNodes}
         liveAnalysis={liveAnalysis}
         focusedAnalysisItemId={focusedAnalysisItemId}
         highlightedAnalysisItemId={highlightedAnalysisItemId}

@@ -19,6 +19,7 @@ export type DiscussionNodeData = {
   speaker: string;
   label: string;
   description: string;
+  momentLabel: string;
   relatedCount: number;
   active: boolean;
   hasChildren: boolean;
@@ -92,9 +93,20 @@ export function DiscussionNodeView({ data, selected }: NodeProps<DiscussionFlowN
           </span>
         )}
         {data.relatedCount > 0 && (
-          <span className="ml-auto shrink-0 text-[9px] font-semibold" style={{ color: style.fg }}>
+          <span
+            className={`${data.momentLabel ? "" : "ml-auto"} shrink-0 text-[9px] font-semibold`}
+            style={{ color: style.fg }}
+          >
             関連カード{data.relatedCount}
           </span>
+        )}
+        {data.momentLabel && (
+          <time
+            className="ml-auto shrink-0 text-[9px] font-medium"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {data.momentLabel}
+          </time>
         )}
       </div>
       <span
