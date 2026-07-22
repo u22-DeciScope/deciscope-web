@@ -47,9 +47,9 @@ export function AppSidebarHeader({ navigation, navigationWidth, width }: AppSide
               <BrandLogo size="sm" linkTo={workspacePath(workspaceId, "/meetings")} />
             </div>
           ) : (
-            <div className="group relative flex h-7 w-7 items-center justify-center">
+            <div className="group relative flex h-9 w-9 items-center justify-center">
               <BrandLogo
-                size="sm"
+                size="md"
                 linkTo={workspacePath(workspaceId, "/meetings")}
                 showText={false}
               />
@@ -58,6 +58,5 @@ export function AppSidebarHeader({ navigation, navigationWidth, width }: AppSide
         </div>
       </div>
     </header>
-
   );
 }

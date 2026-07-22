@@ -4,6 +4,7 @@ import { HiCheck } from "react-icons/hi2";
 import {
   analysisKindLabel,
   dimmedColor,
+  issueSubtypeLabel,
   resolvedBadgeColor,
 } from "~/components/meeting/parts/analysisKindPalette";
 
@@ -13,10 +14,12 @@ import { NODE_HEIGHT, NODE_WIDTH } from "./discussionTreeLayout";
 export type DiscussionNodeData = {
   id: string;
   tag: string;
+  subtype?: string;
   status: string;
   speaker: string;
   label: string;
   description: string;
+  momentLabel: string;
   relatedCount: number;
   active: boolean;
   hasChildren: boolean;
@@ -73,7 +76,7 @@ export function DiscussionNodeView({ data, selected }: NodeProps<DiscussionFlowN
           className="shrink-0 rounded-sm px-1.25 py-0.75 text-[9px] font-semibold leading-none"
           style={{ background: style.bg, color: style.fg }}
         >
-          {analysisKindLabel(data.tag)}
+          {data.tag === "issue" ? issueSubtypeLabel(data.subtype) : analysisKindLabel(data.tag)}
         </span>
         {resolved && (
           <span
@@ -90,9 +93,20 @@ export function DiscussionNodeView({ data, selected }: NodeProps<DiscussionFlowN
           </span>
         )}
         {data.relatedCount > 0 && (
-          <span className="ml-auto shrink-0 text-[9px] font-semibold" style={{ color: style.fg }}>
+          <span
+            className={`${data.momentLabel ? "" : "ml-auto"} shrink-0 text-[9px] font-semibold`}
+            style={{ color: style.fg }}
+          >
             関連カード{data.relatedCount}
           </span>
+        )}
+        {data.momentLabel && (
+          <time
+            className="ml-auto shrink-0 text-[9px] font-medium"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {data.momentLabel}
+          </time>
         )}
       </div>
       <span

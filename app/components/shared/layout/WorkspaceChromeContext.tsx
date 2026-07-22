@@ -14,6 +14,9 @@ export type WorkspaceChromeConfig = {
   header: WorkspaceHeaderConfig;
   rightSidebar?: ReactNode;
   rightSidebarClassName?: string;
+  // ページ側が独自の背景色・角丸・余白を持つ場合に true にする。
+  // main の白背景/padding/shadowを外し、ページの背景をmain全面まで敷き詰められるようにする。
+  fullBleedMain?: boolean;
 };
 
 const defaultChrome: WorkspaceChromeConfig = {

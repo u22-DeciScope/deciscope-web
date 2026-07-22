@@ -77,13 +77,24 @@ export const analysisKindLabels: Record<string, string> = {
   topic: "トピック",
   group: "議論グループ",
   issue: "論点",
-  open_issue: "未解決",
-  question: "未解決",
+  open_issue: "論点",
+  question: "質問",
   risk: "リスク",
-  fact: "確認事項",
+  fact: "事実",
   decision: "決定事項",
   todo: "TODO",
 };
+
+export const issueSubtypeLabels: Record<string, string> = {
+  discussion: "論点",
+  confirmation: "確認事項",
+  question: "質問",
+  investigation: "調査事項",
+};
+
+export function issueSubtypeLabel(subtype?: string | null): string {
+  return issueSubtypeLabels[subtype ?? "discussion"] ?? "論点";
+}
 
 export function analysisKindLabel(kind?: string | null): string {
   if (kind == null) {

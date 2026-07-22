@@ -32,7 +32,7 @@ vi.mock("@xyflow/react", () => ({
     proOptions,
   }: {
     children: ReactNode;
-    nodes: Array<{ id: string }>;
+    nodes: Array<{ id: string; data?: { momentLabel?: string } }>;
     onNodeClick?: (event: MouseEvent, node: { id: string }) => void;
     proOptions?: { hideAttribution?: boolean };
   }) => (
@@ -45,6 +45,7 @@ vi.mock("@xyflow/react", () => ({
           onClick={(event) => onNodeClick?.(event.nativeEvent, node)}
         >
           {node.id}
+          {node.data?.momentLabel && <span>{node.data.momentLabel}</span>}
         </button>
       ))}
       {children}
@@ -82,6 +83,65 @@ describe("DiscussionTree structural viewport focus", () => {
       configurable: true,
       value: vi.fn(() => ({ matches: false })),
     });
+  });
+
+  it("uses a branching icon and omits the old explanatory subtitle", () => {
+    render(<DiscussionTree nodes={initialNodes} edges={initialEdges} />);
+
+    const title = screen.getByText("議論ツリー");
+    expect(title.closest("header")?.querySelector("svg")).not.toBeNull();
+    expect(screen.queryByText("論点・リスク・決定事項の関係")).toBeNull();
+  });
+
+  it("opens the matching assistant card when a tree node is clicked", () => {
+    const onSelectAnalysisItem = vi.fn();
+    render(
+      <DiscussionTree
+        nodes={initialNodes.map((node) =>
+          node.id === "agenda-1" ? { ...node, relatedItemIds: ["item-1"] } : node,
+        )}
+        edges={initialEdges}
+        analysisItems={[
+          {
+            id: "item-1",
+            kind: "todo",
+            severity: "medium",
+            title: "確認",
+            body: "",
+            status: "open",
+          },
+        ]}
+        onSelectAnalysisItem={onSelectAnalysisItem}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("flow-node-agenda-1"));
+    expect(onSelectAnalysisItem).toHaveBeenCalledWith("item-1");
+  });
+
+  it("shows meeting elapsed time on a node linked to a transcript segment", () => {
+    render(
+      <DiscussionTree
+        nodes={initialNodes.map((node) =>
+          node.id === "item-1" ? { ...node, segment_id: "segment-2" } : node,
+        )}
+        edges={initialEdges}
+        segments={[
+          {
+            meeting_id: "meeting-1",
+            seq: 2,
+            segment_id: "segment-2",
+            speaker_label: "佐藤",
+            text: "確認します",
+            start_ms: 125_000,
+            end_ms: 130_000,
+            created_at: "2026-07-21T10:01:00Z",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("経過 02:05")).not.toBeNull();
   });
 
   it("moves once for one tree version even under StrictMode", async () => {

@@ -132,6 +132,27 @@ export function formatShortDate(value?: string) {
   });
 }
 
+// Bot参加〜終了までの所要時間。どちらかが欠けている場合は表示しない。
+export function formatDuration(joinedAt?: string, endedAt?: string) {
+  if (!joinedAt || !endedAt) {
+    return null;
+  }
+  const ms = Date.parse(endedAt) - Date.parse(joinedAt);
+  if (!Number.isFinite(ms) || ms <= 0) {
+    return null;
+  }
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 1) {
+    return "1分未満";
+  }
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours > 0) {
+    return rest > 0 ? `${hours}時間${rest}分` : `${hours}時間`;
+  }
+  return `${minutes}分`;
+}
+
 function displaySessionStatus(session: MeetingSessionDto) {
   const updatedAt = session.updatedAt ?? session.lastBotStatusAt ?? session.createdAt ?? "";
   if (

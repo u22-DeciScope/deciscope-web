@@ -126,7 +126,7 @@ export function AuthenticatedWorkspaceLayout() {
       workspaces={session.session?.workspaces ?? []}
       workspaceId={workspaceId}
     >
-      <div className="min-h-120 bg-(--ds-bg) md:flex md:h-[max(100dvh,480px)] md:overflow-hidden md:p-2.25">
+      <div className="min-h-120 bg-(--ds-bg) md:flex md:h-[max(100dvh,480px)] md:gap-2 md:overflow-hidden md:p-2.25">
         <section className="md:shrink-0">
           <AppSidebar navigation={navigationPane} />
         </section>

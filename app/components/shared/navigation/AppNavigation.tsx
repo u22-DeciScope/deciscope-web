@@ -20,7 +20,7 @@ export function AppNavigation({ collapsed }: AppNavigationProps) {
       {items.map((item) => {
         const Icon = item.icon;
         const active = item.id === activeItem;
-        const className = `flex w-full items-center rounded-(--ds-radius-control) h-9 text-left font-medium transition hover:opacity-80 ${
+        const className = `flex w-full items-center rounded-(--ds-radius-control) h-16 text-left font-medium transition hover:opacity-80 ${
           collapsed ? "justify-center" : "gap-3"
         }`;
         const style = active
@@ -28,7 +28,7 @@ export function AppNavigation({ collapsed }: AppNavigationProps) {
           : { background: "transparent", color: "var(--text-sub)" };
         const content = (
           <>
-            <Icon className="aspect-square w-10 shrink-0" />
+            <Icon size={32} className="shrink-0" />
             {!collapsed && item.label}
           </>
         );

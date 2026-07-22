@@ -5,7 +5,11 @@ import type {
   TreeEdgePayload,
   TreeNodePayload,
 } from "~/api/meetings/meetingRuntimeTypes";
-import { buildActionSummaryProjection, stageTentativeTree } from "./DiscussionTree";
+import {
+  buildActionSummaryProjection,
+  stageTentativeTree,
+  visibleDiscussionTreeNodeCount,
+} from "./DiscussionTree";
 
 const nodes: TreeNodePayload[] = [
   { id: "root", kind: "topic", label: "会議" },
@@ -16,6 +20,7 @@ const nodes: TreeNodePayload[] = [
     parentId: "root",
     label: "今後の対応事項",
     agendaRole: "action_summary",
+    agendaRefs: ["agenda-actions"],
   },
   { id: "group-wind", kind: "group", parentId: "agenda-noise", label: "強風条件" },
   { id: "question-wind", kind: "question", parentId: "group-wind", label: "何m/sか" },
@@ -120,6 +125,36 @@ describe("discussion tree projections", () => {
       { ...tentativeItems[0], classificationStatus: "assigned", candidateTopicId: undefined },
     ]);
     expect(promoted.nodes.filter((node) => node.id === "todo-plant")).toHaveLength(1);
+  });
+
+  it("counts only nodes that can actually be rendered", () => {
+    const targetNodes: TreeNodePayload[] = [
+      ...nodes,
+      {
+        id: "agenda-empty",
+        kind: "topic",
+        parentId: "root",
+        label: "未議論アジェンダ",
+        origin: "agenda",
+        agendaRefs: ["agenda-empty"],
+        materialized: true,
+      },
+      { id: "topic-unclassified", kind: "topic", parentId: "root", label: "追加論点" },
+    ];
+    const tentativeItems = [
+      item("todo-plant", "todo", {
+        classificationStatus: "tentative",
+        candidateTopicId: "topic-plant",
+      }),
+    ];
+
+    const staged = stageTentativeTree(targetNodes, edges, tentativeItems);
+    expect(staged.nodes.some((node) => node.id === "agenda-actions")).toBe(false);
+    expect(staged.nodes.some((node) => node.id === "agenda-empty")).toBe(false);
+    expect(staged.nodes.some((node) => node.id === "topic-unclassified")).toBe(false);
+    expect(visibleDiscussionTreeNodeCount(targetNodes, edges, tentativeItems)).toBe(
+      staged.nodes.length,
+    );
   });
 
   it("reduces the observed session_888 action references from eight full nodes to four rows", () => {
