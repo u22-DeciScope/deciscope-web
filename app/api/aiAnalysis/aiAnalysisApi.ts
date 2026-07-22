@@ -35,10 +35,53 @@ export type LiveAnalysisPayload = {
   mergedNodeIds?: string[];
   treeHash?: string;
   basedOnTreeVersion?: number;
+  agendaAnchors?: AgendaAnchorPayload[];
+  // 会議の現在地(現在の議題・話し合い済み・未着手・会議中に追加された論点)。
+  // サーバー側の決定的計算のみで、新しいAI呼び出しは伴わない。旧payload(この
+  // フィールドが無い)では undefined のままとなり、既存挙動を壊さない。
+  agendaProgress?: AgendaProgressPayload;
+};
+
+export type AgendaProgressStatus = "not_started" | "discussing" | "discussed";
+export type AgendaProgressOutcome = "concluded" | "unresolved";
+export type AgendaProgressSourceType = "fixed_agenda" | "dynamic_topic";
+
+export type AgendaProgressEntryPayload = {
+  id: string;
+  sourceType: AgendaProgressSourceType;
+  title: string;
+  order?: number;
+  computedStatus: AgendaProgressStatus;
+  manualStatus?: AgendaProgressStatus;
+  effectiveStatus: AgendaProgressStatus;
+  outcomeStatus?: AgendaProgressOutcome;
+  discussionWeight?: number;
+  relatedItemCounts?: Record<string, number>;
+  materializedTopicIds?: string[];
+  primaryNodeId?: string;
+};
+
+export type AgendaProgressPayload = {
+  computedCurrentTopicId?: string;
+  manualCurrentTopicId?: string;
+  effectiveCurrentTopicId?: string;
+  entries: AgendaProgressEntryPayload[];
+};
+
+export type AgendaAnchorPayload = {
+  agendaId: string;
+  originalTitle: string;
+  normalizedSubject?: string;
+  order?: number;
+  role?: string;
+  status: "planned" | "materialized" | "discussed" | "merged" | "not_discussed" | string;
+  materializedTopicIds: string[];
 };
 
 export type TreeIntegrityDiagnostics = {
   valid?: boolean;
+  agendaReferenceIntegrityValid?: boolean;
+  agendaNodeIdNamespaceValid?: boolean;
   duplicateNodeIds?: string[];
   crossKindIdCollisions?: string[];
   reservedItemIds?: string[];
@@ -47,6 +90,12 @@ export type TreeIntegrityDiagnostics = {
   movedFixedAgendaIds?: string[];
   fixedAgendaKindMismatchIds?: string[];
   actionSummaryTreeNodeIds?: string[];
+  agendaTopicIdCollisions?: string[];
+  unknownAgendaRefs?: string[];
+  orphanAgendaRefs?: string[];
+  orphanMaterializedTopicIds?: string[];
+  agendaMaterializationMismatches?: string[];
+  legacyAgendaEdgeNodeIds?: string[];
   expectedFixedAgendaCount?: number;
   actualFixedAgendaCount?: number;
   clientDuplicateNodeIds?: string[];
@@ -125,6 +174,44 @@ export async function getWorkspaceMeetingSessionAIAnalyses(
     workspaceMeetingSessionAIAnalysesPath(workspaceId, sessionId),
   );
   return normalizeAIAnalyses(payload, sessionId);
+}
+
+export type MeetingFinalSummaryPreview = {
+  sessionId: string;
+  overview: string;
+};
+
+// 会議一覧カードの「AI最終要約プレビュー」用。セッションごとに個別取得すると
+// 会議数が多いワークスペースでN+1になるため、ワークスペース単位でまとめて取得する。
+export async function listWorkspaceFinalSummaryPreviews(
+  workspaceId: string,
+): Promise<MeetingFinalSummaryPreview[]> {
+  const payload = await requestJson<unknown>(
+    `${workspaceMeetingSessionsPath(workspaceId)}/final-summaries`,
+  );
+  return normalizeFinalSummaryPreviews(payload);
+}
+
+function normalizeFinalSummaryPreviews(value: unknown): MeetingFinalSummaryPreview[] {
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+  const items = (value as Record<string, unknown>).items;
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  return items.flatMap((item) => {
+    if (!item || typeof item !== "object") {
+      return [];
+    }
+    const source = item as Record<string, unknown>;
+    const sessionId = optionalString(source.sessionId)?.trim();
+    const overview = optionalString(source.overview)?.trim();
+    if (!sessionId || !overview) {
+      return [];
+    }
+    return [{ sessionId, overview }];
+  });
 }
 
 export function normalizeAIAnalysis(value: unknown): MeetingAIAnalysis | null {
@@ -265,6 +352,8 @@ function normalizeLivePayload(value: unknown): LiveAnalysisPayload | null {
   const mergedNodeIds = normalizeStringArray(source.mergedNodeIds);
   const treeHash = optionalString(source.treeHash)?.trim();
   const basedOnTreeVersion = optionalNumber(source.basedOnTreeVersion);
+  const agendaAnchors = normalizeAgendaAnchors(source.agendaAnchors);
+  const agendaProgress = normalizeAgendaProgress(source.agendaProgress);
   return {
     ...(summary ? { summary } : {}),
     ...(currentTopic ? { currentTopic } : {}),
@@ -286,7 +375,156 @@ function normalizeLivePayload(value: unknown): LiveAnalysisPayload | null {
     ...(mergedNodeIds.length > 0 ? { mergedNodeIds } : {}),
     ...(treeHash ? { treeHash } : {}),
     ...(basedOnTreeVersion !== undefined ? { basedOnTreeVersion } : {}),
+    ...(agendaAnchors.length > 0 ? { agendaAnchors } : {}),
+    ...(agendaProgress ? { agendaProgress } : {}),
   };
+}
+
+// agendaProgress を正規化する。未知フィールド(サーバー内部trackingのactiveRounds等)は
+// 取り込まない。不正なstatus/sourceTypeやtitle欠落のentryは除外する。effectiveStatus /
+// effectiveCurrentTopicId が欠落している場合は manual ?? computed で補完する
+// (サーバーが常にstamp済みで送るはずだが、フロント側でも防御的に補完する)。
+export function normalizeAgendaProgress(value: unknown): AgendaProgressPayload | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const source = value as Record<string, unknown>;
+  const entries = normalizeAgendaProgressEntries(source.entries);
+  const computedCurrentTopicId = optionalString(source.computedCurrentTopicId)?.trim();
+  const manualCurrentTopicId = optionalString(source.manualCurrentTopicId)?.trim();
+  const effectiveCurrentTopicId =
+    optionalString(source.effectiveCurrentTopicId)?.trim() ||
+    manualCurrentTopicId ||
+    computedCurrentTopicId;
+  return {
+    ...(computedCurrentTopicId ? { computedCurrentTopicId } : {}),
+    ...(manualCurrentTopicId ? { manualCurrentTopicId } : {}),
+    ...(effectiveCurrentTopicId ? { effectiveCurrentTopicId } : {}),
+    entries,
+  };
+}
+
+function normalizeAgendaProgressEntries(value: unknown): AgendaProgressEntryPayload[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object") {
+      return [];
+    }
+    const source = candidate as Record<string, unknown>;
+    const id = optionalString(source.id)?.trim();
+    const sourceType = source.sourceType;
+    const title = optionalString(source.title)?.trim();
+    const computedStatus = source.computedStatus;
+    if (
+      !id ||
+      !title ||
+      !isAgendaProgressSourceType(sourceType) ||
+      !isAgendaProgressStatus(computedStatus)
+    ) {
+      return [];
+    }
+    const manualStatusRaw = source.manualStatus;
+    const manualStatus = isAgendaProgressStatus(manualStatusRaw) ? manualStatusRaw : undefined;
+    const effectiveStatusRaw = source.effectiveStatus;
+    const effectiveStatus = isAgendaProgressStatus(effectiveStatusRaw)
+      ? effectiveStatusRaw
+      : (manualStatus ?? computedStatus);
+    const order = optionalNumber(source.order);
+    const outcomeStatusRaw = source.outcomeStatus;
+    const outcomeStatus = isAgendaProgressOutcome(outcomeStatusRaw) ? outcomeStatusRaw : undefined;
+    const discussionWeightRaw = optionalNumber(source.discussionWeight);
+    const discussionWeight =
+      discussionWeightRaw !== undefined ? clamp01(discussionWeightRaw) : undefined;
+    const relatedItemCounts = normalizeRelatedItemCounts(source.relatedItemCounts);
+    const materializedTopicIds = normalizeStringArray(source.materializedTopicIds);
+    const primaryNodeId = optionalString(source.primaryNodeId)?.trim();
+    return [
+      {
+        id,
+        sourceType,
+        title,
+        ...(order !== undefined ? { order } : {}),
+        computedStatus,
+        ...(manualStatus ? { manualStatus } : {}),
+        effectiveStatus,
+        ...(outcomeStatus ? { outcomeStatus } : {}),
+        ...(discussionWeight !== undefined ? { discussionWeight } : {}),
+        ...(relatedItemCounts ? { relatedItemCounts } : {}),
+        ...(materializedTopicIds.length > 0 ? { materializedTopicIds } : {}),
+        ...(primaryNodeId ? { primaryNodeId } : {}),
+      },
+    ];
+  });
+}
+
+function isAgendaProgressStatus(value: unknown): value is AgendaProgressStatus {
+  return value === "not_started" || value === "discussing" || value === "discussed";
+}
+
+function isAgendaProgressOutcome(value: unknown): value is AgendaProgressOutcome {
+  return value === "concluded" || value === "unresolved";
+}
+
+function isAgendaProgressSourceType(value: unknown): value is AgendaProgressSourceType {
+  return value === "fixed_agenda" || value === "dynamic_topic";
+}
+
+function normalizeRelatedItemCounts(value: unknown): Record<string, number> | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const source = value as Record<string, unknown>;
+  const counts: Record<string, number> = {};
+  for (const [kind, raw] of Object.entries(source)) {
+    if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
+      counts[kind] = raw;
+    }
+  }
+  return Object.keys(counts).length > 0 ? counts : undefined;
+}
+
+function clamp01(value: number): number {
+  if (value < 0) {
+    return 0;
+  }
+  if (value > 1) {
+    return 1;
+  }
+  return value;
+}
+
+function normalizeAgendaAnchors(value: unknown): AgendaAnchorPayload[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object") {
+      return [];
+    }
+    const source = candidate as Record<string, unknown>;
+    const agendaId = optionalString(source.agendaId)?.trim();
+    const originalTitle = optionalString(source.originalTitle)?.trim();
+    const status = optionalString(source.status)?.trim();
+    if (!agendaId || !originalTitle || !status) {
+      return [];
+    }
+    const normalizedSubject = optionalString(source.normalizedSubject)?.trim();
+    const role = optionalString(source.role)?.trim();
+    const order = optionalNumber(source.order);
+    return [
+      {
+        agendaId,
+        originalTitle,
+        status,
+        materializedTopicIds: normalizeStringArray(source.materializedTopicIds),
+        ...(normalizedSubject ? { normalizedSubject } : {}),
+        ...(role ? { role } : {}),
+        ...(order !== undefined ? { order } : {}),
+      },
+    ];
+  });
 }
 
 function normalizeTreeChanges(value: unknown): TreeChangesPayload | undefined {
@@ -327,9 +565,17 @@ function normalizeLiveAnalysisItems(value: unknown[]): AnalysisItem[] {
         return null;
       }
       const id = optionalString(source.id)?.trim() || `live-item-${index}`;
-      const kind = optionalString(source.kind)?.trim() || "issue";
+      const classification = normalizeSemanticClassification(
+        optionalString(source.kind)?.trim() || "issue",
+        optionalString(source.subtype)?.trim(),
+        optionalString(source.status)?.trim() || "open",
+      );
+      const kind = classification.kind;
       const severity = optionalString(source.severity)?.trim() || "medium";
-      const status = optionalString(source.status)?.trim() || "open";
+      const status = classification.status;
+      const linkedSegmentIds = normalizeStringArray(
+        source.linked_segment_ids ?? source.linkedSegmentIds,
+      );
       const evidenceSequenceNos = normalizeNumberArray(source.evidenceSequenceNos);
       const resolutionEvidenceSequenceNos = normalizeNumberArray(
         source.resolutionEvidenceSequenceNos,
@@ -345,10 +591,19 @@ function normalizeLiveAnalysisItems(value: unknown[]): AnalysisItem[] {
       return {
         id,
         kind,
+        ...(classification.subtype ? { subtype: classification.subtype } : {}),
         severity,
         title: title || truncateItemTitle(body),
         body,
         status,
+        ...(optionalString(source.informationStatus)?.trim()
+          ? { informationStatus: optionalString(source.informationStatus)?.trim() }
+          : {}),
+        ...(typeof source.inactive === "boolean" ? { inactive: source.inactive } : {}),
+        ...(optionalString(source.suppressionReason)?.trim()
+          ? { suppressionReason: optionalString(source.suppressionReason)?.trim() }
+          : {}),
+        ...(linkedSegmentIds.length > 0 ? { linked_segment_ids: linkedSegmentIds } : {}),
         ...(evidenceSequenceNos.length > 0 ? { evidenceSequenceNos } : {}),
         ...(resolvedAtVersion !== undefined ? { resolvedAtVersion } : {}),
         ...(resolutionEvidenceSequenceNos.length > 0 ? { resolutionEvidenceSequenceNos } : {}),
@@ -368,7 +623,7 @@ function normalizeLiveAnalysisItems(value: unknown[]): AnalysisItem[] {
 }
 
 // 旧v1形式のライブ分析payloadから items を合成する(後方互換)。
-// concerns→risk / openQuestions→question / decisions→decision / actionItems→todo。
+// concerns→risk / openQuestions→issue+question / decisions→decision / actionItems→todo。
 function legacyLiveAnalysisItems(source: Record<string, unknown>): AnalysisItem[] {
   const items: AnalysisItem[] = [];
 
@@ -376,7 +631,7 @@ function legacyLiveAnalysisItems(source: Record<string, unknown>): AnalysisItem[
     items.push(legacyLiveAnalysisItem("risk", index, text));
   });
   normalizeStringArray(source.openQuestions).forEach((text, index) => {
-    items.push(legacyLiveAnalysisItem("question", index, text));
+    items.push({ ...legacyLiveAnalysisItem("issue", index, text), subtype: "question" });
   });
   legacyTextObjects(source.decisions).forEach(({ text }, index) => {
     items.push(legacyLiveAnalysisItem("decision", index, text));
@@ -471,20 +726,42 @@ function normalizeTreeNodes(
       if (!id) {
         return null;
       }
-      const kind = optionalString(source.kind)?.trim();
+      const rawKind = optionalString(source.kind)?.trim();
+      const classification = normalizeSemanticClassification(
+        rawKind || "issue",
+        optionalString(source.subtype)?.trim(),
+        optionalString(source.status)?.trim() || "open",
+      );
+      const kind = rawKind === "topic" || rawKind === "group" ? rawKind : classification.kind;
       const parentId =
         optionalString(source.parentId)?.trim() ?? optionalString(source.parent_id)?.trim();
       const label = optionalString(source.label)?.trim();
-      const status = optionalString(source.status)?.trim();
+      const status =
+        rawKind === "topic" || rawKind === "group"
+          ? optionalString(source.status)?.trim()
+          : classification.status;
       const description = truncateNodeDescription(
         optionalString(source.description)?.trim() ?? optionalString(source.summary)?.trim() ?? "",
       );
       const relatedItemIds = normalizeRelatedItemIds(source, id, itemIds);
       const origin = optionalString(source.origin)?.trim();
       const agendaRole = optionalString(source.agendaRole)?.trim();
+      const agendaRefs = normalizeStringArray(source.agendaRefs);
+      const mergedFromNodeIds = normalizeStringArray(source.mergedFromNodeIds);
+      const agendaSplitGroupId = optionalString(source.agendaSplitGroupId)?.trim();
+      const materialized = source.materialized === true;
+      const speakerLabel =
+        optionalString(source.speaker_label)?.trim() ?? optionalString(source.speakerLabel)?.trim();
+      const segmentId =
+        optionalString(source.segment_id)?.trim() ?? optionalString(source.segmentId)?.trim();
+      const linkedSegmentIds = normalizeStringArray(
+        source.linked_segment_ids ?? source.linkedSegmentIds,
+      );
+      const evidenceSequenceNos = normalizeNumberArray(source.evidenceSequenceNos);
       return {
         id,
         ...(kind ? { kind } : {}),
+        ...(classification.subtype && kind === "issue" ? { subtype: classification.subtype } : {}),
         ...(parentId ? { parentId } : {}),
         ...(label ? { label } : {}),
         ...(status ? { status } : {}),
@@ -492,6 +769,14 @@ function normalizeTreeNodes(
         ...(relatedItemIds.length > 0 ? { relatedItemIds } : {}),
         ...(origin ? { origin } : {}),
         ...(agendaRole ? { agendaRole } : {}),
+        ...(agendaRefs.length > 0 ? { agendaRefs } : {}),
+        ...(mergedFromNodeIds.length > 0 ? { mergedFromNodeIds } : {}),
+        ...(agendaSplitGroupId ? { agendaSplitGroupId } : {}),
+        ...(materialized ? { materialized: true } : {}),
+        ...(speakerLabel ? { speaker_label: speakerLabel } : {}),
+        ...(segmentId ? { segment_id: segmentId } : {}),
+        ...(linkedSegmentIds.length > 0 ? { linked_segment_ids: linkedSegmentIds } : {}),
+        ...(evidenceSequenceNos.length > 0 ? { evidenceSequenceNos } : {}),
       };
     })
     .filter((node): node is TreeNodePayload => node !== null);
@@ -521,11 +806,41 @@ function normalizeTreeNodes(
     .filter((node): node is TreeNodePayload => Boolean(node));
 }
 
+function normalizeSemanticClassification(kind: string, subtype?: string, status = "open") {
+  const normalizedKind = kind.toLowerCase().trim();
+  const normalizedSubtype = subtype?.toLowerCase().trim();
+  if (normalizedKind === "open_issue") {
+    return {
+      kind: "issue",
+      subtype: normalizedSubtype || "discussion",
+      status: ["open", "updated", "resolved"].includes(status) ? status : "open",
+    };
+  }
+  if (["confirmation", "question", "investigation"].includes(normalizedKind)) {
+    return { kind: "issue", subtype: normalizedKind, status };
+  }
+  if (normalizedKind === "resolved") {
+    return { kind: "issue", subtype: "discussion", status: "resolved" };
+  }
+  if (normalizedKind === "issue") {
+    return {
+      kind: "issue",
+      subtype: ["discussion", "confirmation", "question", "investigation"].includes(
+        normalizedSubtype ?? "",
+      )
+        ? normalizedSubtype
+        : "discussion",
+      status,
+    };
+  }
+  return { kind: normalizedKind, subtype: undefined, status };
+}
+
 function treeNodeIdentityPriority(node: TreeNodePayload) {
   const fixedAgenda =
     node.kind === "topic" &&
     node.agendaRole !== "action_summary" &&
-    (node.origin === "agenda" || /^agenda-\d+$/.test(node.id));
+    (node.origin === "agenda" || (node.agendaRefs?.length ?? 0) > 0 || node.materialized === true);
   if (fixedAgenda) {
     return 100;
   }
@@ -555,10 +870,22 @@ function normalizeTreeIntegrity(value: unknown): TreeIntegrityDiagnostics | unde
     "movedFixedAgendaIds",
     "fixedAgendaKindMismatchIds",
     "actionSummaryTreeNodeIds",
+    "agendaTopicIdCollisions",
+    "unknownAgendaRefs",
+    "orphanAgendaRefs",
+    "orphanMaterializedTopicIds",
+    "agendaMaterializationMismatches",
+    "legacyAgendaEdgeNodeIds",
   ];
   const diagnostics: TreeIntegrityDiagnostics = {};
   if (typeof source.valid === "boolean") {
     diagnostics.valid = source.valid;
+  }
+  if (typeof source.agendaReferenceIntegrityValid === "boolean") {
+    diagnostics.agendaReferenceIntegrityValid = source.agendaReferenceIntegrityValid;
+  }
+  if (typeof source.agendaNodeIdNamespaceValid === "boolean") {
+    diagnostics.agendaNodeIdNamespaceValid = source.agendaNodeIdNamespaceValid;
   }
   for (const key of stringArrays) {
     const values = normalizeStringArray(source[key]);

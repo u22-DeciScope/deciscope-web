@@ -126,6 +126,16 @@ export async function listWorkspaceMeetingSessions(
   return extractMeetingSessions(payload);
 }
 
+export async function deleteWorkspaceMeetingSession(
+  workspaceId: string,
+  sessionId: string,
+): Promise<void> {
+  await requestJson<unknown>(
+    `${workspaceMeetingSessionsPath(workspaceId)}/${encodeURIComponent(sessionId)}/`,
+    { method: "DELETE" },
+  );
+}
+
 export async function getWorkspaceMeetingSession(
   workspaceId: string,
   sessionId: string,

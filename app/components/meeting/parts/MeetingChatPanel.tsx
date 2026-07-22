@@ -82,9 +82,6 @@ export function MeetingChatPanel({ partials, segments, headerAction }: MeetingCh
           <p className="text-[12px] font-bold" style={{ color: "var(--text-main)" }}>
             タイムライン
           </p>
-          <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-            リアルタイム発言ログ
-          </p>
         </div>
         <span
           className="rounded-full px-2 py-1 text-[10px] font-bold"

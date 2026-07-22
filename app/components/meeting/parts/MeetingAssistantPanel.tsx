@@ -9,19 +9,43 @@ import {
   HiSparkles,
 } from "react-icons/hi2";
 
-import type { LiveAnalysisPayload, MeetingAIAnalysis } from "~/api/aiAnalysis/aiAnalysisApi";
-import type { AnalysisItem, RuntimeSpeakerSummary } from "~/api/meetings/meetingRuntimeTypes";
+import type {
+  AgendaProgressPayload,
+  LiveAnalysisPayload,
+  MeetingAIAnalysis,
+} from "~/api/aiAnalysis/aiAnalysisApi";
+import type { MeetingSegmentDto } from "~/api/meetings/meetingEventsApi";
+import type {
+  AnalysisItem,
+  RuntimeSpeakerSummary,
+  TreeNodePayload,
+} from "~/api/meetings/meetingRuntimeTypes";
+import { AgendaProgressSection } from "~/components/meeting/parts/AgendaProgressSection";
 import {
   analysisKindColor,
   analysisKindLabel,
   dimmedColor,
+  issueSubtypeLabel,
   resolvedBadgeColor,
 } from "~/components/meeting/parts/analysisKindPalette";
 import { AssistantCardTitle } from "~/components/meeting/parts/AssistantCardTitle";
+import {
+  analysisItemMomentLabel,
+  buildAgendaLabelMap,
+  buildMeetingMomentIndex,
+  humanizeAgendaReferences,
+  type MeetingMomentIndex,
+} from "~/components/meeting/parts/meetingDisplayMetadata";
+import type {
+  LiveAnalysisMeta,
+  TranscriptSessionConnectionStatus,
+} from "~/hooks/useMeetingTranscriptSession";
 
 type MeetingAssistantPanelProps = {
   insights: AnalysisItem[];
   speakerSummaries: RuntimeSpeakerSummary[];
+  segments?: MeetingSegmentDto[];
+  treeNodes?: TreeNodePayload[];
   liveAnalysis?: MeetingAIAnalysis | null;
   focusedAnalysisItemId?: string | null;
   highlightedAnalysisItemId?: string | null;
@@ -31,6 +55,13 @@ type MeetingAssistantPanelProps = {
   showLiveTab?: boolean;
   // カードクリック時に、対応する議論ツリーのノードへフォーカスさせるための通知。
   onFocusTreeItem?: (itemId: string) => void;
+  // アジェンダ進捗セクション(ライブタブ最上部)向けの状態。いずれもoptionalで、
+  // 未指定でも既存のライブタブ表示は変わらない。
+  liveAnalysisMeta?: LiveAnalysisMeta | null;
+  connectionStatus?: TranscriptSessionConnectionStatus | null;
+  canManage?: boolean;
+  workspaceId?: string;
+  sessionId?: string;
 };
 
 const insightIcons = {
@@ -42,7 +73,14 @@ const insightIcons = {
   todo: HiClipboardDocumentList,
 };
 
+const EMPTY_MEETING_SEGMENTS: MeetingSegmentDto[] = [];
+const EMPTY_TREE_NODES: TreeNodePayload[] = [];
+
 export type InsightFilter = "live" | "risk" | "unresolved" | "todo" | "decision" | "resolved";
+
+function isIssueKind(kind: string) {
+  return ["issue", "open_issue", "question", "confirmation", "investigation"].includes(kind);
+}
 
 const insightFilterTabs: Array<{ key: InsightFilter; label: string }> = [
   { key: "live", label: "ライブ" },
@@ -60,10 +98,7 @@ export function matchesInsightFilter(item: AnalysisItem, filter: InsightFilter) 
     case "risk":
       return item.kind === "risk" && !isResolvedDisplayItem(item);
     case "unresolved":
-      return (
-        !isResolvedDisplayItem(item) &&
-        (item.kind === "question" || item.kind === "open_issue" || item.kind === "issue")
-      );
+      return !isResolvedDisplayItem(item) && isIssueKind(item.kind);
     case "todo":
       return item.kind === "todo" && !isResolvedDisplayItem(item);
     case "decision":
@@ -89,7 +124,7 @@ export function filterForInsightItem(item: AnalysisItem): InsightFilter {
   if (item.kind === "risk") {
     return "risk";
   }
-  if (item.kind === "question" || item.kind === "open_issue" || item.kind === "issue") {
+  if (isIssueKind(item.kind)) {
     return "unresolved";
   }
   return item.kind === "todo" ? "todo" : "live";
@@ -103,13 +138,7 @@ export function isResolvedDisplayItem(item: AnalysisItem) {
   if (!isResolvedItem(item)) {
     return false;
   }
-  return (
-    item.kind === "question" ||
-    item.kind === "open_issue" ||
-    item.kind === "issue" ||
-    item.kind === "risk" ||
-    item.kind === "todo"
-  );
+  return isIssueKind(item.kind) || item.kind === "risk" || item.kind === "todo";
 }
 
 export function isLiveDisplayItem(item: AnalysisItem) {
@@ -117,20 +146,33 @@ export function isLiveDisplayItem(item: AnalysisItem) {
 }
 
 function isDismissedItem(item: AnalysisItem) {
-  return item.status === "dismissed";
+  return item.status === "dismissed" || item.inactive === true;
 }
 
 export function MeetingAssistantPanel({
   insights,
   speakerSummaries,
+  segments = EMPTY_MEETING_SEGMENTS,
+  treeNodes = EMPTY_TREE_NODES,
   liveAnalysis,
   focusedAnalysisItemId,
   highlightedAnalysisItemId,
   updateStatus,
   showLiveTab = true,
   onFocusTreeItem,
+  liveAnalysisMeta,
+  connectionStatus,
+  canManage = false,
+  workspaceId = "",
+  sessionId = "",
 }: MeetingAssistantPanelProps) {
   const [filter, setFilter] = useState<InsightFilter>(showLiveTab ? "live" : "risk");
+  // アジェンダ進捗の手動override直後のoptimistic確定値。次にlivePayload側の
+  // agendaProgressが更新される(=サーバーが再ブロードキャストしたstamp済み値が
+  // 届く)までこちらを優先表示し、更新が来たら破棄して最新サーバー値に委ねる。
+  const [agendaProgressOverlay, setAgendaProgressOverlay] = useState<AgendaProgressPayload | null>(
+    null,
+  );
   // 直近で自動タブ切替を実行済みのフォーカスIDを保持する。同じIDに対してタブ切替は
   // 1回だけ行い、ユーザーが手動でタブを変えても再度引き戻さないようにするための目印。
   const processedFocusIdRef = useRef<string | null>(null);
@@ -139,6 +181,16 @@ export function MeetingAssistantPanel({
     [insights],
   );
   const livePayload = (liveAnalysis?.payload as LiveAnalysisPayload | null) ?? null;
+  const momentIndex = useMemo(() => buildMeetingMomentIndex(segments), [segments]);
+  const agendaLabels = useMemo(
+    () =>
+      buildAgendaLabelMap(
+        [...treeNodes, ...(livePayload?.tree?.nodes ?? [])],
+        livePayload?.agendaAnchors,
+      ),
+    [livePayload, treeNodes],
+  );
+  const liveUpdateHistory = useLiveCardUpdateHistory(liveAnalysis, livePayload, agendaLabels);
   const liveItems = useMemo(
     () => (livePayload?.items ?? []).filter((item) => !isDismissedItem(item)),
     [livePayload],
@@ -167,6 +219,13 @@ export function MeetingAssistantPanel({
     [showLiveTab],
   );
   const liveTabActive = showLiveTab && filter === "live";
+  const effectiveAgendaProgress = agendaProgressOverlay ?? livePayload?.agendaProgress ?? null;
+
+  useEffect(() => {
+    // 新しいagendaProgressがサーバー(WS/REST)から届いたらoverlayをクリアし、
+    // 最新のサーバー確定値を使う(サーバーがstamp済みのため上書き競合しない)。
+    setAgendaProgressOverlay(null);
+  }, [sessionId, liveAnalysis?.version]);
 
   useEffect(() => {
     if (!focusedAnalysisItemId) {
@@ -231,9 +290,6 @@ export function MeetingAssistantPanel({
           <p className="text-[12px] font-bold" style={{ color: "var(--text-main)" }}>
             AI アシスタント
           </p>
-          <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-            論点・リスク・次の一手
-          </p>
         </div>
         {updateStatus && <span className="mr-2 min-w-0 shrink">{updateStatus}</span>}
         <span
@@ -282,9 +338,28 @@ export function MeetingAssistantPanel({
             分析ツリーの整合性が低下したため、直前の安全な構造を表示しています。
           </section>
         )}
+        {liveTabActive && (
+          <AgendaProgressSection
+            progress={effectiveAgendaProgress}
+            meta={liveAnalysisMeta}
+            connectionStatus={connectionStatus}
+            canManage={canManage}
+            workspaceId={workspaceId}
+            sessionId={sessionId}
+            treeNodes={treeNodes}
+            onFocusTreeItem={onFocusTreeItem}
+            onProgressPatched={setAgendaProgressOverlay}
+          />
+        )}
         {liveTabActive &&
           (liveAnalysis ? (
-            <LiveAnalysisOverview liveAnalysis={liveAnalysis} payload={livePayload} />
+            <LiveAnalysisOverview
+              liveAnalysis={liveAnalysis}
+              payload={livePayload}
+              updateHistory={liveUpdateHistory}
+              agendaLabels={agendaLabels}
+              momentIndex={momentIndex}
+            />
           ) : (
             <EmptyAssistantState
               title="ライブ分析を待っています"
@@ -309,8 +384,11 @@ export function MeetingAssistantPanel({
                     className="mt-0.5 text-[11px] leading-5"
                     style={{ color: "var(--text-muted)" }}
                   >
-                    {[...summary.claims, ...summary.questions, ...summary.todos].join(" / ") ||
-                      "要約はまだありません。"}
+                    {humanizeAgendaReferences(
+                      [...summary.claims, ...summary.questions, ...summary.todos].join(" / ") ||
+                        "要約はまだありません。",
+                      agendaLabels,
+                    )}
                   </p>
                 </div>
               ))}
@@ -334,6 +412,8 @@ export function MeetingAssistantPanel({
             <LiveAnalysisItemCard
               key={item.id}
               item={item}
+              momentLabel={analysisItemMomentLabel(item, momentIndex)}
+              agendaLabels={agendaLabels}
               highlighted={highlightedAnalysisItemId === item.id}
               onFocusTreeItem={onFocusTreeItem}
             />
@@ -343,6 +423,8 @@ export function MeetingAssistantPanel({
             <LiveAnalysisItemCard
               key={insight.id}
               item={insight}
+              momentLabel={analysisItemMomentLabel(insight, momentIndex)}
+              agendaLabels={agendaLabels}
               highlighted={highlightedAnalysisItemId === insight.id}
               onFocusTreeItem={onFocusTreeItem}
             />
@@ -400,10 +482,14 @@ function analysisItemHighlightStyle(highlighted: boolean): React.CSSProperties {
 
 export function LiveAnalysisItemCard({
   item,
+  momentLabel,
+  agendaLabels,
   highlighted,
   onFocusTreeItem,
 }: {
   item: AnalysisItem;
+  momentLabel: string;
+  agendaLabels: Map<string, string>;
   highlighted: boolean;
   onFocusTreeItem?: (itemId: string) => void;
 }) {
@@ -442,69 +528,433 @@ export function LiveAnalysisItemCard({
             {analysisKindLabel(item.kind)}
           </div>
           <AnalysisStatusBadge item={item} />
+          {item.kind === "issue" && item.subtype && item.subtype !== "discussion" && (
+            <span
+              className="ml-1 inline-flex shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+              style={{ background: "var(--ds-surface)", color: style.color }}
+            >
+              {issueSubtypeLabel(item.subtype)}
+            </span>
+          )}
         </div>
-        {item.kind !== "decision" && !resolved && (
-          <span
-            className="rounded-full px-2 py-0.5 text-[10px] font-bold"
-            style={{ background: "var(--reaction-bg)", color: severityColor(item.severity) }}
-          >
-            {item.severity}
-          </span>
-        )}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {momentLabel && (
+            <time className="text-[9px] font-medium" style={{ color: "var(--text-muted)" }}>
+              {momentLabel}
+            </time>
+          )}
+          {item.kind !== "decision" && !resolved && (
+            <span
+              className="rounded-full px-2 py-0.5 text-[10px] font-bold"
+              style={{ background: "var(--reaction-bg)", color: severityColor(item.severity) }}
+            >
+              {item.severity}
+            </span>
+          )}
+        </div>
       </div>
-      <AssistantCardTitle title={item.title} />
+      <AssistantCardTitle title={humanizeAgendaReferences(item.title, agendaLabels)} />
       {item.body && item.body !== item.title && (
         <p className="mt-2 text-[12px] leading-5" style={{ color: "var(--text-sub)" }}>
-          {item.body}
+          {humanizeAgendaReferences(item.body, agendaLabels)}
         </p>
       )}
     </article>
   );
 }
 
-// ライブタブの概要表示。現在のトピックと要点だけに絞り、要点は1件ずつ
-// 独立したカードで表示する。
+export type LiveCardChange = {
+  itemId: string;
+  action: "added" | "updated" | "removed";
+  title: string;
+  item: AnalysisItem;
+  fields: Array<{ label: string; before: string; after: string }>;
+};
+
+type LiveUpdateBatch = {
+  key: string;
+  updatedAtUtc?: string;
+  changes: LiveCardChange[];
+};
+
+export function deriveLiveCardChanges(
+  previousItems: AnalysisItem[],
+  currentItems: AnalysisItem[],
+  agendaLabels: Map<string, string>,
+  payload?: LiveAnalysisPayload | null,
+): LiveCardChange[] {
+  const previousById = new Map(previousItems.map((item) => [item.id, item]));
+  const currentById = new Map(currentItems.map((item) => [item.id, item]));
+  const changes: LiveCardChange[] = [];
+
+  for (const item of currentItems) {
+    const previous = previousById.get(item.id);
+    const title = humanizeAgendaReferences(item.title || item.id, agendaLabels);
+    if (!previous) {
+      changes.push({ itemId: item.id, action: "added", title, item, fields: [] });
+      continue;
+    }
+    const fields = changedCardFields(previous, item, agendaLabels);
+    if (fields.length > 0) {
+      changes.push({ itemId: item.id, action: "updated", title, item, fields });
+    }
+  }
+
+  for (const item of previousItems) {
+    if (!currentById.has(item.id)) {
+      changes.push({
+        itemId: item.id,
+        action: "removed",
+        title: humanizeAgendaReferences(item.title || item.id, agendaLabels),
+        item,
+        fields: [],
+      });
+    }
+  }
+
+  addTreeRelatedCardChanges(changes, currentItems, payload, agendaLabels);
+  return changes;
+}
+
+function useLiveCardUpdateHistory(
+  liveAnalysis: MeetingAIAnalysis | null | undefined,
+  payload: LiveAnalysisPayload | null,
+  agendaLabels: Map<string, string>,
+) {
+  const [history, setHistory] = useState<LiveUpdateBatch[]>([]);
+  const previousRef = useRef<{
+    sessionKey: string;
+    version: number;
+    items: AnalysisItem[];
+  } | null>(null);
+  const processedSignatureRef = useRef("");
+
+  useEffect(() => {
+    if (!liveAnalysis) {
+      if (previousRef.current) {
+        previousRef.current = null;
+        processedSignatureRef.current = "";
+        setHistory([]);
+      }
+      return;
+    }
+    if (liveAnalysis.status !== "completed") {
+      return;
+    }
+    const items = payload?.items ?? [];
+    const sessionKey = liveAnalysis.sessionId ?? "current-meeting";
+    const signature = JSON.stringify({
+      sessionKey,
+      version: liveAnalysis.version,
+      items: items.map(cardChangeSignature),
+      treeChanges: payload?.treeChanges ?? null,
+    });
+    if (processedSignatureRef.current === signature) {
+      return;
+    }
+    processedSignatureRef.current = signature;
+    const previous = previousRef.current;
+    const continuesPreviousSession =
+      previous?.sessionKey === sessionKey && liveAnalysis.version > previous.version;
+    const previousItems = continuesPreviousSession ? previous.items : [];
+    const changes = deriveLiveCardChanges(previousItems, items, agendaLabels, payload);
+    const batch: LiveUpdateBatch = {
+      key: `${sessionKey}:${liveAnalysis.version}:${signature.length}:${Date.now()}`,
+      updatedAtUtc: liveAnalysis.updatedAtUtc,
+      changes,
+    };
+    setHistory((current) => (continuesPreviousSession ? [batch, ...current].slice(0, 8) : [batch]));
+    previousRef.current = {
+      sessionKey,
+      version: liveAnalysis.version,
+      items: items.map((item) => ({ ...item })),
+    };
+  }, [agendaLabels, liveAnalysis, payload]);
+
+  return history;
+}
+
+function cardChangeSignature(item: AnalysisItem) {
+  return {
+    id: item.id,
+    kind: item.kind,
+    subtype: item.subtype,
+    severity: item.severity,
+    title: item.title,
+    body: item.body,
+    status: item.status,
+    informationStatus: item.informationStatus,
+    relatedAgendaIds: item.relatedAgendaIds,
+  };
+}
+
+function changedCardFields(
+  previous: AnalysisItem,
+  current: AnalysisItem,
+  agendaLabels: Map<string, string>,
+) {
+  const values: Array<[string, string, string]> = [
+    ["種別", displayItemKind(previous), displayItemKind(current)],
+    [
+      "タイトル",
+      displayChangeText(previous.title, agendaLabels),
+      displayChangeText(current.title, agendaLabels),
+    ],
+    [
+      "内容",
+      displayChangeText(previous.body, agendaLabels),
+      displayChangeText(current.body, agendaLabels),
+    ],
+    ["状態", displayItemStatus(previous.status), displayItemStatus(current.status)],
+    ["重要度", displaySeverity(previous.severity), displaySeverity(current.severity)],
+    [
+      "関連議題",
+      displayRelatedAgendas(previous, agendaLabels),
+      displayRelatedAgendas(current, agendaLabels),
+    ],
+  ];
+  return values
+    .filter(([, before, after]) => before !== after)
+    .map(([label, before, after]) => ({ label, before, after }));
+}
+
+function addTreeRelatedCardChanges(
+  changes: LiveCardChange[],
+  currentItems: AnalysisItem[],
+  payload: LiveAnalysisPayload | null | undefined,
+  agendaLabels: Map<string, string>,
+) {
+  const treeChanges = payload?.treeChanges;
+  if (!treeChanges || !payload?.tree?.nodes) {
+    return;
+  }
+  const alreadyChanged = new Set(changes.map((change) => change.itemId));
+  const updatedNodeIds = new Set([
+    ...(treeChanges.updatedNodeIds ?? []),
+    ...(treeChanges.reparentedNodeIds ?? []),
+    ...(treeChanges.resolvedNodeIds ?? []),
+    ...(treeChanges.promotedNodeIds ?? []),
+  ]);
+  if (updatedNodeIds.size === 0) {
+    return;
+  }
+  for (const item of currentItems) {
+    if (alreadyChanged.has(item.id)) {
+      continue;
+    }
+    const relatedNodeChanged = payload.tree.nodes.some(
+      (node) =>
+        updatedNodeIds.has(node.id) &&
+        (node.id === item.id || (node.relatedItemIds ?? []).includes(item.id)),
+    );
+    if (!relatedNodeChanged) {
+      continue;
+    }
+    changes.push({
+      itemId: item.id,
+      action: "updated",
+      title: humanizeAgendaReferences(item.title || item.id, agendaLabels),
+      item,
+      fields: [
+        {
+          label: "議論ツリー",
+          before: "変更前",
+          after: "配置・関連情報を更新",
+        },
+      ],
+    });
+  }
+}
+
+function displayItemKind(item: AnalysisItem) {
+  const kind = analysisKindLabel(item.kind);
+  return item.kind === "issue" && item.subtype && item.subtype !== "discussion"
+    ? `${kind}（${issueSubtypeLabel(item.subtype)}）`
+    : kind;
+}
+
+function displayItemStatus(value: string) {
+  return (
+    {
+      open: "未解決",
+      updated: "更新あり",
+      resolved: "解決済",
+      completed: "完了済",
+      done: "完了済",
+      dismissed: "非表示",
+    }[value] ?? value
+  );
+}
+
+function displaySeverity(value: string) {
+  return { high: "高", medium: "中", low: "低" }[value] ?? value;
+}
+
+function displayRelatedAgendas(item: AnalysisItem, agendaLabels: Map<string, string>) {
+  const labels = [...new Set(item.relatedAgendaIds ?? [])].map((id) =>
+    humanizeAgendaReferences(id, agendaLabels),
+  );
+  return labels.join("、") || "なし";
+}
+
+function displayChangeText(value: string, agendaLabels: Map<string, string>) {
+  const normalized = humanizeAgendaReferences(value, agendaLabels).replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "なし";
+  }
+  return normalized.length > 80 ? `${normalized.slice(0, 80)}…` : normalized;
+}
+
+function LiveCardUpdateHistory({
+  batches,
+  agendaLabels,
+  momentIndex,
+}: {
+  batches: LiveUpdateBatch[];
+  agendaLabels: Map<string, string>;
+  momentIndex: MeetingMomentIndex;
+}) {
+  if (batches.length === 0) {
+    return (
+      <div
+        className="rounded-(--ds-radius-control) border px-3 py-3 text-[11px]"
+        style={{
+          background: "var(--ds-surface-muted)",
+          borderColor: "var(--ds-border)",
+          color: "var(--text-muted)",
+        }}
+      >
+        カードの更新を待っています。
+      </div>
+    );
+  }
+
+  return (
+    <ol className="space-y-2">
+      {batches.map((batch, batchIndex) => {
+        const updatedLabel = formatUpdatedAtTime(batch.updatedAtUtc);
+        return (
+          <li
+            key={batch.key}
+            className="rounded-(--ds-radius-control) border p-2.5"
+            style={{ background: "var(--ds-surface-muted)", borderColor: "var(--ds-border)" }}
+          >
+            <p className="mb-2 text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>
+              {batchIndex === 0 ? "最新の更新" : "過去の更新"}
+              {updatedLabel ? ` · ${updatedLabel}` : ""}
+            </p>
+            {batch.changes.length === 0 ? (
+              <p className="text-[11px]" style={{ color: "var(--text-sub)" }}>
+                この更新ではカードの変更はありません。
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {batch.changes.map((change) => {
+                  const momentLabel = analysisItemMomentLabel(change.item, momentIndex);
+                  return (
+                    <li key={`${change.action}:${change.itemId}`}>
+                      <div className="flex items-center gap-1.5 text-[11px]">
+                        <span
+                          className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold"
+                          style={updateActionStyle(change.action)}
+                        >
+                          {updateActionLabel(change.action)}
+                        </span>
+                        <span
+                          className="min-w-0 flex-1 truncate font-semibold"
+                          style={{ color: "var(--text-main)" }}
+                        >
+                          {humanizeAgendaReferences(change.title, agendaLabels)}
+                        </span>
+                        {momentLabel && (
+                          <time
+                            className="shrink-0 text-[9px]"
+                            style={{ color: "var(--text-muted)" }}
+                          >
+                            {momentLabel}
+                          </time>
+                        )}
+                      </div>
+                      {change.fields.length > 0 && (
+                        <ul
+                          className="mt-1.5 space-y-1 pl-2 text-[10px] leading-4"
+                          style={{ color: "var(--text-sub)" }}
+                        >
+                          {change.fields.map((field) => (
+                            <li key={field.label}>
+                              <span className="font-semibold">{field.label}:</span>{" "}
+                              <span style={{ color: "var(--text-muted)" }}>{field.before}</span>
+                              <span aria-hidden="true"> → </span>
+                              <span>{field.after}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function updateActionLabel(action: LiveCardChange["action"]) {
+  return action === "added" ? "追加" : action === "removed" ? "非表示" : "更新";
+}
+
+function updateActionStyle(action: LiveCardChange["action"]): React.CSSProperties {
+  if (action === "added") {
+    return { background: "var(--brand-light)", color: "var(--brand)" };
+  }
+  if (action === "removed") {
+    return { background: "var(--ds-surface)", color: "var(--text-muted)" };
+  }
+  return { background: "var(--reaction-bg)", color: "var(--text-sub)" };
+}
+
+// ライブタブには、AI更新ごとのカード差分と要点を表示する。
 function LiveAnalysisOverview({
   liveAnalysis,
   payload,
+  updateHistory,
+  agendaLabels,
+  momentIndex,
 }: {
   liveAnalysis: MeetingAIAnalysis;
   payload: LiveAnalysisPayload | null;
+  updateHistory: LiveUpdateBatch[];
+  agendaLabels: Map<string, string>;
+  momentIndex: MeetingMomentIndex;
 }) {
-  const bullets = liveAnalysisBullets(payload);
+  const bullets = liveAnalysisBullets(payload, agendaLabels);
 
   return (
     <>
-      <section
-        className="rounded-(--ds-radius-control) border p-3"
-        style={{ background: "var(--ds-surface-muted)", borderColor: "var(--ds-border)" }}
-      >
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span
-              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-white"
-              style={{ background: "var(--brand)" }}
-            >
-              <HiSparkles className="h-3 w-3" />
-            </span>
+      <section aria-labelledby="live-analysis-card-updates">
+        <div className="mb-2 flex items-center justify-between gap-2 px-0.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="h-4 w-0.5 rounded-full" style={{ background: "var(--brand)" }} />
             <h2
-              className="shrink-0 whitespace-nowrap text-[11px] font-bold"
+              id="live-analysis-card-updates"
+              className="text-[13px] font-bold tracking-[0.01em]"
               style={{ color: "var(--text-main)" }}
             >
-              トピック
+              カードの更新
             </h2>
           </div>
           <div className="min-w-0 shrink">
             <LiveAnalysisStatus liveAnalysis={liveAnalysis} />
           </div>
         </div>
-
-        <p
-          className="mt-2 min-h-5 text-[12px] font-semibold leading-5"
-          style={{ color: payload?.currentTopic ? "var(--text-sub)" : "var(--text-muted)" }}
-        >
-          {payload?.currentTopic || "現在のトピックを分析しています。"}
-        </p>
+        <LiveCardUpdateHistory
+          batches={updateHistory}
+          agendaLabels={agendaLabels}
+          momentIndex={momentIndex}
+        />
       </section>
 
       {bullets.length > 0 && (
@@ -513,7 +963,7 @@ function LiveAnalysisOverview({
             <span className="h-4 w-0.5 rounded-full" style={{ background: "var(--brand)" }} />
             <h2
               id="live-analysis-key-points"
-              className="text-[12px] font-semibold"
+              className="text-[13px] font-bold tracking-[0.01em]"
               style={{ color: "var(--text-main)" }}
             >
               要点
@@ -523,11 +973,11 @@ function LiveAnalysisOverview({
             {bullets.map((bullet, index) => (
               <li key={`${bullet}-${index}`}>
                 <article
-                  className="rounded-(--ds-radius-control) border px-3 py-2.5 text-[11px] leading-5"
+                  className="rounded-(--ds-radius-control) border px-3.5 py-3 text-[13px] font-medium leading-6 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
                   style={{
                     background: "var(--ds-surface-muted)",
                     borderColor: "var(--ds-border)",
-                    color: "var(--text-sub)",
+                    color: "var(--text-main)",
                   }}
                 >
                   {bullet}
@@ -541,7 +991,10 @@ function LiveAnalysisOverview({
   );
 }
 
-function liveAnalysisBullets(payload: LiveAnalysisPayload | null) {
+function liveAnalysisBullets(
+  payload: LiveAnalysisPayload | null,
+  agendaLabels: Map<string, string>,
+) {
   const summary = payload?.summary?.replace(/\s+/g, " ").trim();
   if (!summary) {
     return [];
@@ -550,7 +1003,9 @@ function liveAnalysisBullets(payload: LiveAnalysisPayload | null) {
     .split(/[。.!！?？]\s*/)
     .map((part) => part.trim())
     .filter(Boolean);
-  return (parts.length > 0 ? parts : [summary]).slice(0, 4).map((part) => truncateLiveBullet(part));
+  return (parts.length > 0 ? parts : [summary])
+    .slice(0, 4)
+    .map((part) => truncateLiveBullet(humanizeAgendaReferences(part, agendaLabels)));
 }
 
 function truncateLiveBullet(value: string) {

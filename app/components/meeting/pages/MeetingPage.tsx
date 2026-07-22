@@ -308,6 +308,10 @@ export default function Meeting() {
         speakerSummaries={runtime.speakerSummaries}
         liveAnalysis={transcriptSession.liveAnalysis}
         liveAnalysisMeta={transcriptSession.liveAnalysisMeta}
+        connectionStatus={transcriptSession.connectionStatus}
+        canManageSessions={canManageSessions}
+        workspaceId={workspaceId}
+        sessionId={sessionId}
       />
 
       {endOverlayMode && (
