@@ -17,8 +17,10 @@ export function WorkspacePageLayout({ children }: WorkspacePageLayoutProps) {
 
       <div className="flex min-h-0 flex-1 gap-2">
         <main
-          className="ds-surface min-w-0 flex-1 rounded-(--ds-radius-panel) p-2 md:overflow-hidden"
-          style={{ boxShadow: "var(--ds-shadow)" }}
+          className={`min-w-0 flex-1 rounded-(--ds-radius-panel) md:overflow-hidden ${
+            chrome.fullBleedMain ? "" : "ds-surface p-2"
+          }`}
+          style={chrome.fullBleedMain ? undefined : { boxShadow: "var(--ds-shadow)" }}
         >
           {children}
         </main>

@@ -146,6 +146,44 @@ export async function getWorkspaceMeetingSessionAIAnalyses(
   return normalizeAIAnalyses(payload, sessionId);
 }
 
+export type MeetingFinalSummaryPreview = {
+  sessionId: string;
+  overview: string;
+};
+
+// 会議一覧カードの「AI最終要約プレビュー」用。セッションごとに個別取得すると
+// 会議数が多いワークスペースでN+1になるため、ワークスペース単位でまとめて取得する。
+export async function listWorkspaceFinalSummaryPreviews(
+  workspaceId: string,
+): Promise<MeetingFinalSummaryPreview[]> {
+  const payload = await requestJson<unknown>(
+    `${workspaceMeetingSessionsPath(workspaceId)}/final-summaries`,
+  );
+  return normalizeFinalSummaryPreviews(payload);
+}
+
+function normalizeFinalSummaryPreviews(value: unknown): MeetingFinalSummaryPreview[] {
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+  const items = (value as Record<string, unknown>).items;
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  return items.flatMap((item) => {
+    if (!item || typeof item !== "object") {
+      return [];
+    }
+    const source = item as Record<string, unknown>;
+    const sessionId = optionalString(source.sessionId)?.trim();
+    const overview = optionalString(source.overview)?.trim();
+    if (!sessionId || !overview) {
+      return [];
+    }
+    return [{ sessionId, overview }];
+  });
+}
+
 export function normalizeAIAnalysis(value: unknown): MeetingAIAnalysis | null {
   if (!value || typeof value !== "object") {
     return null;
