@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeAIAnalysis, type LiveAnalysisPayload } from "./aiAnalysisApi";
+import {
+  normalizeAIAnalysis,
+  normalizeAgendaProgress,
+  type LiveAnalysisPayload,
+} from "./aiAnalysisApi";
 
 describe("normalizeAIAnalysis live tree changes", () => {
   it("migrates open issues to canonical issue subtypes and preserves the structural diff", () => {
@@ -238,5 +242,151 @@ describe("normalizeAIAnalysis live tree changes", () => {
       agendaReferenceIntegrityValid: true,
       agendaNodeIdNamespaceValid: true,
     });
+  });
+});
+
+describe("agendaProgress normalization", () => {
+  it("normalizes a fully-stamped payload and drops server-internal tracking fields", () => {
+    const analysis = normalizeAIAnalysis({
+      analysisType: "live",
+      status: "completed",
+      version: 5,
+      payload: {
+        items: [],
+        agendaProgress: {
+          computedCurrentTopicId: "agenda-2",
+          manualCurrentTopicId: "agenda-3",
+          effectiveCurrentTopicId: "agenda-3",
+          updatedAtVersion: 17,
+          entries: [
+            {
+              id: "agenda-2",
+              sourceType: "fixed_agenda",
+              title: "原因調査と復旧対応",
+              order: 2,
+              computedStatus: "discussing",
+              manualStatus: "discussed",
+              effectiveStatus: "discussed",
+              outcomeStatus: "concluded",
+              discussionWeight: 0.62,
+              relatedItemCounts: { issue: 2, risk: 1, todo: 1, decision: 1 },
+              materializedTopicIds: ["topic-agenda-ab12cd34ef56"],
+              primaryNodeId: "topic-agenda-ab12cd34ef56",
+              lastProgressAtVersion: 16,
+              activeRounds: 3,
+              substantiveSegments: 7,
+              weightRaw: 7.0,
+              firstActiveVersion: 12,
+              inactiveRounds: 0,
+              outcomeExpectation: "decision",
+            },
+          ],
+        },
+      },
+    });
+
+    const payload = (analysis?.payload as LiveAnalysisPayload).agendaProgress;
+    expect(payload).toEqual({
+      computedCurrentTopicId: "agenda-2",
+      manualCurrentTopicId: "agenda-3",
+      effectiveCurrentTopicId: "agenda-3",
+      entries: [
+        {
+          id: "agenda-2",
+          sourceType: "fixed_agenda",
+          title: "原因調査と復旧対応",
+          order: 2,
+          computedStatus: "discussing",
+          manualStatus: "discussed",
+          effectiveStatus: "discussed",
+          outcomeStatus: "concluded",
+          discussionWeight: 0.62,
+          relatedItemCounts: { issue: 2, risk: 1, todo: 1, decision: 1 },
+          materializedTopicIds: ["topic-agenda-ab12cd34ef56"],
+          primaryNodeId: "topic-agenda-ab12cd34ef56",
+        },
+      ],
+    });
+  });
+
+  it("fills effectiveStatus and effectiveCurrentTopicId from manual/computed when the server omits them", () => {
+    const progress = normalizeAgendaProgress({
+      computedCurrentTopicId: "agenda-1",
+      entries: [
+        {
+          id: "agenda-1",
+          sourceType: "fixed_agenda",
+          title: "予算計画",
+          computedStatus: "discussing",
+        },
+        {
+          id: "agenda-2",
+          sourceType: "fixed_agenda",
+          title: "採用計画",
+          computedStatus: "not_started",
+          manualStatus: "discussed",
+        },
+      ],
+    });
+
+    expect(progress?.effectiveCurrentTopicId).toBe("agenda-1");
+    expect(progress?.entries[0]).toMatchObject({ effectiveStatus: "discussing" });
+    expect(progress?.entries[1]).toMatchObject({
+      manualStatus: "discussed",
+      effectiveStatus: "discussed",
+    });
+  });
+
+  it("clamps discussionWeight to 0..1 and drops zero-count relatedItemCounts kinds", () => {
+    const progress = normalizeAgendaProgress({
+      entries: [
+        {
+          id: "agenda-1",
+          sourceType: "fixed_agenda",
+          title: "予算計画",
+          computedStatus: "discussing",
+          discussionWeight: 1.4,
+          relatedItemCounts: { issue: 2, risk: 0 },
+        },
+      ],
+    });
+
+    expect(progress?.entries[0].discussionWeight).toBe(1);
+    expect(progress?.entries[0].relatedItemCounts).toEqual({ issue: 2 });
+  });
+
+  it("excludes entries with an invalid status/sourceType or a missing title", () => {
+    const progress = normalizeAgendaProgress({
+      entries: [
+        { id: "ok", sourceType: "fixed_agenda", title: "有効な項目", computedStatus: "discussing" },
+        {
+          id: "bad-status",
+          sourceType: "fixed_agenda",
+          title: "不正status",
+          computedStatus: "bogus",
+        },
+        {
+          id: "bad-source",
+          sourceType: "bogus",
+          title: "不正sourceType",
+          computedStatus: "discussing",
+        },
+        { id: "no-title", sourceType: "fixed_agenda", title: "", computedStatus: "discussing" },
+      ],
+    });
+
+    expect(progress?.entries).toHaveLength(1);
+    expect(progress?.entries[0].id).toBe("ok");
+  });
+
+  it("leaves LiveAnalysisPayload.agendaProgress undefined for legacy payloads that omit the field", () => {
+    const analysis = normalizeAIAnalysis({
+      analysisType: "live",
+      status: "completed",
+      version: 1,
+      payload: { items: [] },
+    });
+
+    expect((analysis?.payload as LiveAnalysisPayload).agendaProgress).toBeUndefined();
   });
 });

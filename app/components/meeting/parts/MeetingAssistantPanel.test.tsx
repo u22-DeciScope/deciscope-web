@@ -297,4 +297,56 @@ describe("MeetingAssistantPanel item filters", () => {
     expect(screen.getAllByText("解決済").length).toBeGreaterThan(1);
     expect(screen.getByText("予算上限を確認し、資料を更新する")).not.toBeNull();
   });
+
+  it("shows the agenda progress section on the live tab when the payload carries agendaProgress", () => {
+    const liveAnalysis: MeetingAIAnalysis = {
+      analysisType: "live",
+      status: "completed",
+      version: 4,
+      payload: {
+        items: [],
+        tree: { nodes: [], edges: [] },
+        agendaProgress: {
+          effectiveCurrentTopicId: "agenda-1",
+          entries: [
+            {
+              id: "agenda-1",
+              sourceType: "fixed_agenda",
+              title: "改修案を決める",
+              computedStatus: "discussing",
+              effectiveStatus: "discussing",
+            },
+          ],
+        },
+      },
+    };
+    render(
+      <MeetingAssistantPanel insights={[]} speakerSummaries={[]} liveAnalysis={liveAnalysis} />,
+    );
+
+    expect(screen.getByRole("heading", { name: "話し合う項目" })).not.toBeNull();
+    expect(screen.getByText("改修案を決める")).not.toBeNull();
+  });
+
+  it("keeps the live tab working for a legacy payload without agendaProgress (no crash, no entry sections)", () => {
+    const liveAnalysis: MeetingAIAnalysis = {
+      analysisType: "live",
+      status: "completed",
+      version: 1,
+      payload: {
+        summary: "対象機能を絞る。",
+        items: [item("todo-legacy", "todo", "open")],
+        tree: { nodes: [], edges: [] },
+      },
+    };
+    render(
+      <MeetingAssistantPanel insights={[]} speakerSummaries={[]} liveAnalysis={liveAnalysis} />,
+    );
+
+    expect(screen.queryByRole("heading", { name: "話し合う項目" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "会議中に追加された論点" })).toBeNull();
+    // 既存のライブタブ表示(カードの更新・要点)は従来どおり出る(回帰なし)。
+    expect(screen.getByRole("heading", { name: "カードの更新" })).not.toBeNull();
+    expect(screen.getByText("todo-legacy")).not.toBeNull();
+  });
 });

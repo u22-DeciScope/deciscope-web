@@ -17,7 +17,10 @@ import {
 } from "~/components/meeting/parts/discussionTree/DiscussionTree";
 import { MeetingAssistantPanel } from "~/components/meeting/parts/MeetingAssistantPanel";
 import { MeetingChatPanel } from "~/components/meeting/parts/MeetingChatPanel";
-import type { LiveAnalysisMeta } from "~/hooks/useMeetingTranscriptSession";
+import type {
+  LiveAnalysisMeta,
+  TranscriptSessionConnectionStatus,
+} from "~/hooks/useMeetingTranscriptSession";
 
 // タイムライン(左カラム)の開閉状態を会議中(タブを閉じるまで)維持するためのキー。
 const TIMELINE_COLLAPSED_STORAGE_KEY = "deciscope.meeting.timelineCollapsed";
@@ -45,6 +48,12 @@ type MeetingWorkspaceGridProps = {
   liveAnalysisMeta?: LiveAnalysisMeta | null;
   // AIアシスタントのライブタブを表示するか。会議終了後のレビュー画面では false。
   showLiveTab?: boolean;
+  // アジェンダ進捗セクションの状態行・操作可否向け。いずれもoptionalで、
+  // workspaceId/sessionIdが無ければ操作UI(手動override)は非表示になる。
+  connectionStatus?: TranscriptSessionConnectionStatus | null;
+  canManageSessions?: boolean;
+  workspaceId?: string;
+  sessionId?: string;
 };
 
 export function MeetingWorkspaceGrid({
@@ -58,6 +67,10 @@ export function MeetingWorkspaceGrid({
   liveAnalysis,
   liveAnalysisMeta,
   showLiveTab = true,
+  connectionStatus,
+  canManageSessions = false,
+  workspaceId = "",
+  sessionId = "",
 }: MeetingWorkspaceGridProps) {
   const [focusedAnalysisItemId, setFocusedAnalysisItemId] = useState<string | null>(null);
   const [highlightedAnalysisItemId, setHighlightedAnalysisItemId] = useState<string | null>(null);
@@ -223,6 +236,11 @@ export function MeetingWorkspaceGrid({
         updateStatus={liveAnalysisMeta ? <AiUpdateStatusChip meta={liveAnalysisMeta} /> : undefined}
         showLiveTab={showLiveTab}
         onFocusTreeItem={handleFocusTreeItem}
+        liveAnalysisMeta={liveAnalysisMeta}
+        connectionStatus={connectionStatus}
+        canManage={canManageSessions}
+        workspaceId={workspaceId}
+        sessionId={sessionId}
       />
     </section>
   );

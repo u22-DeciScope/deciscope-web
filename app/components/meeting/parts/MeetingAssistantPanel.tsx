@@ -9,13 +9,18 @@ import {
   HiSparkles,
 } from "react-icons/hi2";
 
-import type { LiveAnalysisPayload, MeetingAIAnalysis } from "~/api/aiAnalysis/aiAnalysisApi";
+import type {
+  AgendaProgressPayload,
+  LiveAnalysisPayload,
+  MeetingAIAnalysis,
+} from "~/api/aiAnalysis/aiAnalysisApi";
 import type { MeetingSegmentDto } from "~/api/meetings/meetingEventsApi";
 import type {
   AnalysisItem,
   RuntimeSpeakerSummary,
   TreeNodePayload,
 } from "~/api/meetings/meetingRuntimeTypes";
+import { AgendaProgressSection } from "~/components/meeting/parts/AgendaProgressSection";
 import {
   analysisKindColor,
   analysisKindLabel,
@@ -31,6 +36,10 @@ import {
   humanizeAgendaReferences,
   type MeetingMomentIndex,
 } from "~/components/meeting/parts/meetingDisplayMetadata";
+import type {
+  LiveAnalysisMeta,
+  TranscriptSessionConnectionStatus,
+} from "~/hooks/useMeetingTranscriptSession";
 
 type MeetingAssistantPanelProps = {
   insights: AnalysisItem[];
@@ -46,6 +55,13 @@ type MeetingAssistantPanelProps = {
   showLiveTab?: boolean;
   // カードクリック時に、対応する議論ツリーのノードへフォーカスさせるための通知。
   onFocusTreeItem?: (itemId: string) => void;
+  // アジェンダ進捗セクション(ライブタブ最上部)向けの状態。いずれもoptionalで、
+  // 未指定でも既存のライブタブ表示は変わらない。
+  liveAnalysisMeta?: LiveAnalysisMeta | null;
+  connectionStatus?: TranscriptSessionConnectionStatus | null;
+  canManage?: boolean;
+  workspaceId?: string;
+  sessionId?: string;
 };
 
 const insightIcons = {
@@ -144,8 +160,19 @@ export function MeetingAssistantPanel({
   updateStatus,
   showLiveTab = true,
   onFocusTreeItem,
+  liveAnalysisMeta,
+  connectionStatus,
+  canManage = false,
+  workspaceId = "",
+  sessionId = "",
 }: MeetingAssistantPanelProps) {
   const [filter, setFilter] = useState<InsightFilter>(showLiveTab ? "live" : "risk");
+  // アジェンダ進捗の手動override直後のoptimistic確定値。次にlivePayload側の
+  // agendaProgressが更新される(=サーバーが再ブロードキャストしたstamp済み値が
+  // 届く)までこちらを優先表示し、更新が来たら破棄して最新サーバー値に委ねる。
+  const [agendaProgressOverlay, setAgendaProgressOverlay] = useState<AgendaProgressPayload | null>(
+    null,
+  );
   // 直近で自動タブ切替を実行済みのフォーカスIDを保持する。同じIDに対してタブ切替は
   // 1回だけ行い、ユーザーが手動でタブを変えても再度引き戻さないようにするための目印。
   const processedFocusIdRef = useRef<string | null>(null);
@@ -192,6 +219,13 @@ export function MeetingAssistantPanel({
     [showLiveTab],
   );
   const liveTabActive = showLiveTab && filter === "live";
+  const effectiveAgendaProgress = agendaProgressOverlay ?? livePayload?.agendaProgress ?? null;
+
+  useEffect(() => {
+    // 新しいagendaProgressがサーバー(WS/REST)から届いたらoverlayをクリアし、
+    // 最新のサーバー確定値を使う(サーバーがstamp済みのため上書き競合しない)。
+    setAgendaProgressOverlay(null);
+  }, [sessionId, liveAnalysis?.version]);
 
   useEffect(() => {
     if (!focusedAnalysisItemId) {
@@ -303,6 +337,19 @@ export function MeetingAssistantPanel({
           >
             分析ツリーの整合性が低下したため、直前の安全な構造を表示しています。
           </section>
+        )}
+        {liveTabActive && (
+          <AgendaProgressSection
+            progress={effectiveAgendaProgress}
+            meta={liveAnalysisMeta}
+            connectionStatus={connectionStatus}
+            canManage={canManage}
+            workspaceId={workspaceId}
+            sessionId={sessionId}
+            treeNodes={treeNodes}
+            onFocusTreeItem={onFocusTreeItem}
+            onProgressPatched={setAgendaProgressOverlay}
+          />
         )}
         {liveTabActive &&
           (liveAnalysis ? (

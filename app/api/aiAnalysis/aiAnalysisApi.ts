@@ -36,6 +36,36 @@ export type LiveAnalysisPayload = {
   treeHash?: string;
   basedOnTreeVersion?: number;
   agendaAnchors?: AgendaAnchorPayload[];
+  // 会議の現在地(現在の議題・話し合い済み・未着手・会議中に追加された論点)。
+  // サーバー側の決定的計算のみで、新しいAI呼び出しは伴わない。旧payload(この
+  // フィールドが無い)では undefined のままとなり、既存挙動を壊さない。
+  agendaProgress?: AgendaProgressPayload;
+};
+
+export type AgendaProgressStatus = "not_started" | "discussing" | "discussed";
+export type AgendaProgressOutcome = "concluded" | "unresolved";
+export type AgendaProgressSourceType = "fixed_agenda" | "dynamic_topic";
+
+export type AgendaProgressEntryPayload = {
+  id: string;
+  sourceType: AgendaProgressSourceType;
+  title: string;
+  order?: number;
+  computedStatus: AgendaProgressStatus;
+  manualStatus?: AgendaProgressStatus;
+  effectiveStatus: AgendaProgressStatus;
+  outcomeStatus?: AgendaProgressOutcome;
+  discussionWeight?: number;
+  relatedItemCounts?: Record<string, number>;
+  materializedTopicIds?: string[];
+  primaryNodeId?: string;
+};
+
+export type AgendaProgressPayload = {
+  computedCurrentTopicId?: string;
+  manualCurrentTopicId?: string;
+  effectiveCurrentTopicId?: string;
+  entries: AgendaProgressEntryPayload[];
 };
 
 export type AgendaAnchorPayload = {
@@ -323,6 +353,7 @@ function normalizeLivePayload(value: unknown): LiveAnalysisPayload | null {
   const treeHash = optionalString(source.treeHash)?.trim();
   const basedOnTreeVersion = optionalNumber(source.basedOnTreeVersion);
   const agendaAnchors = normalizeAgendaAnchors(source.agendaAnchors);
+  const agendaProgress = normalizeAgendaProgress(source.agendaProgress);
   return {
     ...(summary ? { summary } : {}),
     ...(currentTopic ? { currentTopic } : {}),
@@ -345,7 +376,123 @@ function normalizeLivePayload(value: unknown): LiveAnalysisPayload | null {
     ...(treeHash ? { treeHash } : {}),
     ...(basedOnTreeVersion !== undefined ? { basedOnTreeVersion } : {}),
     ...(agendaAnchors.length > 0 ? { agendaAnchors } : {}),
+    ...(agendaProgress ? { agendaProgress } : {}),
   };
+}
+
+// agendaProgress を正規化する。未知フィールド(サーバー内部trackingのactiveRounds等)は
+// 取り込まない。不正なstatus/sourceTypeやtitle欠落のentryは除外する。effectiveStatus /
+// effectiveCurrentTopicId が欠落している場合は manual ?? computed で補完する
+// (サーバーが常にstamp済みで送るはずだが、フロント側でも防御的に補完する)。
+export function normalizeAgendaProgress(value: unknown): AgendaProgressPayload | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const source = value as Record<string, unknown>;
+  const entries = normalizeAgendaProgressEntries(source.entries);
+  const computedCurrentTopicId = optionalString(source.computedCurrentTopicId)?.trim();
+  const manualCurrentTopicId = optionalString(source.manualCurrentTopicId)?.trim();
+  const effectiveCurrentTopicId =
+    optionalString(source.effectiveCurrentTopicId)?.trim() ||
+    manualCurrentTopicId ||
+    computedCurrentTopicId;
+  return {
+    ...(computedCurrentTopicId ? { computedCurrentTopicId } : {}),
+    ...(manualCurrentTopicId ? { manualCurrentTopicId } : {}),
+    ...(effectiveCurrentTopicId ? { effectiveCurrentTopicId } : {}),
+    entries,
+  };
+}
+
+function normalizeAgendaProgressEntries(value: unknown): AgendaProgressEntryPayload[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object") {
+      return [];
+    }
+    const source = candidate as Record<string, unknown>;
+    const id = optionalString(source.id)?.trim();
+    const sourceType = source.sourceType;
+    const title = optionalString(source.title)?.trim();
+    const computedStatus = source.computedStatus;
+    if (
+      !id ||
+      !title ||
+      !isAgendaProgressSourceType(sourceType) ||
+      !isAgendaProgressStatus(computedStatus)
+    ) {
+      return [];
+    }
+    const manualStatusRaw = source.manualStatus;
+    const manualStatus = isAgendaProgressStatus(manualStatusRaw) ? manualStatusRaw : undefined;
+    const effectiveStatusRaw = source.effectiveStatus;
+    const effectiveStatus = isAgendaProgressStatus(effectiveStatusRaw)
+      ? effectiveStatusRaw
+      : (manualStatus ?? computedStatus);
+    const order = optionalNumber(source.order);
+    const outcomeStatusRaw = source.outcomeStatus;
+    const outcomeStatus = isAgendaProgressOutcome(outcomeStatusRaw) ? outcomeStatusRaw : undefined;
+    const discussionWeightRaw = optionalNumber(source.discussionWeight);
+    const discussionWeight =
+      discussionWeightRaw !== undefined ? clamp01(discussionWeightRaw) : undefined;
+    const relatedItemCounts = normalizeRelatedItemCounts(source.relatedItemCounts);
+    const materializedTopicIds = normalizeStringArray(source.materializedTopicIds);
+    const primaryNodeId = optionalString(source.primaryNodeId)?.trim();
+    return [
+      {
+        id,
+        sourceType,
+        title,
+        ...(order !== undefined ? { order } : {}),
+        computedStatus,
+        ...(manualStatus ? { manualStatus } : {}),
+        effectiveStatus,
+        ...(outcomeStatus ? { outcomeStatus } : {}),
+        ...(discussionWeight !== undefined ? { discussionWeight } : {}),
+        ...(relatedItemCounts ? { relatedItemCounts } : {}),
+        ...(materializedTopicIds.length > 0 ? { materializedTopicIds } : {}),
+        ...(primaryNodeId ? { primaryNodeId } : {}),
+      },
+    ];
+  });
+}
+
+function isAgendaProgressStatus(value: unknown): value is AgendaProgressStatus {
+  return value === "not_started" || value === "discussing" || value === "discussed";
+}
+
+function isAgendaProgressOutcome(value: unknown): value is AgendaProgressOutcome {
+  return value === "concluded" || value === "unresolved";
+}
+
+function isAgendaProgressSourceType(value: unknown): value is AgendaProgressSourceType {
+  return value === "fixed_agenda" || value === "dynamic_topic";
+}
+
+function normalizeRelatedItemCounts(value: unknown): Record<string, number> | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const source = value as Record<string, unknown>;
+  const counts: Record<string, number> = {};
+  for (const [kind, raw] of Object.entries(source)) {
+    if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
+      counts[kind] = raw;
+    }
+  }
+  return Object.keys(counts).length > 0 ? counts : undefined;
+}
+
+function clamp01(value: number): number {
+  if (value < 0) {
+    return 0;
+  }
+  if (value > 1) {
+    return 1;
+  }
+  return value;
 }
 
 function normalizeAgendaAnchors(value: unknown): AgendaAnchorPayload[] {
