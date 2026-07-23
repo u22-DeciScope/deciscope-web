@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 
+import type { MeetingAIAnalysis } from "~/api/aiAnalysis/aiAnalysisApi";
 import type { MeetingSessionDto } from "~/api/meetingSessions/meetingSessionsApi";
 import type { AnalysisItem, TreeUpdatePayload } from "~/api/meetings/meetingRuntimeTypes";
 import type { TranscriptSegment } from "~/api/transcripts/transcriptSegmentsApi";
@@ -14,11 +15,19 @@ export function SessionReviewWorkspace({
   session,
   tree,
   analysisItems,
+  liveAnalysis,
+  liveHistory,
+  workspaceId,
+  sessionId,
 }: {
   segments: TranscriptSegment[];
   session: MeetingSessionDto;
   tree: TreeUpdatePayload | null;
   analysisItems: AnalysisItem[];
+  liveAnalysis?: MeetingAIAnalysis | null;
+  liveHistory?: MeetingAIAnalysis[];
+  workspaceId?: string;
+  sessionId?: string;
 }) {
   const finalSegments = useMemo(
     () => transcriptSegmentsToMeetingSegments(session, segments),
@@ -37,7 +46,12 @@ export function SessionReviewWorkspace({
       treeNodes={tree?.nodes ?? []}
       treeEdges={tree?.edges ?? []}
       insights={analysisItems}
-      showLiveTab={false}
+      liveAnalysis={liveAnalysis}
+      liveHistory={liveHistory}
+      showLiveTab={true}
+      showLiveUpdates={false}
+      workspaceId={workspaceId}
+      sessionId={sessionId}
     />
   );
 }

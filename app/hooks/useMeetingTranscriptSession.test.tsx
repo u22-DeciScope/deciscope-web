@@ -108,7 +108,7 @@ function liveAnalysis(version: number, treeVersion: number, nodeIds: string[]): 
 }
 
 function analyses(live: MeetingAIAnalysis): MeetingAIAnalyses {
-  return { sessionId: "session-a", live, final: null, treeSnapshot: null };
+  return { sessionId: "session-a", live, final: null, treeSnapshot: null, liveHistory: [] };
 }
 
 describe("useMeetingTranscriptSession analysis recovery", () => {

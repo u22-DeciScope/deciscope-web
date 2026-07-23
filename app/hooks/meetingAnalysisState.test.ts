@@ -98,7 +98,13 @@ describe("meetingAnalysisReducer last-known-good tree", () => {
     const invalid: TreeSnapshotPayload = { tree: { nodes: [], edges: [] }, treeVersion: 12 };
     const unchanged = meetingAnalysisReducer(withLive(), {
       type: "rest_snapshot",
-      analyses: { sessionId: "session-a", live: null, final: null, treeSnapshot: invalid },
+      analyses: {
+        sessionId: "session-a",
+        live: null,
+        final: null,
+        treeSnapshot: invalid,
+        liveHistory: [],
+      },
     });
     expect(analysisTreeNodeCount(unchanged)).toBe(27);
 
@@ -111,7 +117,13 @@ describe("meetingAnalysisReducer last-known-good tree", () => {
     };
     const replaced = meetingAnalysisReducer(unchanged, {
       type: "rest_snapshot",
-      analyses: { sessionId: "session-a", live: null, final: null, treeSnapshot: valid },
+      analyses: {
+        sessionId: "session-a",
+        live: null,
+        final: null,
+        treeSnapshot: valid,
+        liveHistory: [],
+      },
     });
     expect(analysisTreeNodeCount(replaced)).toBe(1);
     expect(replaced.finalTreeSnapshot?.treeVersion).toBe(12);
@@ -238,6 +250,7 @@ describe("meetingAnalysisReducer payload merge and REST/WS ordering", () => {
         live: versionedLive(10, 7, ["root", "old-issue"], "2026-07-22T08:00:07Z"),
         final: null,
         treeSnapshot: null,
+        liveHistory: [],
       },
     });
     expect(analysisTreeVersion(afterRest)).toBe(8);
@@ -267,6 +280,7 @@ describe("meetingAnalysisReducer payload merge and REST/WS ordering", () => {
             edges: [],
           },
         },
+        liveHistory: [],
       },
     });
     expect(selectedAnalysisTree(afterRest)).toMatchObject({ source: "live", treeVersion: 9 });
@@ -358,6 +372,7 @@ describe("meetingAnalysisReducer payload merge and REST/WS ordering", () => {
             edges: [],
           },
         },
+        liveHistory: [],
       },
     });
     expect(selectedAnalysisTree(withFinalTree)).toMatchObject({

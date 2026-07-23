@@ -31,8 +31,6 @@ import {
   isElapsedMeetingStatus,
 } from "~/utils/meetingStatusLabels";
 
-import { meetingEndPresentation } from "./meetingEndPresentation";
-
 export default function Meeting() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -229,8 +227,8 @@ export default function Meeting() {
   const isEndedStatus = isTerminalMeetingSessionStatus(statusLabel);
   const isFinalizing = sessionId ? endFlow.isFinalizing : runtime.isEnding;
   const isEndingMeeting = runtime.isEnding || endFlow.isRequestingEnd || isFinalizing;
-  const endPresentation = meetingEndPresentation(isEndingMeeting, showEndedModal);
   const canEndMeeting = Boolean((runtimeMeetingId || sessionId) && canManageSessions);
+  const endOverlayMode = showEndedModal ? "ended" : isEndingMeeting ? "ending" : null;
   const sessionEndedAt = sessionId
     ? endFlow.endedAt
     : legacyEndedAt || transcriptSession.sessionEndedAt;
@@ -252,11 +250,7 @@ export default function Meeting() {
     isCompletedMeetingStatus(statusLabel) && !showEndedModal
       ? "この会議は終了済みです。文字起こしの内容は会議詳細画面から確認できます。"
       : null;
-  // ending中も最後のlive treeVersionと最終tree auditを受信・確認できるよう、
-  // 全画面modalではなく非破壊のstatus bannerを表示する。
-  const finalizingNotice = endPresentation.finalizingNotice;
-  const pageNotice =
-    runtime.error ?? sessionEndError ?? finalizingNotice ?? endedNotice ?? transcriptNotice;
+  const pageNotice = runtime.error ?? sessionEndError ?? endedNotice ?? transcriptNotice;
   const connectionRecoveryRequired = runtime.recoveryRequired || transcriptSession.recoveryRequired;
 
   const retryConnections = useCallback(() => {
@@ -333,22 +327,8 @@ export default function Meeting() {
         <div
           className="flex items-center justify-between gap-3 rounded-(--ds-radius-control) border px-3 py-2 text-[11px]"
           style={{ borderColor: "var(--ds-border)", color: "var(--text-sub)" }}
-          role={isEndingMeeting ? "status" : undefined}
         >
-          <span className="min-w-0 flex-1">{pageNotice}</span>
-          {isEndingMeeting && (
-            <div
-              className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full"
-              role="progressbar"
-              aria-label="会議の終了処理中"
-              style={{ background: "var(--input-bg)" }}
-            >
-              <div
-                className="ds-progress-indeterminate h-full w-2/5 rounded-full"
-                style={{ background: "var(--brand)" }}
-              />
-            </div>
-          )}
+          <span>{pageNotice}</span>
           {connectionRecoveryRequired && (
             <DsButton type="button" variant="secondary" onClick={retryConnections}>
               再接続
@@ -375,8 +355,9 @@ export default function Meeting() {
         treeVersion={transcriptSession.discussionTree.treeVersion}
       />
 
-      {endPresentation.showBlockingCompletionModal && (
+      {endOverlayMode && (
         <MeetingEndedModal
+          mode={endOverlayMode}
           onGoHome={() => navigate(meetingsPath)}
           onGoSummary={() => navigate(summaryPath)}
         />

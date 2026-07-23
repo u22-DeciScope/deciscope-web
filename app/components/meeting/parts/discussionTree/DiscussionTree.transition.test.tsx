@@ -1,5 +1,5 @@
 import { act, fireEvent, render, waitFor, within } from "@testing-library/react";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TreeEdgePayload } from "~/api/meetings/meetingRuntimeTypes";
 
@@ -107,12 +107,17 @@ afterAll(() => {
 
 describe("session_1fdc26b44086f0b8 mounted v12→v15 transition", () => {
   beforeEach(() => {
+    vi.stubEnv("VITE_DECISCOPE_DEBUG_MEETING_START", "1");
     canvasSize = { width: 900, height: 600 };
     resizeObservers.clear();
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: vi.fn(() => ({ matches: true })),
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("keeps one DiscussionTree/React Flow instance coherent through reparent, focus, fit and resize", async () => {

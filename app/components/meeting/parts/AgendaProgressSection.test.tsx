@@ -130,6 +130,15 @@ describe("AgendaProgressSection", () => {
     expect(screen.getByText("急遽出た話題")).not.toBeNull();
     expect(screen.getByText("もう一つの話題")).not.toBeNull();
 
+    const fixedSection = screen.getByTestId("fixed-agenda-section");
+    const dynamicSection = screen.getByTestId("dynamic-agenda-section");
+    expect(fixedSection.className).not.toContain("border");
+    expect(dynamicSection.className).not.toContain("border");
+    expect(screen.getByText("予算計画").closest('[role="button"]')?.className).toContain("border");
+    expect(screen.getByText("急遽出た話題").closest('[role="button"]')?.className).toContain(
+      "border",
+    );
+
     rerender(
       <AgendaProgressSection
         progress={{ entries: [entry({ id: "agenda-1", title: "予算計画" })] }}
@@ -381,5 +390,45 @@ describe("AgendaProgressSection", () => {
       />,
     );
     expect(screen.getByText("次の分析を待っています")).not.toBeNull();
+  });
+
+  it("shows the last-updated time as a relative elapsed label instead of a wall-clock time", () => {
+    const now = Date.now();
+    const { rerender } = renderSection({
+      meta: { ...idleMeta, lastCompletedAtMs: now - 45_000 },
+    });
+    expect(screen.getByText("最終更新：45秒前")).not.toBeNull();
+
+    rerender(
+      <AgendaProgressSection
+        progress={undefined}
+        meta={{ ...idleMeta, lastCompletedAtMs: now - 90_000 }}
+        connectionStatus="connected"
+        canManage={false}
+        workspaceId="workspace-1"
+        sessionId="session-1"
+        treeNodes={[]}
+      />,
+    );
+    expect(screen.getByText("最終更新：1分前")).not.toBeNull();
+
+    rerender(
+      <AgendaProgressSection
+        progress={undefined}
+        meta={{ ...idleMeta, lastCompletedAtMs: now - (2 * 3_600_000 + 10_000) }}
+        connectionStatus="connected"
+        canManage={false}
+        workspaceId="workspace-1"
+        sessionId="session-1"
+        treeNodes={[]}
+      />,
+    );
+    expect(screen.getByText("最終更新：2時間前")).not.toBeNull();
+  });
+
+  it("hides the status line entirely when meta is absent (session review without live analysis meta)", () => {
+    const { container } = renderSection({ meta: null });
+    expect(container.querySelector("p")).toBeNull();
+    expect(screen.queryByText("次の分析を待っています")).toBeNull();
   });
 });

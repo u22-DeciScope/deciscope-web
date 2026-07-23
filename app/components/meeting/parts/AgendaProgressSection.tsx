@@ -11,6 +11,7 @@ import type {
 } from "~/api/aiAnalysis/aiAnalysisApi";
 import type { TreeNodePayload } from "~/api/meetings/meetingRuntimeTypes";
 import { analysisKindLabel } from "~/components/meeting/parts/analysisKindPalette";
+import { formatRelativeElapsedLabel } from "~/components/meeting/parts/meetingDisplayMetadata";
 import type {
   LiveAnalysisMeta,
   TranscriptSessionConnectionStatus,
@@ -147,13 +148,16 @@ export function AgendaProgressSection({
     <section aria-label="アジェンダ進捗" className="space-y-2">
       <AgendaStatusLine meta={meta} connectionStatus={connectionStatus} />
       {hasFixedSection && (
-        <div
-          className="rounded-(--ds-radius-control) border p-3"
-          style={{ background: "var(--ds-surface-muted)", borderColor: "var(--ds-border)" }}
-        >
-          <h2 className="mb-2 text-[11px] font-bold" style={{ color: "var(--text-main)" }}>
-            話し合う項目
-          </h2>
+        <div data-testid="fixed-agenda-section">
+          <div className="mb-2 flex items-center gap-2 px-0.5">
+            <span className="h-4 w-0.5 rounded-full" style={{ background: "var(--brand)" }} />
+            <h2
+              className="text-[14px] font-bold tracking-[0.01em]"
+              style={{ color: "var(--text-main)" }}
+            >
+              話し合う項目
+            </h2>
+          </div>
           <ul className="space-y-1.5">
             {fixedEntries.map((entry) => (
               <AgendaEntryRow
@@ -172,13 +176,16 @@ export function AgendaProgressSection({
         </div>
       )}
       {hasDynamicSection && (
-        <div
-          className="rounded-(--ds-radius-control) border p-3"
-          style={{ background: "var(--ds-surface-muted)", borderColor: "var(--ds-border)" }}
-        >
-          <h2 className="mb-2 text-[11px] font-bold" style={{ color: "var(--text-main)" }}>
-            会議中に追加された論点
-          </h2>
+        <div data-testid="dynamic-agenda-section">
+          <div className="mb-2 flex items-center gap-2 px-0.5">
+            <span className="h-4 w-0.5 rounded-full" style={{ background: "var(--brand)" }} />
+            <h2
+              className="text-[14px] font-bold tracking-[0.01em]"
+              style={{ color: "var(--text-main)" }}
+            >
+              会議中に追加された論点
+            </h2>
+          </div>
           <ul className="space-y-1.5">
             {dynamicEntries.map((entry) => (
               <AgendaEntryRow
@@ -198,7 +205,7 @@ export function AgendaProgressSection({
         </div>
       )}
       {errorMessage && (
-        <p className="text-[10px]" style={{ color: "var(--text-sub)" }}>
+        <p className="text-[11px]" style={{ color: "var(--text-sub)" }}>
           {errorMessage}
         </p>
       )}
@@ -292,19 +299,19 @@ function AgendaEntryRow({
           <div className="flex min-w-0 items-start gap-1.5">
             <span
               aria-hidden="true"
-              className="mt-0.5 shrink-0 text-[11px] leading-4"
+              className="mt-0.5 shrink-0 text-[12px] leading-5"
               style={{ color: icon.color }}
             >
               {icon.symbol}
             </span>
             <div className="min-w-0">
               {isCurrent && (
-                <p className="text-[10px] font-bold leading-4" style={{ color: "var(--brand)" }}>
+                <p className="text-[11px] font-bold leading-4" style={{ color: "var(--brand)" }}>
                   ▶ 現在の議題
                 </p>
               )}
               <p
-                className="line-clamp-2 text-[12px] font-semibold leading-4.5"
+                className="line-clamp-2 text-[13px] font-semibold leading-5"
                 title={entry.title}
                 style={{ color: "var(--text-main)" }}
               >
@@ -338,8 +345,8 @@ function AgendaEntryRow({
           </div>
         )}
         <div
-          className="mt-1 flex items-center gap-1.5 text-[10px]"
-          style={{ color: "var(--text-muted)" }}
+          className="mt-1 flex items-center gap-1.5 text-[11px]"
+          style={{ color: "var(--text-sub)" }}
         >
           <span className="truncate">
             {statusLabel}
@@ -347,7 +354,7 @@ function AgendaEntryRow({
           </span>
           {entry.manualStatus && (
             <span
-              className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
+              className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
               style={{ background: "var(--ds-surface-muted)", color: "var(--text-sub)" }}
             >
               手動
@@ -355,7 +362,7 @@ function AgendaEntryRow({
           )}
         </div>
         {noticeVisible && (
-          <p className="mt-1 text-[10px]" style={{ color: "var(--text-muted)" }}>
+          <p className="mt-1 text-[11px]" style={{ color: "var(--text-sub)" }}>
             関連する議論はまだありません
           </p>
         )}
@@ -494,7 +501,7 @@ function AgendaEntryMenu({
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-20 mt-1 w-40 overflow-hidden rounded-(--ds-radius-control) border py-1 text-[11px] shadow-sm"
+          className="absolute right-0 top-full z-20 mt-1 w-40 overflow-hidden rounded-(--ds-radius-control) border py-1 text-[12px] shadow-sm"
           style={{ background: "var(--ds-surface-raised)", borderColor: "var(--ds-border)" }}
           onClick={(event) => event.stopPropagation()}
         >
@@ -554,8 +561,15 @@ function AgendaStatusLine({
     return () => window.clearInterval(timer);
   }, [needsTicker]);
 
+  // meta が渡らないのは会議終了後のレビュー画面(ライブ分析メタ情報がそもそも
+  // 存在しない)。「次の分析を待っています」等のライブ前提の文言が出てしまう
+  // ため、この行自体を表示しない。
+  if (!meta) {
+    return null;
+  }
+
   return (
-    <p className="text-[10px] leading-4" style={{ color: "var(--text-muted)" }}>
+    <p className="text-[11px] leading-4" style={{ color: "var(--text-sub)" }}>
       {agendaStatusLineText(effectiveMeta, connectionStatus, nowMs)}
     </p>
   );
@@ -607,11 +621,7 @@ function agendaStatusLineText(
     if (elapsedMs < 60_000) {
       return `最終更新：${Math.max(1, Math.floor(elapsedMs / 1000))}秒前`;
     }
-    return `最終更新：${formatAgendaStatusClockTime(meta.lastCompletedAtMs)}`;
+    return `最終更新：${formatRelativeElapsedLabel(elapsedMs)}`;
   }
   return meta.hasNewSpeech ? "新しい発話を蓄積中…" : "次の分析を待っています";
-}
-
-function formatAgendaStatusClockTime(timestampMs: number) {
-  return new Date(timestampMs).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
 }

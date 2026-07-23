@@ -165,6 +165,9 @@ export type MeetingAIAnalyses = {
   treeSnapshot: TreeSnapshotPayload | null;
   // GETレスポンスのトップレベルに載るlive分析の更新間隔(秒)。
   liveIntervalSeconds?: number;
+  // 完了したライブ分析の版履歴(版昇順)。/summary のレビュー画面で
+  // 「カードの更新」を再構築するために使う。
+  liveHistory: MeetingAIAnalysis[];
 };
 
 const workspaceMeetingSessionsPath = (workspaceId: string) =>
@@ -259,7 +262,13 @@ export function normalizeAIAnalysis(value: unknown): MeetingAIAnalysis | null {
 
 function normalizeAIAnalyses(value: unknown, fallbackSessionId: string): MeetingAIAnalyses {
   if (!value || typeof value !== "object") {
-    return { sessionId: fallbackSessionId, live: null, final: null, treeSnapshot: null };
+    return {
+      sessionId: fallbackSessionId,
+      live: null,
+      final: null,
+      treeSnapshot: null,
+      liveHistory: [],
+    };
   }
   const source = value as Record<string, unknown>;
   const sessionId =
@@ -273,7 +282,17 @@ function normalizeAIAnalyses(value: unknown, fallbackSessionId: string): Meeting
     final: normalizeAIAnalysis(source.final),
     treeSnapshot: normalizeTreeSnapshot(source.tree),
     ...(liveIntervalSeconds !== undefined ? { liveIntervalSeconds } : {}),
+    liveHistory: normalizeAIAnalysisList(source.liveHistory),
   };
+}
+
+function normalizeAIAnalysisList(value: unknown): MeetingAIAnalysis[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => normalizeAIAnalysis(item))
+    .filter((item): item is MeetingAIAnalysis => item !== null);
 }
 
 // tree行(durableスナップショット)のpayloadを正規化する。payloadは

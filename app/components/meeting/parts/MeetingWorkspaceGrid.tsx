@@ -46,9 +46,14 @@ type MeetingWorkspaceGridProps = {
   insights: AnalysisItem[];
   speakerSummaries?: RuntimeSpeakerSummary[];
   liveAnalysis?: MeetingAIAnalysis | null;
+  // 完了したライブ分析の版履歴(版昇順)。/summary のレビュー画面で
+  // 「カードの更新」を再構築するために使う(会議中は未指定)。
+  liveHistory?: MeetingAIAnalysis[];
   liveAnalysisMeta?: LiveAnalysisMeta | null;
   // AIアシスタントのライブタブを表示するか。会議終了後のレビュー画面では false。
   showLiveTab?: boolean;
+  // ライブタブ内の「カードの更新」セクションを表示するか。会議終了後のレビュー画面では false。
+  showLiveUpdates?: boolean;
   // アジェンダ進捗セクションの状態行・操作可否向け。いずれもoptionalで、
   // workspaceId/sessionIdが無ければ操作UI(手動override)は非表示になる。
   connectionStatus?: TranscriptSessionConnectionStatus | null;
@@ -68,8 +73,10 @@ export function MeetingWorkspaceGrid({
   insights,
   speakerSummaries = [],
   liveAnalysis,
+  liveHistory,
   liveAnalysisMeta,
   showLiveTab = true,
+  showLiveUpdates = true,
   connectionStatus,
   canManageSessions = false,
   workspaceId = "",
@@ -265,10 +272,12 @@ export function MeetingWorkspaceGrid({
         segments={segments}
         treeNodes={treeNodes}
         liveAnalysis={liveAnalysis}
+        liveHistory={liveHistory}
         focusedAnalysisItemId={focusedAnalysisItemId}
         highlightedAnalysisItemId={highlightedAnalysisItemId}
         updateStatus={liveAnalysisMeta ? <AiUpdateStatusChip meta={liveAnalysisMeta} /> : undefined}
         showLiveTab={showLiveTab}
+        showLiveUpdates={showLiveUpdates}
         onFocusTreeItem={handleFocusTreeItem}
         liveAnalysisMeta={liveAnalysisMeta}
         connectionStatus={connectionStatus}

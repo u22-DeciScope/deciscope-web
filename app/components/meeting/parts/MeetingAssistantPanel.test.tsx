@@ -1,11 +1,12 @@
 import { StrictMode } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { MeetingAIAnalysis } from "~/api/aiAnalysis/aiAnalysisApi";
 import type { AnalysisItem } from "~/api/meetings/meetingRuntimeTypes";
 import { analysisKindLabel } from "~/components/meeting/parts/analysisKindPalette";
 import {
+  buildLiveCardUpdateHistoryFromLiveHistory,
   filterForInsightItem,
   isLiveDisplayItem,
   isResolvedDisplayItem,
@@ -188,7 +189,7 @@ describe("MeetingAssistantPanel item filters", () => {
     expect(onFocus).toHaveBeenCalledWith(todo.id);
   });
 
-  it("renders card updates and key points without the removed topic section", async () => {
+  it("renders card updates as cards without the removed topic or key points sections", async () => {
     const liveAnalysis: MeetingAIAnalysis = {
       analysisType: "live",
       status: "completed",
@@ -209,12 +210,12 @@ describe("MeetingAssistantPanel item filters", () => {
     expect(screen.queryByText("次回リリースの範囲")).toBeNull();
     expect(screen.getByRole("heading", { name: "カードの更新" })).not.toBeNull();
     expect(await screen.findByText("追加")).not.toBeNull();
-    expect(screen.getByText("todo-1")).not.toBeNull();
-    const keyPointCard = screen.getByText("対象機能を絞る").closest("article");
-    expect(screen.getByRole("heading", { name: "要点" })).not.toBeNull();
-    expect(keyPointCard).not.toBeNull();
-    expect(keyPointCard?.className).toContain("text-[13px]");
-    expect(screen.getByText("公開日を確認する").closest("article")).not.toBeNull();
+    const updateCard = screen.getByText("todo-1").closest("article");
+    expect(updateCard).not.toBeNull();
+    expect(updateCard?.className).toContain("rounded-(--ds-radius-control)");
+    expect(screen.queryByRole("heading", { name: "要点" })).toBeNull();
+    expect(screen.queryByText("対象機能を絞る")).toBeNull();
+    expect(screen.queryByText("公開日を確認する")).toBeNull();
     expect(screen.queryByText("進行中")).toBeNull();
     expect(screen.queryByText("論点・リスク・次の一手")).toBeNull();
   });
@@ -277,7 +278,6 @@ describe("MeetingAssistantPanel item filters", () => {
 
     expect(await screen.findByText("予算計画 の確認")).not.toBeNull();
     expect(screen.getAllByText("経過 02:05").length).toBeGreaterThan(0);
-    expect(screen.getByText("予算計画 の資料を確認する")).not.toBeNull();
     expect(screen.queryByText(/agenda-1/)).toBeNull();
 
     view.rerender(
@@ -345,8 +345,140 @@ describe("MeetingAssistantPanel item filters", () => {
 
     expect(screen.queryByRole("heading", { name: "話し合う項目" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "会議中に追加された論点" })).toBeNull();
-    // 既存のライブタブ表示(カードの更新・要点)は従来どおり出る(回帰なし)。
+    // 既存のライブタブ表示(カードの更新)は従来どおり出る(回帰なし)。
     expect(screen.getByRole("heading", { name: "カードの更新" })).not.toBeNull();
     expect(screen.getByText("todo-legacy")).not.toBeNull();
+  });
+
+  it("shows only the latest four card updates and expands the rest via the load-more toggle", () => {
+    const items = Array.from({ length: 5 }, (_, index) =>
+      item(`todo-${index + 1}`, "todo", "open"),
+    );
+    const liveAnalysis: MeetingAIAnalysis = {
+      analysisType: "live",
+      status: "completed",
+      version: 1,
+      payload: { items, tree: { nodes: [], edges: [] } },
+    };
+
+    render(
+      <MeetingAssistantPanel insights={[]} speakerSummaries={[]} liveAnalysis={liveAnalysis} />,
+    );
+
+    expect(screen.getAllByText("追加")).toHaveLength(4);
+    const moreButton = screen.getByRole("button", { name: "もっと見る（残り1件）" });
+
+    fireEvent.click(moreButton);
+    expect(screen.getAllByText("追加")).toHaveLength(5);
+    expect(screen.queryByRole("button", { name: "もっと見る（残り1件）" })).toBeNull();
+    const floatingClose = screen.getByTestId("floating-card-history-close");
+    expect(floatingClose.className).toContain("absolute");
+    expect(floatingClose.className).toContain("bottom-0");
+    expect(within(floatingClose).getByRole("button", { name: "閉じる" })).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "閉じる" }));
+    expect(screen.getAllByText("追加")).toHaveLength(4);
+    expect(screen.queryByTestId("floating-card-history-close")).toBeNull();
+  });
+
+  it("hides the card-update section and the pre-analysis empty state when showLiveUpdates is false, keeping agenda progress", () => {
+    const liveAnalysis: MeetingAIAnalysis = {
+      analysisType: "live",
+      status: "completed",
+      version: 1,
+      payload: {
+        items: [item("todo-1", "todo", "open")],
+        tree: { nodes: [], edges: [] },
+        agendaProgress: {
+          effectiveCurrentTopicId: "agenda-1",
+          entries: [
+            {
+              id: "agenda-1",
+              sourceType: "fixed_agenda",
+              title: "改修案を決める",
+              computedStatus: "discussing",
+              effectiveStatus: "discussing",
+            },
+          ],
+        },
+      },
+    };
+    render(
+      <MeetingAssistantPanel
+        insights={[]}
+        speakerSummaries={[]}
+        liveAnalysis={liveAnalysis}
+        showLiveUpdates={false}
+      />,
+    );
+
+    expect(screen.queryByRole("heading", { name: "カードの更新" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "話し合う項目" })).not.toBeNull();
+    expect(screen.getByText("改修案を決める")).not.toBeNull();
+  });
+
+  it("hides the pre-analysis empty state when showLiveUpdates is false and no live analysis has arrived yet", () => {
+    render(<MeetingAssistantPanel insights={[]} speakerSummaries={[]} showLiveUpdates={false} />);
+
+    expect(screen.queryByText("ライブ分析を待っています")).toBeNull();
+  });
+
+  it("rebuilds LiveUpdateBatch[] from liveHistory as per-version diffs, newest batch first", () => {
+    const v1Items = [item("todo-1", "todo", "open")];
+    const v2Items = [item("todo-1", "todo", "open"), item("risk-1", "risk", "open")];
+    const liveHistory: MeetingAIAnalysis[] = [
+      {
+        analysisType: "live",
+        status: "completed",
+        version: 1,
+        updatedAtUtc: "2026-07-23T00:00:01Z",
+        payload: { items: v1Items, tree: { nodes: [], edges: [] } },
+      },
+      {
+        analysisType: "live",
+        status: "completed",
+        version: 2,
+        updatedAtUtc: "2026-07-23T00:00:02Z",
+        payload: { items: v2Items, tree: { nodes: [], edges: [] } },
+      },
+    ];
+
+    const batches = buildLiveCardUpdateHistoryFromLiveHistory(liveHistory, new Map());
+
+    expect(batches).toHaveLength(2);
+    // 最新版(version 2)が先頭。前版(version 1)との差分なので risk-1 のみ追加扱い。
+    expect(batches[0].updatedAtUtc).toBe("2026-07-23T00:00:02Z");
+    expect(batches[0].changes).toHaveLength(1);
+    expect(batches[0].changes[0]).toMatchObject({ itemId: "risk-1", action: "added" });
+    // 先頭版(version 1)は直前版が無いので空配列との差分 = 全件追加扱い。
+    expect(batches[1].updatedAtUtc).toBe("2026-07-23T00:00:01Z");
+    expect(batches[1].changes).toHaveLength(1);
+    expect(batches[1].changes[0]).toMatchObject({ itemId: "todo-1", action: "added" });
+  });
+
+  it("shows the card-update section when showLiveUpdates is false but liveHistory has completed versions", () => {
+    const liveHistory: MeetingAIAnalysis[] = [
+      {
+        analysisType: "live",
+        status: "completed",
+        version: 1,
+        payload: { items: [item("todo-1", "todo", "open")], tree: { nodes: [], edges: [] } },
+      },
+    ];
+    const liveAnalysis = liveHistory[0];
+
+    render(
+      <MeetingAssistantPanel
+        insights={[]}
+        speakerSummaries={[]}
+        liveAnalysis={liveAnalysis}
+        liveHistory={liveHistory}
+        showLiveUpdates={false}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "カードの更新" })).not.toBeNull();
+    expect(screen.getByText("todo-1")).not.toBeNull();
+    expect(screen.getByText("追加")).not.toBeNull();
   });
 });

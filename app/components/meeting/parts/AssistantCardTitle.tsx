@@ -24,7 +24,7 @@ export function truncateCardTitle(value: string, maxGraphemes = 42): string {
 export function AssistantCardTitle({ title }: { title: string }) {
   return (
     <h2
-      className="line-clamp-2 text-[13px] font-bold leading-5"
+      className="line-clamp-2 text-[14px] font-bold leading-5.5"
       style={{ color: "var(--text-main)" }}
       title={title}
       aria-label={title}

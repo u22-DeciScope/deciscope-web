@@ -69,6 +69,7 @@ export default function MeetingSummary() {
   const [finalAnalysis, setFinalAnalysis] = useState<MeetingAIAnalysis | null>(null);
   const [finalAnalysisPending, setFinalAnalysisPending] = useState(false);
   const [liveAnalysis, setLiveAnalysis] = useState<MeetingAIAnalysis | null>(null);
+  const [liveHistory, setLiveHistory] = useState<MeetingAIAnalysis[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [finalAnalysisError, setFinalAnalysisError] = useState<string | null>(null);
 
@@ -89,6 +90,7 @@ export default function MeetingSummary() {
     setFinalAnalysis(null);
     setFinalAnalysisPending(false);
     setLiveAnalysis(null);
+    setLiveHistory([]);
     setFinalAnalysisError(null);
     if (id.startsWith("session_")) {
       getWorkspaceMeetingSession(workspaceId, id)
@@ -161,6 +163,7 @@ export default function MeetingSummary() {
         setFinalAnalysisError(null);
         setFinalAnalysis(analyses.final);
         setLiveAnalysis(analyses.live);
+        setLiveHistory(analyses.liveHistory);
         setTreeSnapshot(analyses.treeSnapshot);
         if (analyses.final?.status === "running") {
           // running の間は打ち切らず、完了/失敗になるまでポーリングし続ける。
@@ -323,6 +326,10 @@ export default function MeetingSummary() {
             segments={transcriptSegments}
             tree={effectiveTree}
             analysisItems={effectiveAnalysisItems}
+            liveAnalysis={liveAnalysis}
+            liveHistory={liveHistory}
+            workspaceId={workspaceId}
+            sessionId={id}
           />
         </>
       ) : (        <>
