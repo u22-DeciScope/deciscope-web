@@ -198,20 +198,20 @@ export function AgendaProgressSection({
   const hasDynamicSection = dynamicEntries.length > 0;
 
   return (
-    <section aria-label="アジェンダ進捗" className="space-y-2">
+    <section aria-label="アジェンダ進捗" className="space-y-6">
       <AgendaStatusLine meta={meta} connectionStatus={connectionStatus} />
       {hasFixedSection && (
         <div data-testid="fixed-agenda-section">
-          <div className="mb-2 flex items-center gap-2 px-0.5">
-            <span className="h-4 w-0.5 rounded-full" style={{ background: "var(--brand)" }} />
+          <div className="mb-3 flex items-center gap-2 px-0.5">
+            <span className="h-5 w-1 rounded-full" style={{ background: "var(--brand)" }} />
             <h2
-              className="text-[14px] font-bold tracking-[0.01em]"
+              className="text-[16px] font-extrabold leading-5 tracking-[0.01em]"
               style={{ color: "var(--text-main)" }}
             >
               話し合う項目
             </h2>
           </div>
-          <ul className="space-y-1.5">
+          <ul className="space-y-2">
             {fixedEntries.map((entry) => (
               <AgendaEntryRow
                 key={entry.id}
@@ -230,16 +230,16 @@ export function AgendaProgressSection({
       )}
       {hasDynamicSection && (
         <div data-testid="dynamic-agenda-section">
-          <div className="mb-2 flex items-center gap-2 px-0.5">
-            <span className="h-4 w-0.5 rounded-full" style={{ background: "var(--brand)" }} />
+          <div className="mb-3 flex items-center gap-2 px-0.5">
+            <span className="h-5 w-1 rounded-full" style={{ background: "var(--brand)" }} />
             <h2
-              className="text-[14px] font-bold tracking-[0.01em]"
+              className="text-[16px] font-extrabold leading-5 tracking-[0.01em]"
               style={{ color: "var(--text-main)" }}
             >
               会議中に追加された論点
             </h2>
           </div>
-          <ul className="space-y-1.5">
+          <ul className="space-y-2">
             {dynamicEntries.map((entry) => (
               <AgendaEntryRow
                 key={entry.id}
@@ -341,7 +341,7 @@ function AgendaEntryRow({
             onEntryClick(entry);
           }
         }}
-        className={`${linkable ? "cursor-pointer" : "cursor-default"} rounded-(--ds-radius-control) border px-2.5 py-2`}
+        className={`${linkable ? "cursor-pointer" : "cursor-default"} rounded-(--ds-radius-control) border px-3 py-2.5`}
         style={{
           background: isCurrent
             ? "color-mix(in srgb, var(--brand) 8%, var(--ds-surface))"
@@ -400,7 +400,7 @@ function AgendaEntryRow({
           </div>
         )}
         <div
-          className="mt-1 flex items-center gap-1.5 text-[11px]"
+          className="mt-1.5 flex items-center gap-1.5 text-[12px] leading-4"
           style={{ color: "var(--text-sub)" }}
         >
           <span className="truncate">
@@ -620,7 +620,10 @@ function AgendaStatusLine({
   }
 
   return (
-    <p className="text-[11px] leading-4" style={{ color: "var(--text-sub)" }}>
+    <p
+      className="rounded-(--ds-radius-control) px-2.5 py-1.5 text-[12px] font-medium leading-4"
+      style={{ background: "var(--ds-surface-muted)", color: "var(--text-sub)" }}
+    >
       {agendaStatusLineText(effectiveMeta, connectionStatus, nowMs)}
     </p>
   );

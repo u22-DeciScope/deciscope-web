@@ -69,6 +69,22 @@ export function analysisKindColor(kind?: string | null): AnalysisKindColor {
   );
 }
 
+export type AnalysisKindNodeSurfaceColor = AnalysisKindColor & {
+  background: string;
+  borderColor: string;
+};
+
+// 議論ツリーのノード本体と、そのノードへ遷移できるUIで共通利用する面の配色。
+// 種別色をそのまま全面に敷くとバッジが埋もれるため、ノード背景色と混ぜた薄いトーンにする。
+export function analysisKindNodeSurfaceColor(kind?: string | null): AnalysisKindNodeSurfaceColor {
+  const color = analysisKindColor(kind);
+  return {
+    ...color,
+    background: `color-mix(in srgb, ${color.bg} 55%, var(--node-bg))`,
+    borderColor: `color-mix(in srgb, ${color.fg} 35%, transparent)`,
+  };
+}
+
 // 種別(kind)の日本語表示ラベル。AIアシスタントパネルのカードで定義されていた
 // 表記(旧 insightKindLabels)を正として一元化し、議論ツリー側(タグ・ノード・
 // 関連チップ)で英語のkindがそのまま表示されていた不整合を解消する。

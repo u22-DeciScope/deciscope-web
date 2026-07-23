@@ -358,6 +358,7 @@ export default function Meeting() {
       {endOverlayMode && (
         <MeetingEndedModal
           mode={endOverlayMode}
+          progressStage={sessionId ? endFlow.progressStage : "transcript"}
           onGoHome={() => navigate(meetingsPath)}
           onGoSummary={() => navigate(summaryPath)}
         />

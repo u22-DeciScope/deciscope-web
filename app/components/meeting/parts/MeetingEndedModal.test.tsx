@@ -9,8 +9,44 @@ describe("MeetingEndedModal", () => {
 
     expect(screen.getByRole("heading", { name: "会議を終了しています" })).not.toBeNull();
     expect(screen.getByRole("progressbar", { name: "会議の終了処理中" })).not.toBeNull();
+    expect(
+      screen.getByText("文字起こしを確定中…").closest("li")?.getAttribute("aria-current"),
+    ).toBe("step");
+    expect(screen.getByText("議論ツリーを整理します")).not.toBeNull();
+    expect(screen.getByText("会議レポートを作成します")).not.toBeNull();
     expect(screen.queryByRole("button", { name: "メイン画面へ戻る" })).toBeNull();
     expect(screen.queryByRole("button", { name: "会議詳細を見る" })).toBeNull();
+  });
+
+  it("reflects the actual tree and report finalization stages", () => {
+    const view = render(
+      <MeetingEndedModal
+        mode="ending"
+        progressStage="tree"
+        onGoHome={vi.fn()}
+        onGoSummary={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("文字起こしを確定しました")).not.toBeNull();
+    expect(
+      screen.getByText("議論ツリーを整理中…").closest("li")?.getAttribute("aria-current"),
+    ).toBe("step");
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("66");
+
+    view.rerender(
+      <MeetingEndedModal
+        mode="ending"
+        progressStage="report"
+        onGoHome={vi.fn()}
+        onGoSummary={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("議論ツリーを整理しました")).not.toBeNull();
+    expect(
+      screen.getByText("会議レポートを作成中…").closest("li")?.getAttribute("aria-current"),
+    ).toBe("step");
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("90");
   });
 
   it("shows navigation actions after the meeting has ended", () => {

@@ -1,16 +1,22 @@
+import { HiCheck } from "react-icons/hi2";
+
 import { DsButton } from "~/components/DsButton";
 import { AppModalFrame } from "~/components/shared/modal/AppModalFrame";
+import type { MeetingEndProgressStage } from "~/hooks/useMeetingEndFlow";
 
 export function MeetingEndedModal({
   mode,
+  progressStage = "transcript",
   onGoHome,
   onGoSummary,
 }: {
   mode: "ending" | "ended";
+  progressStage?: MeetingEndProgressStage;
   onGoHome: () => void;
   onGoSummary: () => void;
 }) {
   const ending = mode === "ending";
+  const activeProgressIndex = endingProgressSteps.findIndex((step) => step.id === progressStage);
 
   return (
     <AppModalFrame
@@ -43,16 +49,69 @@ export function MeetingEndedModal({
         </div>
 
         {ending ? (
-          <div
-            className="h-1.5 overflow-hidden rounded-full"
-            role="progressbar"
-            aria-label="会議の終了処理中"
-            style={{ background: "var(--input-bg)" }}
-          >
+          <div className="space-y-4">
+            <ol className="space-y-2" aria-label="会議の終了処理">
+              {endingProgressSteps.map((step, index) => {
+                const completed = index < activeProgressIndex;
+                const current = index === activeProgressIndex;
+                return (
+                  <li
+                    key={step.id}
+                    aria-current={current ? "step" : undefined}
+                    data-progress-state={completed ? "completed" : current ? "current" : "pending"}
+                    className="flex items-center gap-3 rounded-(--ds-radius-control) px-3 py-2.5"
+                    style={{
+                      background: current
+                        ? "color-mix(in srgb, var(--brand) 9%, var(--ds-surface))"
+                        : "var(--ds-surface-muted)",
+                      color: current || completed ? "var(--text-main)" : "var(--text-muted)",
+                    }}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={[
+                        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
+                        current ? "animate-pulse" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      style={{
+                        background:
+                          current || completed ? "var(--brand)" : "var(--ds-surface-raised)",
+                        color: current || completed ? "white" : "var(--text-muted)",
+                        border: completed || current ? "none" : "1px solid var(--ds-border)",
+                      }}
+                    >
+                      {completed ? <HiCheck className="h-4 w-4" /> : index + 1}
+                    </span>
+                    <span className="text-[13px] font-semibold">
+                      {completed
+                        ? `${step.label}しました`
+                        : current
+                          ? `${step.label}中…`
+                          : `${step.label}します`}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
             <div
-              className="ds-progress-indeterminate h-full w-2/5 rounded-full"
-              style={{ background: "var(--brand)" }}
-            />
+              className="h-1.5 overflow-hidden rounded-full"
+              role="progressbar"
+              aria-label="会議の終了処理中"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={[33, 66, 90][activeProgressIndex] ?? 33}
+              style={{ background: "var(--input-bg)" }}
+            >
+              <div
+                className="h-full rounded-full transition-[width] duration-500"
+                style={{
+                  background: "var(--brand)",
+                  width: `${[33, 66, 90][activeProgressIndex] ?? 33}%`,
+                }}
+              />
+            </div>
           </div>
         ) : (
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -68,3 +127,9 @@ export function MeetingEndedModal({
     </AppModalFrame>
   );
 }
+
+const endingProgressSteps: Array<{ id: MeetingEndProgressStage; label: string }> = [
+  { id: "transcript", label: "文字起こしを確定" },
+  { id: "tree", label: "議論ツリーを整理" },
+  { id: "report", label: "会議レポートを作成" },
+];

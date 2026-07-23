@@ -127,8 +127,11 @@ describe("AgendaProgressSection", () => {
     };
     const { rerender } = renderSection({ progress });
 
-    expect(screen.getByRole("heading", { name: "話し合う項目" })).not.toBeNull();
-    expect(screen.getByRole("heading", { name: "会議中に追加された論点" })).not.toBeNull();
+    const fixedHeading = screen.getByRole("heading", { name: "話し合う項目" });
+    const dynamicHeading = screen.getByRole("heading", { name: "会議中に追加された論点" });
+    expect(fixedHeading.className).toContain("text-[16px]");
+    expect(dynamicHeading.className).toContain("text-[16px]");
+    expect(screen.getByRole("region", { name: "アジェンダ進捗" }).className).toContain("space-y-6");
     expect(screen.getByText("急遽出た話題")).not.toBeNull();
     expect(screen.getByText("もう一つの話題")).not.toBeNull();
 

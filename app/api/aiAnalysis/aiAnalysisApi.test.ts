@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   normalizeAIAnalysis,
   normalizeAgendaProgress,
+  normalizeFinalizationAnalysis,
   type LiveAnalysisPayload,
 } from "./aiAnalysisApi";
 
@@ -436,5 +437,46 @@ describe("agendaProgress normalization", () => {
     });
 
     expect((analysis?.payload as LiveAnalysisPayload).agendaProgress).toBeUndefined();
+  });
+});
+
+describe("finalization progress normalization", () => {
+  it("keeps the durable backend stage used by the ending dialog", () => {
+    expect(
+      normalizeFinalizationAnalysis({
+        analysisType: "finalization",
+        status: "running",
+        version: 2,
+        updatedAtUtc: "2026-07-23T10:00:00Z",
+        payload: {
+          finalizationId: "finalization-1",
+          stage: "tree_saved",
+          pendingSegmentCount: 0,
+          finalizationIncomplete: false,
+        },
+      }),
+    ).toEqual({
+      analysisType: "finalization",
+      status: "running",
+      version: 2,
+      updatedAtUtc: "2026-07-23T10:00:00Z",
+      payload: {
+        finalizationId: "finalization-1",
+        stage: "tree_saved",
+        pendingSegmentCount: 0,
+        finalizationIncomplete: false,
+      },
+    });
+  });
+
+  it("rejects a missing stage instead of inventing progress", () => {
+    expect(
+      normalizeFinalizationAnalysis({
+        analysisType: "finalization",
+        status: "running",
+        version: 1,
+        payload: {},
+      }),
+    ).toBeNull();
   });
 });

@@ -190,6 +190,7 @@ describe("MeetingAssistantPanel item filters", () => {
   });
 
   it("renders card updates as cards without the removed topic or key points sections", async () => {
+    const onFocus = vi.fn();
     const liveAnalysis: MeetingAIAnalysis = {
       analysisType: "live",
       status: "completed",
@@ -198,26 +199,114 @@ describe("MeetingAssistantPanel item filters", () => {
         currentTopic: "次回リリースの範囲",
         summary: "対象機能を絞る。公開日を確認する。",
         items: [item("todo-1", "todo", "open")],
-        tree: { nodes: [], edges: [] },
+        tree: {
+          nodes: [
+            { id: "root", kind: "topic", label: "会議" },
+            { id: "todo-1", kind: "todo", parentId: "root", label: "todo-1" },
+          ],
+          edges: [],
+        },
       },
     };
 
     render(
-      <MeetingAssistantPanel insights={[]} speakerSummaries={[]} liveAnalysis={liveAnalysis} />,
+      <MeetingAssistantPanel
+        insights={[]}
+        speakerSummaries={[]}
+        liveAnalysis={liveAnalysis}
+        onFocusTreeItem={onFocus}
+      />,
     );
 
     expect(screen.queryByRole("heading", { name: "トピック" })).toBeNull();
     expect(screen.queryByText("次回リリースの範囲")).toBeNull();
-    expect(screen.getByRole("heading", { name: "カードの更新" })).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "カードの更新" }).className).toContain(
+      "text-[16px]",
+    );
     expect(await screen.findByText("追加")).not.toBeNull();
     const updateCard = screen.getByText("todo-1").closest("article");
     expect(updateCard).not.toBeNull();
     expect(updateCard?.className).toContain("rounded-(--ds-radius-control)");
+    expect(updateCard?.getAttribute("data-node-kind")).toBe("todo");
+    expect(updateCard?.style.background).toBe(
+      "color-mix(in srgb, var(--badge-action-bg) 55%, var(--node-bg))",
+    );
+    expect(updateCard?.style.borderColor).toBe(
+      "color-mix(in srgb, var(--badge-action-fg) 35%, transparent)",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "議論ツリーで「todo-1」を表示" }));
+    expect(onFocus).toHaveBeenCalledWith("todo-1");
     expect(screen.queryByRole("heading", { name: "要点" })).toBeNull();
     expect(screen.queryByText("対象機能を絞る")).toBeNull();
     expect(screen.queryByText("公開日を確認する")).toBeNull();
     expect(screen.queryByText("進行中")).toBeNull();
     expect(screen.queryByText("論点・リスク・次の一手")).toBeNull();
+  });
+
+  it("uses the matching discussion-node color for focusable issue updates", async () => {
+    const issue = item("issue-1", "issue", "open");
+    const liveAnalysis: MeetingAIAnalysis = {
+      analysisType: "live",
+      status: "completed",
+      version: 1,
+      payload: {
+        items: [issue],
+        tree: {
+          nodes: [
+            { id: "root", kind: "topic", label: "会議" },
+            { id: issue.id, kind: "issue", parentId: "root", label: issue.title },
+          ],
+          edges: [],
+        },
+      },
+    };
+
+    render(
+      <MeetingAssistantPanel
+        insights={[]}
+        speakerSummaries={[]}
+        liveAnalysis={liveAnalysis}
+        onFocusTreeItem={() => undefined}
+      />,
+    );
+
+    const updateCard = await screen.findByRole("button", {
+      name: `議論ツリーで「${issue.title}」を表示`,
+    });
+    expect(updateCard.getAttribute("data-node-kind")).toBe("issue");
+    expect(updateCard.style.background).toBe(
+      "color-mix(in srgb, var(--tag-idea-bg) 55%, var(--node-bg))",
+    );
+    expect(updateCard.style.borderColor).toBe(
+      "color-mix(in srgb, var(--tag-idea-fg) 35%, transparent)",
+    );
+    expect(updateCard.style.outlineColor).toBe("var(--tag-idea-fg)");
+    expect(within(updateCard).queryByText("ツリーで表示")).toBeNull();
+  });
+
+  it("labels cards that left the latest analysis as excluded from analysis", async () => {
+    const removedItem = item("issue-removed", "issue", "open");
+    const analysis = (version: number, items: AnalysisItem[]): MeetingAIAnalysis => ({
+      analysisType: "live",
+      status: "completed",
+      version,
+      payload: { items, tree: { nodes: [], edges: [] } },
+    });
+    const view = render(
+      <MeetingAssistantPanel
+        insights={[]}
+        speakerSummaries={[]}
+        liveAnalysis={analysis(1, [removedItem])}
+      />,
+    );
+
+    expect(await screen.findByText(removedItem.title)).not.toBeNull();
+    view.rerender(
+      <MeetingAssistantPanel insights={[]} speakerSummaries={[]} liveAnalysis={analysis(2, [])} />,
+    );
+
+    expect(await screen.findByText("分析対象外")).not.toBeNull();
+    expect(screen.queryByText("非表示")).toBeNull();
   });
 
   it("shows elapsed time, human-readable agenda names, and card field changes", async () => {

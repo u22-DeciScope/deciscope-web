@@ -12,6 +12,22 @@ export type MeetingAIAnalysisStatus = "running" | "completed" | "failed";
 export type MeetingAIAnalysisImportance = "high" | "medium" | "low";
 export type LiveTreePayloadState = "omitted" | "null" | "empty" | "snapshot" | "invalid";
 
+export type MeetingFinalizationProgressPayload = {
+  stage: string;
+  finalizationId?: string;
+  pendingSegmentCount?: number;
+  finalizationIncomplete?: boolean;
+};
+
+export type MeetingFinalizationAnalysis = {
+  analysisType: "finalization";
+  status: MeetingAIAnalysisStatus;
+  version: number;
+  payload: MeetingFinalizationProgressPayload;
+  updatedAtUtc?: string;
+  error?: string;
+};
+
 // ライブ分析payload v2。items/treeは既存の analysis.delta / tree.update の語彙
 // (AnalysisItem / TreeUpdatePayload)と互換の形に正規化して保持する。
 // 旧v1形式(decisions/actionItems/openQuestions/concerns/nextChecks)は
@@ -166,6 +182,9 @@ export type MeetingAIAnalyses = {
   sessionId: string;
   live: MeetingAIAnalysis | null;
   final: MeetingAIAnalysis | null;
+  // 終了処理の実段階。バックエンドが文字起こし確定・ツリー整理・
+  // レポート生成の節目ごとに更新するdurableな進捗を保持する。
+  finalization?: MeetingFinalizationAnalysis | null;
   // 会議終了時に保存されたdurableツリースナップショット(未保存ならnull)。
   treeSnapshot: TreeSnapshotPayload | null;
   // GETレスポンスのトップレベルに載るlive分析の更新間隔(秒)。
@@ -271,6 +290,7 @@ function normalizeAIAnalyses(value: unknown, fallbackSessionId: string): Meeting
       sessionId: fallbackSessionId,
       live: null,
       final: null,
+      finalization: null,
       treeSnapshot: null,
       liveHistory: [],
     };
@@ -285,9 +305,47 @@ function normalizeAIAnalyses(value: unknown, fallbackSessionId: string): Meeting
     sessionId,
     live: normalizeAIAnalysis(source.live),
     final: normalizeAIAnalysis(source.final),
+    finalization: normalizeFinalizationAnalysis(source.finalization),
     treeSnapshot: normalizeTreeSnapshot(source.tree),
     ...(liveIntervalSeconds !== undefined ? { liveIntervalSeconds } : {}),
     liveHistory: normalizeAIAnalysisList(source.liveHistory),
+  };
+}
+
+export function normalizeFinalizationAnalysis(value: unknown): MeetingFinalizationAnalysis | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const source = value as Record<string, unknown>;
+  if (source.analysisType !== "finalization" || !isMeetingAIAnalysisStatus(source.status)) {
+    return null;
+  }
+  if (!source.payload || typeof source.payload !== "object") {
+    return null;
+  }
+  const payloadSource = source.payload as Record<string, unknown>;
+  const stage = optionalString(payloadSource.stage)?.trim();
+  if (!stage) {
+    return null;
+  }
+  const finalizationId = optionalString(payloadSource.finalizationId)?.trim();
+  const pendingSegmentCount = optionalNumber(payloadSource.pendingSegmentCount);
+  const updatedAtUtc = optionalString(source.updatedAtUtc) ?? optionalString(source.updated_at_utc);
+  const error = optionalString(source.error)?.trim();
+  return {
+    analysisType: "finalization",
+    status: source.status,
+    version: optionalNumber(source.version) ?? 0,
+    payload: {
+      stage,
+      ...(finalizationId ? { finalizationId } : {}),
+      ...(pendingSegmentCount !== undefined ? { pendingSegmentCount } : {}),
+      ...(typeof payloadSource.finalizationIncomplete === "boolean"
+        ? { finalizationIncomplete: payloadSource.finalizationIncomplete }
+        : {}),
+    },
+    ...(updatedAtUtc ? { updatedAtUtc } : {}),
+    ...(error ? { error } : {}),
   };
 }
 

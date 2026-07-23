@@ -24,6 +24,7 @@ import { AgendaProgressSection } from "~/components/meeting/parts/AgendaProgress
 import {
   analysisKindColor,
   analysisKindLabel,
+  analysisKindNodeSurfaceColor,
   dimmedColor,
   issueSubtypeLabel,
   resolvedBadgeColor,
@@ -200,6 +201,13 @@ export function MeetingAssistantPanel({
       ),
     [livePayload, treeNodes],
   );
+  const treeNodeIds = useMemo(
+    () =>
+      new Set(
+        [...treeNodes, ...(livePayload?.tree?.nodes ?? [])].map((node) => node.id).filter(Boolean),
+      ),
+    [livePayload, treeNodes],
+  );
   const liveUpdateHistory = useLiveCardUpdateHistory(liveAnalysis, livePayload, agendaLabels);
   // /summary(会議終了後のレビュー画面)向け: liveHistory から「カードの更新」を再構築する。
   // 会議中の liveUpdateHistory(WSの逐次更新の蓄積)とは別経路で、showLiveUpdates=false
@@ -298,7 +306,7 @@ export function MeetingAssistantPanel({
       data-resolved-tab-items={resolvedTabItemCount}
     >
       <header
-        className="flex min-h-11 shrink-0 items-center border-b px-3 py-1"
+        className="flex min-h-12 shrink-0 items-center border-b px-3.5 py-1.5"
         style={{ borderColor: "var(--node-border)" }}
       >
         <span
@@ -308,7 +316,7 @@ export function MeetingAssistantPanel({
           <HiSparkles className="h-3.5 w-3.5" />
         </span>
         <div className="ml-2 min-w-0 flex-1">
-          <p className="text-[13px] font-bold" style={{ color: "var(--text-main)" }}>
+          <p className="text-[14px] font-bold" style={{ color: "var(--text-main)" }}>
             AI アシスタント
           </p>
         </div>
@@ -322,7 +330,7 @@ export function MeetingAssistantPanel({
       </header>
 
       <div
-        className="grid h-9 w-full shrink-0 items-center gap-0.5 border-b px-1.5"
+        className="grid h-10 w-full shrink-0 items-center gap-1 border-b px-2"
         style={{
           borderColor: "var(--node-border)",
           gridTemplateColumns: `repeat(${visibleFilterTabs.length}, minmax(0, 1fr))`,
@@ -332,10 +340,14 @@ export function MeetingAssistantPanel({
           <button
             key={tab.key}
             type="button"
-            className="min-w-0 whitespace-nowrap rounded-md px-1 py-1 text-center text-[11px] font-semibold"
+            className="min-w-0 whitespace-nowrap rounded-md px-1 py-1.5 text-center text-[12px] font-semibold"
             style={
               tab.key === filter
-                ? { background: "var(--chat-other-bg)", color: "var(--brand)" }
+                ? {
+                    background: "var(--brand-light)",
+                    color: "var(--brand)",
+                    boxShadow: "inset 0 0 0 1px color-mix(in srgb, var(--brand) 18%, transparent)",
+                  }
                 : { color: "var(--text-sub)" }
             }
             onClick={() => {
@@ -352,7 +364,8 @@ export function MeetingAssistantPanel({
 
       <div
         className={[
-          "min-h-0 flex-1 space-y-2.5 overflow-y-auto p-2.5",
+          "min-h-0 flex-1 overflow-y-auto p-3",
+          liveTabActive ? "space-y-6" : "space-y-3",
           liveUpdateHistoryExpanded ? "pb-16" : "",
         ]
           .filter(Boolean)
@@ -394,6 +407,8 @@ export function MeetingAssistantPanel({
               momentIndex={momentIndex}
               expanded={liveUpdateHistoryExpanded}
               onExpandedChange={setLiveUpdateHistoryExpanded}
+              treeNodeIds={treeNodeIds}
+              onFocusTreeItem={onFocusTreeItem}
             />
           ) : showLiveUpdates ? (
             <EmptyAssistantState
@@ -902,12 +917,16 @@ function LiveCardUpdateHistory({
   momentIndex,
   expanded,
   onExpandedChange,
+  treeNodeIds,
+  onFocusTreeItem,
 }: {
   batches: LiveUpdateBatch[];
   agendaLabels: Map<string, string>;
   momentIndex: MeetingMomentIndex;
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
+  treeNodeIds: ReadonlySet<string>;
+  onFocusTreeItem?: (itemId: string) => void;
 }) {
   const changes = useMemo(() => flattenLiveCardUpdateHistory(batches), [batches]);
 
@@ -938,6 +957,8 @@ function LiveCardUpdateHistory({
               change={change}
               agendaLabels={agendaLabels}
               momentIndex={momentIndex}
+              focusable={change.action !== "removed" && treeNodeIds.has(change.itemId)}
+              onFocusTreeItem={onFocusTreeItem}
             />
           </li>
         ))}
@@ -965,18 +986,54 @@ function LiveCardChangeCard({
   change,
   agendaLabels,
   momentIndex,
+  focusable,
+  onFocusTreeItem,
 }: {
   change: LiveCardChange;
   agendaLabels: Map<string, string>;
   momentIndex: MeetingMomentIndex;
+  focusable: boolean;
+  onFocusTreeItem?: (itemId: string) => void;
 }) {
   const momentLabel = analysisItemMomentLabel(change.item, momentIndex);
+  const canFocus = focusable && Boolean(onFocusTreeItem);
+  const nodeSurface = analysisKindNodeSurfaceColor(change.item.kind);
+  const resolvedNode = change.item.status === "resolved";
+  const synchronizedBackground = resolvedNode
+    ? dimmedColor(nodeSurface.background, 45)
+    : nodeSurface.background;
+  const synchronizedBorder = resolvedNode
+    ? dimmedColor(nodeSurface.borderColor, 45)
+    : nodeSurface.borderColor;
   return (
     <article
-      className="rounded-(--ds-radius-control) border p-2.5"
-      style={{ background: "var(--ds-surface-muted)", borderColor: "var(--ds-border)" }}
+      role={canFocus ? "button" : undefined}
+      tabIndex={canFocus ? 0 : undefined}
+      aria-label={canFocus ? `議論ツリーで「${change.title}」を表示` : undefined}
+      data-tree-focusable={canFocus ? "true" : "false"}
+      data-node-kind={canFocus ? change.item.kind : undefined}
+      className={[
+        "rounded-(--ds-radius-control) border p-3 text-left transition-[box-shadow,background-color]",
+        canFocus ? "cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      style={{
+        background: canFocus ? synchronizedBackground : "var(--ds-surface-raised)",
+        borderColor: canFocus ? synchronizedBorder : "var(--ds-border)",
+        borderStyle: canFocus && resolvedNode ? "dashed" : undefined,
+        outlineColor: canFocus ? nodeSurface.fg : undefined,
+      }}
+      title={canFocus ? "クリックして議論ツリーの該当ノードを表示" : undefined}
+      onClick={canFocus ? () => onFocusTreeItem?.(change.itemId) : undefined}
+      onKeyDown={(event) => {
+        if (canFocus && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          onFocusTreeItem?.(change.itemId);
+        }
+      }}
     >
-      <div className="flex items-center gap-1.5 text-[12px]">
+      <div className="flex items-center gap-2 text-[13px]">
         <span
           className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold"
           style={updateActionStyle(change.action)}
@@ -990,14 +1047,14 @@ function LiveCardChangeCard({
           {humanizeAgendaReferences(change.title, agendaLabels)}
         </span>
         {momentLabel && (
-          <time className="shrink-0 text-[10px]" style={{ color: "var(--text-sub)" }}>
+          <time className="shrink-0 text-[11px]" style={{ color: "var(--text-sub)" }}>
             {momentLabel}
           </time>
         )}
       </div>
       {change.fields.length > 0 && (
         <ul
-          className="mt-1.5 space-y-1 pl-2 text-[11px] leading-4.5"
+          className="mt-2 space-y-1.5 pl-2 text-[12px] leading-5"
           style={{ color: "var(--text-sub)" }}
         >
           {change.fields.map((field) => (
@@ -1015,7 +1072,7 @@ function LiveCardChangeCard({
 }
 
 function updateActionLabel(action: LiveCardChange["action"]) {
-  return action === "added" ? "追加" : action === "removed" ? "非表示" : "更新";
+  return action === "added" ? "追加" : action === "removed" ? "分析対象外" : "更新";
 }
 
 function updateActionStyle(action: LiveCardChange["action"]): React.CSSProperties {
@@ -1036,6 +1093,8 @@ function LiveAnalysisOverview({
   momentIndex,
   expanded,
   onExpandedChange,
+  treeNodeIds,
+  onFocusTreeItem,
 }: {
   liveAnalysis: MeetingAIAnalysis;
   updateHistory: LiveUpdateBatch[];
@@ -1043,19 +1102,26 @@ function LiveAnalysisOverview({
   momentIndex: MeetingMomentIndex;
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
+  treeNodeIds: ReadonlySet<string>;
+  onFocusTreeItem?: (itemId: string) => void;
 }) {
   return (
-    <section aria-labelledby="live-analysis-card-updates">
-      <div className="mb-2 flex items-center justify-between gap-2 px-0.5">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="h-4 w-0.5 rounded-full" style={{ background: "var(--brand)" }} />
-          <h2
-            id="live-analysis-card-updates"
-            className="text-[14px] font-bold tracking-[0.01em]"
-            style={{ color: "var(--text-main)" }}
-          >
-            カードの更新
-          </h2>
+    <section aria-labelledby="live-analysis-card-updates" className="pt-1">
+      <div className="mb-3 flex items-start justify-between gap-2 px-0.5">
+        <div className="flex min-w-0 items-start gap-2">
+          <span className="mt-0.5 h-5 w-1 rounded-full" style={{ background: "var(--brand)" }} />
+          <div>
+            <h2
+              id="live-analysis-card-updates"
+              className="text-[16px] font-extrabold leading-5 tracking-[0.01em]"
+              style={{ color: "var(--text-main)" }}
+            >
+              カードの更新
+            </h2>
+            <p className="mt-0.5 text-[11px] leading-4" style={{ color: "var(--text-sub)" }}>
+              最近の追加・変更・分析対象外を新しい順で表示
+            </p>
+          </div>
         </div>
         <div className="min-w-0 shrink">
           <LiveAnalysisStatus liveAnalysis={liveAnalysis} />
@@ -1067,6 +1133,8 @@ function LiveAnalysisOverview({
         momentIndex={momentIndex}
         expanded={expanded}
         onExpandedChange={onExpandedChange}
+        treeNodeIds={treeNodeIds}
+        onFocusTreeItem={onFocusTreeItem}
       />
     </section>
   );
