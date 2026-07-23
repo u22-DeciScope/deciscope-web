@@ -16,5 +16,5 @@ export function meetingStartDebug(
 
 export function isMeetingStartDebugEnabled() {
   const configured = String(import.meta.env.VITE_DECISCOPE_DEBUG_MEETING_START ?? "").toLowerCase();
-  return import.meta.env.DEV || configured === "true" || configured === "1";
+  return configured === "true" || configured === "1";
 }
