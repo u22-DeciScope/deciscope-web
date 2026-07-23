@@ -33,12 +33,10 @@ import { AiFinalSummaryPanel } from "~/components/meeting/summary/AiFinalSummary
 import { MeetingSummaryMain } from "~/components/meeting/summary/MeetingSummaryMain";
 import { MeetingReportShareAction } from "~/components/meeting/summary/MeetingReportShareAction";
 import { MarkdownReportPanel } from "~/components/meeting/summary/MarkdownReportPanel";
-import { PreMeetingContextPanel } from "~/components/meeting/summary/PreMeetingContextPanel";
 import { SessionReviewWorkspace } from "~/components/meeting/summary/SessionReviewWorkspace";
 import { SessionSummaryHeader } from "~/components/meeting/summary/SessionSummaryHeader";
 import { StatusPanel } from "~/components/meeting/summary/StatusPanel";
 import {
-  hasPreMeetingContext,
   summaryFromMeetingSession,
   summaryFromReport,
   transcriptMarkdown,
@@ -301,19 +299,13 @@ export default function MeetingSummary() {
           </div>
 
           {/* 2. 議事録サマリーの2カラムレイアウトエリア */}
-          <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-3 shrink-0 mb-4">
-            {/* 左側メインカラム（幅 2/3）: AI要約と、すべての決定事項・アクション等の結果リスト */}
-            <div className="flex flex-col gap-4 xl:col-span-2">
+          <div className="shrink-0 mb-4">
+            <div className="flex flex-col gap-4">
               <AiFinalSummaryPanel
                 final={finalAnalysis}
                 currentTitle={summary.title}
                 pending={finalAnalysisPending}
               />
-            </div>
-
-            {/* 右側サブカラム（幅 1/3）: 会議前の前提条件・背景・アジェンダ */}
-            <div className="flex flex-col gap-4 xl:col-span-1">
-              {hasPreMeetingContext(session) && <PreMeetingContextPanel session={session} />}
             </div>
           </div>
 
