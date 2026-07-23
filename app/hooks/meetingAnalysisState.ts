@@ -1,5 +1,6 @@
 import type {
   LiveAnalysisPayload,
+  LiveTreePayloadState,
   MeetingAIAnalyses,
   MeetingAIAnalysis,
   TreeSnapshotPayload,
@@ -76,8 +77,22 @@ export function meetingAnalysisReducer(
         },
       };
     case "analysis_event":
+      if (
+        state.sessionId &&
+        action.analysis.sessionId &&
+        action.analysis.sessionId !== state.sessionId
+      ) {
+        return state;
+      }
       return reduceAnalysisEvent(state, action.analysis);
     case "rest_snapshot": {
+      if (
+        state.sessionId &&
+        action.analyses.sessionId &&
+        action.analyses.sessionId !== state.sessionId
+      ) {
+        return state;
+      }
       let next = state;
       if (action.analyses.live) {
         next = reduceAnalysisEvent(next, action.analyses.live);
@@ -85,7 +100,10 @@ export function meetingAnalysisReducer(
       if (action.analyses.final) {
         next = reduceAnalysisEvent(next, action.analyses.final);
       }
-      if (hasCompleteTree(action.analyses.treeSnapshot?.tree)) {
+      if (
+        action.analyses.treeSnapshot &&
+        shouldApplyFinalTreeSnapshot(next, action.analyses.treeSnapshot)
+      ) {
         next = { ...next, finalTreeSnapshot: action.analyses.treeSnapshot };
       }
       return next;
@@ -116,9 +134,13 @@ function reduceAnalysisEvent(
     return state;
   }
   const liveAnalysis = mergeLiveAnalysis(state.liveAnalysis, incoming);
+  const explicitTreeReset =
+    incoming.status === "completed" &&
+    (incoming.payload as LiveAnalysisPayload | null)?.treeReset === true;
   return {
     ...state,
     liveAnalysis,
+    ...(explicitTreeReset ? { finalTreeSnapshot: null } : {}),
     analysisRuntimeStatus: {
       ...state.analysisRuntimeStatus,
       liveVersion: liveAnalysis.version,
@@ -132,7 +154,32 @@ export function shouldReplaceAnalysis(
   current: MeetingAIAnalysis | null,
   incoming: MeetingAIAnalysis | null,
 ) {
-  return Boolean(incoming && (!current || incoming.version >= current.version));
+  if (!incoming) {
+    return false;
+  }
+  if (!current) {
+    return true;
+  }
+  if (incoming.version !== current.version) {
+    return incoming.version > current.version;
+  }
+
+  const currentTreeVersion = liveAnalysisTreeVersion(current);
+  const incomingTreeVersion = liveAnalysisTreeVersion(incoming);
+  if (
+    currentTreeVersion !== null &&
+    incomingTreeVersion !== null &&
+    incomingTreeVersion > currentTreeVersion
+  ) {
+    return true;
+  }
+
+  const currentUpdatedAt = parseAnalysisTime(current.updatedAtUtc);
+  const incomingUpdatedAt = parseAnalysisTime(incoming.updatedAtUtc);
+  if (currentUpdatedAt !== null && incomingUpdatedAt !== null) {
+    return incomingUpdatedAt >= currentUpdatedAt;
+  }
+  return true;
 }
 
 function mergePayload(
@@ -156,30 +203,101 @@ function mergeLiveAnalysis(
   }
   const currentPayload = current.payload as LiveAnalysisPayload | null;
   const incomingPayload = incoming.payload as LiveAnalysisPayload;
+  const currentComplete = hasCompleteTree(currentPayload?.tree);
   const incomingComplete = hasCompleteTree(incomingPayload.tree);
+  const incomingTreeState = liveTreePayloadState(incomingPayload);
+  const explicitTreeReset = incoming.status === "completed" && incomingPayload.treeReset === true;
+  const treeFreshEnough = isIncomingTreeFreshEnough(current, incoming);
   // 完全なtreeでも、明示的な削除理由(removedNodeIds/mergedNodeIds)無しに
   // 既存ノードが大量に消えるpayloadはlast-known-good treeを保持する。
   // 正当なdedup merge・group flatten・削除はサーバーがremovedNodeIdsで
   // 説明するため通常どおり全置換される。
   const preserveCurrentTree =
-    incomingComplete && isUnexplainedTreeCollapse(currentPayload, incomingPayload);
-  const applyIncomingTree = incomingComplete && !preserveCurrentTree;
-  const tree = applyIncomingTree ? incomingPayload.tree : (currentPayload?.tree ?? incomingPayload.tree);
+    currentComplete &&
+    incomingComplete &&
+    incomingTreeState === "snapshot" &&
+    isUnexplainedTreeCollapse(currentPayload, incomingPayload);
+  const applyIncomingTree =
+    incomingComplete &&
+    incomingTreeState === "snapshot" &&
+    treeFreshEnough &&
+    (incoming.status === "completed" || !currentComplete) &&
+    !preserveCurrentTree;
+  const tree = explicitTreeReset
+    ? null
+    : applyIncomingTree
+      ? incomingPayload.tree
+      : (currentPayload?.tree ?? incomingPayload.tree);
   const items =
-    incomingPayload.items.length > 0
+    incoming.status === "completed" && incomingPayload.items.length > 0
       ? incomingPayload.items
       : (currentPayload?.items ?? incomingPayload.items);
+  const isFullSnapshotReplacement =
+    incoming.status === "completed" &&
+    incomingPayload.payloadKind === "full_snapshot" &&
+    incomingTreeState === "snapshot";
+  const payloadBase = isFullSnapshotReplacement
+    ? incomingPayload
+    : { ...currentPayload, ...incomingPayload };
+  const retainedTreeMetadata =
+    !explicitTreeReset && !applyIncomingTree && currentComplete
+      ? {
+          treeVersion: currentPayload?.treeVersion,
+          treeChanges: currentPayload?.treeChanges,
+          payloadKind: currentPayload?.payloadKind,
+          nodeCount: currentPayload?.nodeCount,
+          edgeCount: currentPayload?.edgeCount,
+          removedNodeIds: currentPayload?.removedNodeIds,
+          mergedNodeIds: currentPayload?.mergedNodeIds,
+          treeHash: currentPayload?.treeHash,
+          basedOnTreeVersion: currentPayload?.basedOnTreeVersion,
+          treePayloadState: currentPayload?.treePayloadState,
+          treeReset: currentPayload?.treeReset,
+        }
+      : {};
   return {
     ...incoming,
     payload: {
-      ...incomingPayload,
+      ...payloadBase,
       items,
       tree,
-      ...(!applyIncomingTree && currentPayload?.treeVersion !== undefined
-        ? { treeVersion: currentPayload.treeVersion }
-        : {}),
+      ...retainedTreeMetadata,
     },
   };
+}
+
+function liveTreePayloadState(payload: LiveAnalysisPayload): LiveTreePayloadState {
+  if (payload.treePayloadState) {
+    return payload.treePayloadState;
+  }
+  if (hasCompleteTree(payload.tree)) {
+    return "snapshot";
+  }
+  return payload.tree === null ? "null" : "invalid";
+}
+
+function liveAnalysisTreeVersion(analysis: MeetingAIAnalysis | null): number | null {
+  const payload = analysis?.payload as LiveAnalysisPayload | null;
+  return typeof payload?.treeVersion === "number" ? payload.treeVersion : null;
+}
+
+function isIncomingTreeFreshEnough(
+  current: MeetingAIAnalysis,
+  incoming: MeetingAIAnalysis,
+): boolean {
+  const currentTreeVersion = liveAnalysisTreeVersion(current);
+  const incomingTreeVersion = liveAnalysisTreeVersion(incoming);
+  if (currentTreeVersion !== null && incomingTreeVersion === null) {
+    return false;
+  }
+  if (
+    currentTreeVersion !== null &&
+    incomingTreeVersion !== null &&
+    incomingTreeVersion < currentTreeVersion
+  ) {
+    return false;
+  }
+  return true;
 }
 
 // 「大量削除」とみなす下限。少数ノードの正当な統合(重複merge等)を
@@ -199,7 +317,10 @@ export function unexplainedNodeRemovals(
     return [];
   }
   const incomingIds = new Set((incoming.tree?.nodes ?? []).map((node) => node.id));
-  const explained = new Set([...(incoming.removedNodeIds ?? []), ...(incoming.mergedNodeIds ?? [])]);
+  const explained = new Set([
+    ...(incoming.removedNodeIds ?? []),
+    ...(incoming.mergedNodeIds ?? []),
+  ]);
   return currentNodes
     .map((node) => node.id)
     .filter((id) => !incomingIds.has(id) && !explained.has(id));
@@ -222,9 +343,12 @@ export function isUnexplainedTreeCollapse(
 
 export type LiveTreeApplyDecision =
   | "applied"
+  | "explicit_reset"
   | "ignored_stale"
   | "preserved_incomplete"
   | "preserved_invalid"
+  | "preserved_older_tree"
+  | "preserved_status_only"
   | "no_tree";
 
 // treeApplyDecision はログ・観測用に「このliveイベントのtreeがどう扱われるか」
@@ -240,10 +364,22 @@ export function treeApplyDecision(
   if (!incomingPayload) {
     return "no_tree";
   }
-  if (!hasCompleteTree(incomingPayload.tree)) {
+  if (incoming.status === "completed" && incomingPayload.treeReset === true) {
+    return "explicit_reset";
+  }
+  if (
+    liveTreePayloadState(incomingPayload) !== "snapshot" ||
+    !hasCompleteTree(incomingPayload.tree)
+  ) {
     return "preserved_incomplete";
   }
   const currentPayload = (current?.payload ?? null) as LiveAnalysisPayload | null;
+  if (hasCompleteTree(currentPayload?.tree) && incoming.status !== "completed") {
+    return "preserved_status_only";
+  }
+  if (current && !isIncomingTreeFreshEnough(current, incoming)) {
+    return "preserved_older_tree";
+  }
   if (isUnexplainedTreeCollapse(currentPayload, incomingPayload)) {
     return "preserved_invalid";
   }
@@ -263,17 +399,149 @@ export function hasCompleteTree(tree: LiveAnalysisPayload["tree"] | undefined): 
 }
 
 export function analysisTreeNodeCount(state: MeetingAnalysisState): number {
-  if (hasCompleteTree(state.finalTreeSnapshot?.tree)) {
-    return state.finalTreeSnapshot?.tree?.nodes?.length ?? 0;
-  }
-  const payload = state.liveAnalysis?.payload as LiveAnalysisPayload | null;
-  return payload?.tree?.nodes?.length ?? 0;
+  return selectedAnalysisTree(state).tree?.nodes?.length ?? 0;
 }
 
 export function analysisTreeVersion(state: MeetingAnalysisState): number | null {
-  if (hasCompleteTree(state.finalTreeSnapshot?.tree)) {
-    return state.finalTreeSnapshot?.treeVersion ?? null;
+  return selectedAnalysisTree(state).treeVersion;
+}
+
+export type SelectedAnalysisTree = {
+  source: "live" | "final_snapshot" | null;
+  tree: LiveAnalysisPayload["tree"];
+  treeVersion: number | null;
+  selectionReason:
+    | "no_valid_tree"
+    | "live_only"
+    | "final_snapshot_only"
+    | "newer_live_tree_version"
+    | "newer_final_tree_version"
+    | "same_version_newer_live_timestamp"
+    | "same_version_newer_final_timestamp";
+};
+
+export function selectedAnalysisTree(state: MeetingAnalysisState): SelectedAnalysisTree {
+  const livePayload = state.liveAnalysis?.payload as LiveAnalysisPayload | null;
+  const live = hasCompleteTree(livePayload?.tree)
+    ? {
+        source: "live" as const,
+        tree: livePayload?.tree ?? null,
+        treeVersion: livePayload?.treeVersion ?? null,
+        updatedAt: state.liveAnalysis?.updatedAtUtc,
+      }
+    : null;
+  const snapshot = hasCompleteTree(state.finalTreeSnapshot?.tree)
+    ? {
+        source: "final_snapshot" as const,
+        tree: state.finalTreeSnapshot?.tree ?? null,
+        treeVersion: state.finalTreeSnapshot?.treeVersion ?? null,
+        updatedAt: state.finalTreeSnapshot?.generatedAtUtc,
+      }
+    : null;
+
+  if (!live && !snapshot) {
+    return { source: null, tree: null, treeVersion: null, selectionReason: "no_valid_tree" };
   }
-  const payload = state.liveAnalysis?.payload as LiveAnalysisPayload | null;
-  return payload?.treeVersion ?? null;
+  if (!live) {
+    return {
+      source: "final_snapshot",
+      tree: snapshot?.tree ?? null,
+      treeVersion: snapshot?.treeVersion ?? null,
+      selectionReason: "final_snapshot_only",
+    };
+  }
+  if (!snapshot) {
+    return { ...live, selectionReason: "live_only" };
+  }
+  const preferSnapshot = isTreeCandidateNewer(snapshot, live);
+  const preferred = preferSnapshot ? snapshot : live;
+  const differentTreeVersion = snapshot.treeVersion !== live.treeVersion;
+  return {
+    source: preferred.source,
+    tree: preferred.tree,
+    treeVersion: preferred.treeVersion,
+    selectionReason: differentTreeVersion
+      ? preferSnapshot
+        ? "newer_final_tree_version"
+        : "newer_live_tree_version"
+      : preferSnapshot
+        ? "same_version_newer_final_timestamp"
+        : "same_version_newer_live_timestamp",
+  };
+}
+
+export function analysisSelectionDebugSnapshot(state: MeetingAnalysisState) {
+  const selected = selectedAnalysisTree(state);
+  const livePayload = state.liveAnalysis?.payload as LiveAnalysisPayload | null;
+  return {
+    sessionStatus: state.analysisRuntimeStatus.meetingStatus,
+    liveStatus: state.analysisRuntimeStatus.liveStatus,
+    liveAnalysisVersion: state.analysisRuntimeStatus.liveVersion,
+    liveTreeVersion: livePayload?.treeVersion ?? null,
+    liveNodeCount: livePayload?.tree?.nodes?.length ?? 0,
+    finalStatus: state.analysisRuntimeStatus.finalStatus,
+    finalAnalysisVersion: state.analysisRuntimeStatus.finalVersion,
+    finalTreeVersion: state.finalTreeSnapshot?.treeVersion ?? null,
+    finalNodeCount: state.finalTreeSnapshot?.tree?.nodes?.length ?? 0,
+    selectedAnalysisType: selected.source,
+    selectedTreeVersion: selected.treeVersion,
+    selectedNodeCount: selected.tree?.nodes?.length ?? 0,
+    selectionReason: selected.selectionReason,
+  };
+}
+
+type TreeCandidate = {
+  treeVersion: number | null;
+  updatedAt?: string;
+};
+
+function isTreeCandidateNewer(candidate: TreeCandidate, current: TreeCandidate): boolean {
+  if (candidate.treeVersion !== null && current.treeVersion !== null) {
+    if (candidate.treeVersion !== current.treeVersion) {
+      return candidate.treeVersion > current.treeVersion;
+    }
+    const candidateTime = parseAnalysisTime(candidate.updatedAt);
+    const currentTime = parseAnalysisTime(current.updatedAt);
+    return candidateTime === null || currentTime === null || candidateTime >= currentTime;
+  }
+  if (candidate.treeVersion !== null) {
+    return true;
+  }
+  if (current.treeVersion !== null) {
+    return false;
+  }
+  const candidateTime = parseAnalysisTime(candidate.updatedAt);
+  const currentTime = parseAnalysisTime(current.updatedAt);
+  return candidateTime !== null && (currentTime === null || candidateTime >= currentTime);
+}
+
+function shouldApplyFinalTreeSnapshot(
+  state: MeetingAnalysisState,
+  incoming: TreeSnapshotPayload,
+): boolean {
+  if (!hasCompleteTree(incoming.tree)) {
+    return false;
+  }
+  const current = selectedAnalysisTree(state);
+  if (!current.tree) {
+    return true;
+  }
+  return isTreeCandidateNewer(
+    { treeVersion: incoming.treeVersion ?? null, updatedAt: incoming.generatedAtUtc },
+    {
+      treeVersion: current.treeVersion,
+      updatedAt:
+        current.source === "final_snapshot"
+          ? state.finalTreeSnapshot?.generatedAtUtc
+          : state.liveAnalysis?.updatedAtUtc,
+    },
+  );
+}
+
+function parseAnalysisTime(value: string | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
 }

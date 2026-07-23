@@ -21,6 +21,7 @@ import type {
   LiveAnalysisMeta,
   TranscriptSessionConnectionStatus,
 } from "~/hooks/useMeetingTranscriptSession";
+import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
 // タイムライン(左カラム)の開閉状態を会議中(タブを閉じるまで)維持するためのキー。
 const TIMELINE_COLLAPSED_STORAGE_KEY = "deciscope.meeting.timelineCollapsed";
@@ -54,6 +55,8 @@ type MeetingWorkspaceGridProps = {
   canManageSessions?: boolean;
   workspaceId?: string;
   sessionId?: string;
+  analysisVersion?: number | null;
+  treeVersion?: number | null;
 };
 
 export function MeetingWorkspaceGrid({
@@ -71,6 +74,8 @@ export function MeetingWorkspaceGrid({
   canManageSessions = false,
   workspaceId = "",
   sessionId = "",
+  analysisVersion = null,
+  treeVersion = null,
 }: MeetingWorkspaceGridProps) {
   const [focusedAnalysisItemId, setFocusedAnalysisItemId] = useState<string | null>(null);
   const [highlightedAnalysisItemId, setHighlightedAnalysisItemId] = useState<string | null>(null);
@@ -80,6 +85,32 @@ export function MeetingWorkspaceGrid({
   );
   const highlightTimerRef = useRef<number | null>(null);
   const livePayload = (liveAnalysis?.payload as LiveAnalysisPayload | null) ?? null;
+  const lifecycleSnapshotRef = useRef({
+    sessionId: sessionId || null,
+    pathname: typeof window === "undefined" ? null : window.location.pathname,
+    treeVersion,
+    nodeCount: treeNodes.length,
+    analysisVersion,
+  });
+  lifecycleSnapshotRef.current = {
+    sessionId: sessionId || null,
+    pathname: typeof window === "undefined" ? null : window.location.pathname,
+    treeVersion,
+    nodeCount: treeNodes.length,
+    analysisVersion,
+  };
+  useEffect(() => {
+    meetingStartDebug("meeting-page", "MeetingWorkspaceGrid mounted", {
+      ...lifecycleSnapshotRef.current,
+      timestamp: new Date().toISOString(),
+    });
+    return () => {
+      meetingStartDebug("meeting-page", "MeetingWorkspaceGrid unmounted", {
+        ...lifecycleSnapshotRef.current,
+        timestamp: new Date().toISOString(),
+      });
+    };
+  }, []);
   const liveItems = useMemo(
     () => (livePayload?.items ?? []).filter((item) => item.status !== "dismissed"),
     [livePayload],
@@ -141,7 +172,7 @@ export function MeetingWorkspaceGrid({
   return (
     <section
       className={[
-        "grid gap-2 transition-[grid-template-columns] duration-200",
+        "grid min-h-0 gap-2 overflow-y-auto transition-[grid-template-columns] duration-200 lg:overflow-hidden",
         timelineCollapsed
           ? "lg:grid-cols-[56px_minmax(420px,2.4fr)_minmax(280px,0.95fr)]"
           : "lg:grid-cols-[minmax(250px,0.85fr)_minmax(420px,1.65fr)_minmax(280px,0.95fr)]",
@@ -215,6 +246,7 @@ export function MeetingWorkspaceGrid({
         )}
       </div>
       <DiscussionTree
+        sessionId={sessionId}
         nodes={treeNodes}
         edges={treeEdges}
         analysisItems={relatedAnalysisItems}
@@ -224,6 +256,8 @@ export function MeetingWorkspaceGrid({
         layoutSignal={timelineCollapsed}
         focusItemRequest={treeFocusRequest}
         treeChanges={livePayload?.treeChanges}
+        analysisVersion={analysisVersion}
+        treeVersion={treeVersion}
       />
       <MeetingAssistantPanel
         insights={insights}

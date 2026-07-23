@@ -245,6 +245,51 @@ describe("normalizeAIAnalysis live tree changes", () => {
   });
 });
 
+describe("normalizeAIAnalysis tree payload contract", () => {
+  const normalizedPayload = (payload: Record<string, unknown>) =>
+    normalizeAIAnalysis({
+      analysisType: "live",
+      status: "completed",
+      version: 2,
+      payload,
+    })?.payload as LiveAnalysisPayload;
+
+  it("distinguishes omitted, null, empty, snapshot, and explicit reset trees", () => {
+    expect(normalizedPayload({ items: [] }).treePayloadState).toBe("omitted");
+    expect(normalizedPayload({ items: [], tree: null }).treePayloadState).toBe("null");
+    expect(normalizedPayload({ items: [], tree: { nodes: [], edges: [] } }).treePayloadState).toBe(
+      "empty",
+    );
+    expect(
+      normalizedPayload({
+        items: [],
+        tree: { nodes: [{ id: "root", kind: "topic", label: "会議" }], edges: [] },
+      }).treePayloadState,
+    ).toBe("snapshot");
+    expect(normalizedPayload({ items: [], tree: null, treeReset: true })).toMatchObject({
+      treePayloadState: "null",
+      treeReset: true,
+    });
+  });
+
+  it("marks a synthesized legacy tree as omitted instead of a full snapshot", () => {
+    const payload = normalizedPayload({
+      items: [
+        {
+          id: "risk-1",
+          kind: "risk",
+          severity: "high",
+          title: "懸念",
+          body: "確認が必要",
+          status: "open",
+        },
+      ],
+    });
+    expect(payload.tree?.nodes).toHaveLength(2);
+    expect(payload.treePayloadState).toBe("omitted");
+  });
+});
+
 describe("agendaProgress normalization", () => {
   it("normalizes a fully-stamped payload and drops server-internal tracking fields", () => {
     const analysis = normalizeAIAnalysis({

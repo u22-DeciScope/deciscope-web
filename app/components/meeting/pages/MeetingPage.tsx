@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { DsButton } from "~/components/DsButton";
 import { BotStatusToasts } from "~/components/meeting/parts/BotStatusToasts";
@@ -14,7 +14,6 @@ import { useMeetingEndFlow } from "~/hooks/useMeetingEndFlow";
 import { useMeetingTranscriptSession } from "~/hooks/useMeetingTranscriptSession";
 import { useMeetingRuntime } from "~/hooks/useMeetingRuntime";
 import { useMeetingElapsedTime } from "~/hooks/useMeetingElapsedTime";
-import type { LiveAnalysisPayload } from "~/api/aiAnalysis/aiAnalysisApi";
 import { canManageMeetingSessions } from "~/api/auth/authApi";
 import {
   findMeetingSessionRecord,
@@ -32,8 +31,11 @@ import {
   isElapsedMeetingStatus,
 } from "~/utils/meetingStatusLabels";
 
+import { meetingEndPresentation } from "./meetingEndPresentation";
+
 export default function Meeting() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const { workspace, workspaceId } = useAuthenticatedLayout();
@@ -109,15 +111,6 @@ export default function Meeting() {
       : "会議";
 
   useEffect(() => {
-    meetingStartDebug("meeting-page", "mounted or route changed", {
-      routeMeetingId: id,
-      runtimeMeetingId: runtimeMeetingId ?? null,
-      sessionId: sessionId || null,
-      isSessionOnlyRoute,
-    });
-  }, [id, isSessionOnlyRoute, runtimeMeetingId, sessionId, workspaceId]);
-
-  useEffect(() => {
     if (typeof document === "undefined") {
       return;
     }
@@ -155,27 +148,75 @@ export default function Meeting() {
     () => mergeDisplaySegments(runtime.segments, transcriptSession.segments),
     [runtime.segments, transcriptSession.segments],
   );
-  // 会議終了後はdurableなfinal snapshotを最優先する。取得中/失敗時は
-  // runtimeまたは最後の正常live treeを維持し、暗黙に空へ戻さない。
-  const liveAnalysisTree = useMemo(() => {
-    const payload = transcriptSession.liveAnalysis?.payload as LiveAnalysisPayload | null;
-    return payload?.tree ?? null;
-  }, [transcriptSession.liveAnalysis]);
-  const finalSnapshotTree = transcriptSession.finalTreeSnapshot?.tree ?? null;
-  const finalSnapshotNodes = finalSnapshotTree?.nodes ?? [];
+  // session storeがliveとdurable final snapshotをtreeVersionで比較した選択結果。
+  // 遅れて完了した古いREST responseが新しいWS treeを覆わない。
+  const analysisTree = transcriptSession.discussionTree.tree;
   const runtimeTreeNodes = runtime.tree?.nodes ?? [];
-  const treeNodes =
-    finalSnapshotNodes.length > 0
-      ? finalSnapshotNodes
-      : runtimeTreeNodes.length > 0
-        ? runtimeTreeNodes
-        : (liveAnalysisTree?.nodes ?? []);
+  const treeNodes = runtimeTreeNodes.length > 0 ? runtimeTreeNodes : (analysisTree?.nodes ?? []);
   const treeEdges =
-    finalSnapshotNodes.length > 0
-      ? (finalSnapshotTree?.edges ?? [])
-      : runtimeTreeNodes.length > 0
-        ? (runtime.tree?.edges ?? [])
-        : (liveAnalysisTree?.edges ?? []);
+    runtimeTreeNodes.length > 0 ? (runtime.tree?.edges ?? []) : (analysisTree?.edges ?? []);
+  const lifecycleSnapshotRef = useRef({
+    sessionId: sessionId || null,
+    pathname: location.pathname,
+    treeVersion: transcriptSession.discussionTree.treeVersion,
+    nodeCount: treeNodes.length,
+    analysisVersion: transcriptSession.analysisRuntimeStatus.liveVersion,
+    selectedAnalysisType: transcriptSession.discussionTree.source,
+    selectionReason: transcriptSession.discussionTree.selectionReason,
+  });
+  lifecycleSnapshotRef.current = {
+    sessionId: sessionId || null,
+    pathname: location.pathname,
+    treeVersion: transcriptSession.discussionTree.treeVersion,
+    nodeCount: treeNodes.length,
+    analysisVersion: transcriptSession.analysisRuntimeStatus.liveVersion,
+    selectedAnalysisType: transcriptSession.discussionTree.source,
+    selectionReason: transcriptSession.discussionTree.selectionReason,
+  };
+  useEffect(() => {
+    const debug = (message: string, extra: Record<string, unknown> = {}) =>
+      meetingStartDebug("meeting-page", message, {
+        ...lifecycleSnapshotRef.current,
+        ...extra,
+        timestamp: new Date().toISOString(),
+      });
+    debug("MeetingPage mounted", {
+      routeMeetingId: id,
+      runtimeMeetingId: runtimeMeetingId ?? null,
+      isSessionOnlyRoute,
+    });
+    const beforeUnload = () => debug("beforeunload");
+    const pageShow = (event: PageTransitionEvent) =>
+      debug("pageshow", { persisted: event.persisted });
+    const pageHide = (event: PageTransitionEvent) =>
+      debug("pagehide", { persisted: event.persisted });
+    const visibilityChange = () =>
+      debug("visibilitychange", { visibilityState: document.visibilityState });
+    window.addEventListener("beforeunload", beforeUnload);
+    window.addEventListener("pageshow", pageShow);
+    window.addEventListener("pagehide", pageHide);
+    document.addEventListener("visibilitychange", visibilityChange);
+    return () => {
+      debug("MeetingPage unmounted");
+      window.removeEventListener("beforeunload", beforeUnload);
+      window.removeEventListener("pageshow", pageShow);
+      window.removeEventListener("pagehide", pageHide);
+      document.removeEventListener("visibilitychange", visibilityChange);
+    };
+  }, []);
+  const previousRouteRef = useRef({ pathname: "", sessionId: "" });
+  useEffect(() => {
+    const previous = previousRouteRef.current;
+    meetingStartDebug("meeting-page", "route state observed", {
+      ...lifecycleSnapshotRef.current,
+      previousPathname: previous.pathname || null,
+      previousSessionId: previous.sessionId || null,
+      pathnameChanged: Boolean(previous.pathname && previous.pathname !== location.pathname),
+      sessionIdChanged: Boolean(previous.sessionId && previous.sessionId !== sessionId),
+      timestamp: new Date().toISOString(),
+    });
+    previousRouteRef.current = { pathname: location.pathname, sessionId };
+  }, [location.pathname, sessionId]);
   const meetingSessionStatus = sessionId
     ? endFlow.effectiveStatus
     : transcriptSession.sessionStatus;
@@ -188,8 +229,8 @@ export default function Meeting() {
   const isEndedStatus = isTerminalMeetingSessionStatus(statusLabel);
   const isFinalizing = sessionId ? endFlow.isFinalizing : runtime.isEnding;
   const isEndingMeeting = runtime.isEnding || endFlow.isRequestingEnd || isFinalizing;
+  const endPresentation = meetingEndPresentation(isEndingMeeting, showEndedModal);
   const canEndMeeting = Boolean((runtimeMeetingId || sessionId) && canManageSessions);
-  const endOverlayMode = showEndedModal ? "ended" : isEndingMeeting ? "ending" : null;
   const sessionEndedAt = sessionId
     ? endFlow.endedAt
     : legacyEndedAt || transcriptSession.sessionEndedAt;
@@ -211,7 +252,11 @@ export default function Meeting() {
     isCompletedMeetingStatus(statusLabel) && !showEndedModal
       ? "この会議は終了済みです。文字起こしの内容は会議詳細画面から確認できます。"
       : null;
-  const pageNotice = runtime.error ?? sessionEndError ?? endedNotice ?? transcriptNotice;
+  // ending中も最後のlive treeVersionと最終tree auditを受信・確認できるよう、
+  // 全画面modalではなく非破壊のstatus bannerを表示する。
+  const finalizingNotice = endPresentation.finalizingNotice;
+  const pageNotice =
+    runtime.error ?? sessionEndError ?? finalizingNotice ?? endedNotice ?? transcriptNotice;
   const connectionRecoveryRequired = runtime.recoveryRequired || transcriptSession.recoveryRequired;
 
   const retryConnections = useCallback(() => {
@@ -288,8 +333,22 @@ export default function Meeting() {
         <div
           className="flex items-center justify-between gap-3 rounded-(--ds-radius-control) border px-3 py-2 text-[11px]"
           style={{ borderColor: "var(--ds-border)", color: "var(--text-sub)" }}
+          role={isEndingMeeting ? "status" : undefined}
         >
-          <span>{pageNotice}</span>
+          <span className="min-w-0 flex-1">{pageNotice}</span>
+          {isEndingMeeting && (
+            <div
+              className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full"
+              role="progressbar"
+              aria-label="会議の終了処理中"
+              style={{ background: "var(--input-bg)" }}
+            >
+              <div
+                className="ds-progress-indeterminate h-full w-2/5 rounded-full"
+                style={{ background: "var(--brand)" }}
+              />
+            </div>
+          )}
           {connectionRecoveryRequired && (
             <DsButton type="button" variant="secondary" onClick={retryConnections}>
               再接続
@@ -312,11 +371,12 @@ export default function Meeting() {
         canManageSessions={canManageSessions}
         workspaceId={workspaceId}
         sessionId={sessionId}
+        analysisVersion={transcriptSession.analysisRuntimeStatus.liveVersion}
+        treeVersion={transcriptSession.discussionTree.treeVersion}
       />
 
-      {endOverlayMode && (
+      {endPresentation.showBlockingCompletionModal && (
         <MeetingEndedModal
-          mode={endOverlayMode}
           onGoHome={() => navigate(meetingsPath)}
           onGoSummary={() => navigate(summaryPath)}
         />

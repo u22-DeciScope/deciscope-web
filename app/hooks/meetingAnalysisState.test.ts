@@ -5,10 +5,13 @@ import type {
   MeetingAIAnalysis,
   TreeSnapshotPayload,
 } from "~/api/aiAnalysis/aiAnalysisApi";
+import { normalizeAIAnalysis } from "~/api/aiAnalysis/aiAnalysisApi";
 import {
   analysisTreeNodeCount,
+  analysisTreeVersion,
   initialMeetingAnalysisState,
   meetingAnalysisReducer,
+  selectedAnalysisTree,
 } from "./meetingAnalysisState";
 
 function live(version = 11, nodeCount = 27): MeetingAIAnalysis {
@@ -126,5 +129,253 @@ describe("meetingAnalysisReducer last-known-good tree", () => {
     });
     expect(analysisTreeNodeCount(state)).toBe(27);
     expect((state.liveAnalysis?.payload as LiveAnalysisPayload).items).toHaveLength(1);
+  });
+});
+
+function versionedLive(
+  analysisVersion: number,
+  treeVersion: number,
+  nodeIds: string[],
+  updatedAtUtc = `2026-07-22T08:00:0${treeVersion}Z`,
+): MeetingAIAnalysis {
+  return {
+    analysisType: "live",
+    status: "completed",
+    version: analysisVersion,
+    updatedAtUtc,
+    payload: {
+      items: [],
+      tree: {
+        nodes: nodeIds.map((id, index) => ({
+          id,
+          kind: index === 0 ? "topic" : "issue",
+          label: id,
+        })),
+        edges: [],
+      },
+      treeVersion,
+      treePayloadState: "snapshot",
+      payloadKind: "full_snapshot",
+    },
+  };
+}
+
+describe("meetingAnalysisReducer payload merge and REST/WS ordering", () => {
+  it.each([
+    [
+      "omitted",
+      {
+        items: [
+          { id: "new", kind: "risk", severity: "high", title: "x", body: "", status: "open" },
+        ],
+      },
+    ],
+    ["null", { items: [], tree: null }],
+    ["empty", { items: [], tree: { nodes: [], edges: [] } }],
+  ])("retains the completed tree for a %s tree payload", (_name, rawPayload) => {
+    const current = meetingAnalysisReducer(initialMeetingAnalysisState("session-a"), {
+      type: "analysis_event",
+      analysis: versionedLive(5, 5, ["root", "issue-1"]),
+    });
+    const incoming = normalizeAIAnalysis({
+      sessionId: "session-a",
+      analysisType: "live",
+      status: "completed",
+      version: 6,
+      payload: rawPayload,
+    });
+    expect(incoming).not.toBeNull();
+    const next = meetingAnalysisReducer(current, {
+      type: "analysis_event",
+      analysis: incoming as MeetingAIAnalysis,
+    });
+    expect(analysisTreeVersion(next)).toBe(5);
+    expect(analysisTreeNodeCount(next)).toBe(2);
+  });
+
+  it("clears the tree only for an explicit completed reset", () => {
+    const current = meetingAnalysisReducer(initialMeetingAnalysisState("session-a"), {
+      type: "analysis_event",
+      analysis: versionedLive(5, 5, ["root", "issue-1"]),
+    });
+    const reset = normalizeAIAnalysis({
+      sessionId: "session-a",
+      analysisType: "live",
+      status: "completed",
+      version: 6,
+      payload: { items: [], tree: null, treeReset: true, treeVersion: 6 },
+    });
+    const next = meetingAnalysisReducer(current, {
+      type: "analysis_event",
+      analysis: reset as MeetingAIAnalysis,
+    });
+    expect(analysisTreeNodeCount(next)).toBe(0);
+    expect((next.liveAnalysis?.payload as LiveAnalysisPayload).treeReset).toBe(true);
+  });
+
+  it("uses a newer treeVersion when the analysis version is unchanged", () => {
+    const current = meetingAnalysisReducer(initialMeetingAnalysisState("session-a"), {
+      type: "analysis_event",
+      analysis: versionedLive(10, 7, ["root", "issue-1"]),
+    });
+    const next = meetingAnalysisReducer(current, {
+      type: "analysis_event",
+      analysis: versionedLive(10, 8, ["root", "issue-1", "issue-2"]),
+    });
+    expect(analysisTreeVersion(next)).toBe(8);
+    expect(analysisTreeNodeCount(next)).toBe(3);
+  });
+
+  it("does not rewind a newer WS tree with an older same-version REST response", () => {
+    const wsState = meetingAnalysisReducer(initialMeetingAnalysisState("session-a"), {
+      type: "analysis_event",
+      analysis: versionedLive(10, 8, ["root", "issue-1", "issue-2"], "2026-07-22T08:00:08Z"),
+    });
+    const afterRest = meetingAnalysisReducer(wsState, {
+      type: "rest_snapshot",
+      analyses: {
+        sessionId: "session-a",
+        live: versionedLive(10, 7, ["root", "old-issue"], "2026-07-22T08:00:07Z"),
+        final: null,
+        treeSnapshot: null,
+      },
+    });
+    expect(analysisTreeVersion(afterRest)).toBe(8);
+    expect(
+      ((afterRest.liveAnalysis?.payload as LiveAnalysisPayload).tree?.nodes ?? []).map(
+        (node) => node.id,
+      ),
+    ).toEqual(["root", "issue-1", "issue-2"]);
+  });
+
+  it("does not let an older durable tree snapshot mask a newer WS tree", () => {
+    const wsState = meetingAnalysisReducer(initialMeetingAnalysisState("session-a"), {
+      type: "analysis_event",
+      analysis: versionedLive(10, 9, ["root", "issue-1", "issue-2"]),
+    });
+    const afterRest = meetingAnalysisReducer(wsState, {
+      type: "rest_snapshot",
+      analyses: {
+        sessionId: "session-a",
+        live: null,
+        final: null,
+        treeSnapshot: {
+          treeVersion: 8,
+          generatedAtUtc: "2026-07-22T08:00:08Z",
+          tree: {
+            nodes: [{ id: "root", kind: "topic", label: "古いtree" }],
+            edges: [],
+          },
+        },
+      },
+    });
+    expect(selectedAnalysisTree(afterRest)).toMatchObject({ source: "live", treeVersion: 9 });
+    expect(analysisTreeNodeCount(afterRest)).toBe(3);
+  });
+
+  it("merges running and failed status without replacing the completed tree", () => {
+    const completed = meetingAnalysisReducer(initialMeetingAnalysisState("session-a"), {
+      type: "analysis_event",
+      analysis: versionedLive(10, 8, ["root", "issue-1"]),
+    });
+    const running = meetingAnalysisReducer(completed, {
+      type: "analysis_event",
+      analysis: { analysisType: "live", status: "running", version: 10, payload: null },
+    });
+    const failed = meetingAnalysisReducer(running, {
+      type: "analysis_event",
+      analysis: { analysisType: "live", status: "failed", version: 11, payload: null },
+    });
+    expect(running.analysisRuntimeStatus.liveStatus).toBe("running");
+    expect(failed.analysisRuntimeStatus.liveStatus).toBe("failed");
+    expect(analysisTreeVersion(failed)).toBe(8);
+    expect(analysisTreeNodeCount(failed)).toBe(2);
+  });
+
+  it("keeps live v14 for final running and summary-only final completed", () => {
+    const liveState = meetingAnalysisReducer(initialMeetingAnalysisState("session-a"), {
+      type: "analysis_event",
+      analysis: versionedLive(
+        14,
+        14,
+        Array.from({ length: 21 }, (_, i) => (i ? `n-${i}` : "root")),
+      ),
+    });
+    const finalRunning = meetingAnalysisReducer(liveState, {
+      type: "analysis_event",
+      analysis: final("running"),
+    });
+    const finalCompleted = meetingAnalysisReducer(finalRunning, {
+      type: "analysis_event",
+      analysis: final("completed", {
+        decisions: [],
+        actionItems: [],
+        openIssues: [],
+        keyPoints: [],
+        nextMeetingTopics: [],
+      }),
+    });
+
+    for (const state of [finalRunning, finalCompleted]) {
+      expect(selectedAnalysisTree(state)).toMatchObject({
+        source: "live",
+        treeVersion: 14,
+        selectionReason: "live_only",
+      });
+      expect(analysisTreeNodeCount(state)).toBe(21);
+    }
+  });
+
+  it("uses a genuinely newer final tree snapshot across independent analysis version series", () => {
+    const liveState = meetingAnalysisReducer(initialMeetingAnalysisState("session-a"), {
+      type: "analysis_event",
+      analysis: versionedLive(15, 15, ["root", "live-node"]),
+    });
+    const afterFinalSummary = meetingAnalysisReducer(liveState, {
+      type: "analysis_event",
+      analysis: final("completed", {
+        decisions: [],
+        actionItems: [],
+        openIssues: [],
+        keyPoints: [],
+        nextMeetingTopics: [],
+      }),
+    });
+    const withFinalTree = meetingAnalysisReducer(afterFinalSummary, {
+      type: "rest_snapshot",
+      analyses: {
+        sessionId: "session-a",
+        live: null,
+        final: null,
+        treeSnapshot: {
+          treeVersion: 16,
+          generatedAtUtc: "2026-07-23T00:14:12Z",
+          tree: {
+            nodes: [
+              { id: "root", kind: "topic", label: "root" },
+              { id: "final-node", kind: "decision", label: "final" },
+            ],
+            edges: [],
+          },
+        },
+      },
+    });
+    expect(selectedAnalysisTree(withFinalTree)).toMatchObject({
+      source: "final_snapshot",
+      treeVersion: 16,
+      selectionReason: "newer_final_tree_version",
+    });
+  });
+
+  it("does not change tree source for recording to ending to ended status transitions", () => {
+    let state = meetingAnalysisReducer(initialMeetingAnalysisState("session-a"), {
+      type: "analysis_event",
+      analysis: versionedLive(15, 15, ["root", "issue-1"]),
+    });
+    for (const status of ["recording", "ending", "ended"] as const) {
+      state = meetingAnalysisReducer(state, { type: "meeting_status", status });
+      expect(selectedAnalysisTree(state)).toMatchObject({ source: "live", treeVersion: 15 });
+      expect(analysisTreeNodeCount(state)).toBe(2);
+    }
   });
 });

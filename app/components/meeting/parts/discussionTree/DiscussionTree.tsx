@@ -6,6 +6,7 @@ import {
   Panel,
   ReactFlow,
   ReactFlowProvider,
+  useNodesInitialized,
   useReactFlow,
   useStore,
   type Edge,
@@ -26,9 +27,17 @@ import {
   humanizeAgendaReferences,
   treeNodeMomentLabel,
 } from "~/components/meeting/parts/meetingDisplayMetadata";
+import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
 import { type DiscussionFlowNode, nodeTypes } from "./DiscussionNodeView";
-import { NODE_HEIGHT, NODE_WIDTH, layoutPositions, normalizeEdges } from "./discussionTreeLayout";
+import {
+  NODE_HEIGHT,
+  NODE_WIDTH,
+  layoutDiscussionTree,
+  normalizeEdges,
+  uniqueDiscussionTreeNodes,
+} from "./discussionTreeLayout";
+import { DiscussionTreeErrorBoundary } from "./DiscussionTreeErrorBoundary";
 import {
   buildDiscussionTreeModel,
   collapsibleNodeIds,
@@ -38,9 +47,11 @@ import {
 import { NodeDetailCard } from "./NodeDetailCard";
 import {
   allTargetsVisible,
+  anyTargetVisible,
   deriveTreeChanges,
   focusAnimationDuration,
   focusTargetIds,
+  isFiniteViewport,
   shouldDeferTreeFocus,
   treeChangeSignature,
 } from "./discussionTreeFocus";
@@ -72,6 +83,7 @@ const MIN_VISIBLE_WIDTH_FOR_OVERLAY_OFFSET = 320;
 const AUTO_FOLLOW_INTERACTION_GRACE_MS = 4000;
 const AUTO_FOLLOW_COOLDOWN_MS = 2000;
 const STRUCTURAL_HIGHLIGHT_MS = 3000;
+let discussionFlowInstanceSequence = 0;
 
 // AIアシスタントのカードクリックなど、外部から「この分析itemに対応するノードへ
 // フォーカスしてほしい」という要求。同じitemIdを連続でクリックしても再フォーカス
@@ -82,6 +94,7 @@ export type DiscussionTreeFocusRequest = {
 };
 
 type DiscussionTreeProps = {
+  sessionId?: string;
   nodes: TreeNodePayload[];
   edges: TreeEdgePayload[];
   analysisItems?: AnalysisItem[];
@@ -93,9 +106,12 @@ type DiscussionTreeProps = {
   layoutSignal?: boolean;
   focusItemRequest?: DiscussionTreeFocusRequest | null;
   treeChanges?: TreeChangesPayload;
+  analysisVersion?: number | null;
+  treeVersion?: number | null;
 };
 
 export function DiscussionTree({
+  sessionId = "",
   nodes,
   edges,
   analysisItems,
@@ -105,14 +121,44 @@ export function DiscussionTree({
   layoutSignal,
   focusItemRequest,
   treeChanges,
+  analysisVersion = null,
+  treeVersion = null,
 }: DiscussionTreeProps) {
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const observedCanvasSize = useDiscussionTreeCanvasSize(canvasRef);
   const displayedNodeCount = useMemo(
     () => visibleDiscussionTreeNodeCount(nodes, edges, analysisItems ?? []),
     [analysisItems, edges, nodes],
   );
+  const lifecycleSnapshotRef = useRef({
+    sessionId: sessionId || null,
+    pathname: typeof window === "undefined" ? null : window.location.pathname,
+    treeVersion,
+    nodeCount: nodes.length,
+    analysisVersion,
+  });
+  lifecycleSnapshotRef.current = {
+    sessionId: sessionId || null,
+    pathname: typeof window === "undefined" ? null : window.location.pathname,
+    treeVersion,
+    nodeCount: nodes.length,
+    analysisVersion,
+  };
+  useEffect(() => {
+    meetingStartDebug("meeting-page", "DiscussionTree mounted", {
+      ...lifecycleSnapshotRef.current,
+      timestamp: new Date().toISOString(),
+    });
+    return () => {
+      meetingStartDebug("meeting-page", "DiscussionTree unmounted", {
+        ...lifecycleSnapshotRef.current,
+        timestamp: new Date().toISOString(),
+      });
+    };
+  }, []);
   return (
     <div
-      className="flex min-h-80 min-w-0 flex-col overflow-hidden rounded-(--ds-radius-panel) border md:min-h-0"
+      className="flex min-h-80 min-w-0 flex-col overflow-hidden rounded-(--ds-radius-panel) border lg:min-h-0"
       style={{ background: "var(--ds-surface)", borderColor: "var(--ds-border)" }}
     >
       <div
@@ -139,7 +185,7 @@ export function DiscussionTree({
         </span>
       </div>
 
-      <div className="relative min-h-0 flex-1">
+      <div ref={canvasRef} className="relative min-h-0 flex-1" data-testid="discussion-tree-canvas">
         {displayedNodeCount === 0 ? (
           <div className="p-4">
             <div
@@ -160,16 +206,27 @@ export function DiscussionTree({
           </div>
         ) : (
           <ReactFlowProvider>
-            <DiscussionFlow
+            <DiscussionTreeErrorBoundary
               nodes={nodes}
-              edges={edges}
-              analysisItems={analysisItems}
-              segments={segments}
-              onSelectAnalysisItem={onSelectAnalysisItem}
-              layoutSignal={layoutSignal}
-              focusItemRequest={focusItemRequest}
-              treeChanges={treeChanges}
-            />
+              sessionId={sessionId}
+              treeVersion={treeVersion}
+              resetKey={`${treeVersion ?? "none"}:${nodes.length}:${edges.length}`}
+            >
+              <DiscussionFlow
+                sessionId={sessionId}
+                nodes={nodes}
+                edges={edges}
+                analysisItems={analysisItems}
+                segments={segments}
+                onSelectAnalysisItem={onSelectAnalysisItem}
+                layoutSignal={layoutSignal}
+                focusItemRequest={focusItemRequest}
+                treeChanges={treeChanges}
+                analysisVersion={analysisVersion}
+                treeVersion={treeVersion}
+                observedCanvasSize={observedCanvasSize}
+              />
+            </DiscussionTreeErrorBoundary>
           </ReactFlowProvider>
         )}
       </div>
@@ -177,7 +234,40 @@ export function DiscussionTree({
   );
 }
 
+function useDiscussionTreeCanvasSize(ref: React.RefObject<HTMLDivElement | null>) {
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const update = (width: number, height: number) => {
+      const next = {
+        width: Number.isFinite(width) ? Math.max(0, width) : 0,
+        height: Number.isFinite(height) ? Math.max(0, height) : 0,
+      };
+      setSize((current) =>
+        current?.width === next.width && current.height === next.height ? current : next,
+      );
+    };
+    const initial = element.getBoundingClientRect();
+    update(initial.width, initial.height);
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries.find((candidate) => candidate.target === element);
+      if (entry) {
+        update(entry.contentRect.width, entry.contentRect.height);
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref]);
+
+  return size;
+}
+
 function DiscussionFlow({
+  sessionId = "",
   nodes,
   edges,
   analysisItems,
@@ -186,7 +276,43 @@ function DiscussionFlow({
   layoutSignal,
   focusItemRequest,
   treeChanges,
-}: DiscussionTreeProps) {
+  analysisVersion = null,
+  treeVersion = null,
+  observedCanvasSize,
+}: DiscussionTreeProps & {
+  observedCanvasSize: { width: number; height: number } | null;
+}) {
+  const flowInstanceIdRef = useRef("");
+  if (!flowInstanceIdRef.current) {
+    discussionFlowInstanceSequence += 1;
+    flowInstanceIdRef.current = `${sessionId || "anonymous"}:${discussionFlowInstanceSequence}`;
+  }
+  const flowLifecycleSnapshotRef = useRef({
+    sessionId: sessionId || null,
+    analysisVersion,
+    treeVersion,
+    nodeCount: nodes.length,
+  });
+  flowLifecycleSnapshotRef.current = {
+    sessionId: sessionId || null,
+    analysisVersion,
+    treeVersion,
+    nodeCount: nodes.length,
+  };
+  useEffect(() => {
+    meetingStartDebug("meeting-page", "Discussion React Flow mounted", {
+      ...flowLifecycleSnapshotRef.current,
+      flowInstanceId: flowInstanceIdRef.current,
+      timestamp: new Date().toISOString(),
+    });
+    return () => {
+      meetingStartDebug("meeting-page", "Discussion React Flow unmounted", {
+        ...flowLifecycleSnapshotRef.current,
+        flowInstanceId: flowInstanceIdRef.current,
+        timestamp: new Date().toISOString(),
+      });
+    };
+  }, []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [autoFollow, setAutoFollow] = useState(true);
@@ -204,6 +330,16 @@ function DiscussionFlow({
   const autoMoveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const focusMetricsRef = useRef({ focused: 0, suppressed: 0, alreadyVisible: 0 });
   const { fitView, getNode, getViewport, setCenter } = useReactFlow();
+  const reactFlowPaneWidth = useStore((state) => state.width);
+  const reactFlowPaneHeight = useStore((state) => state.height);
+  const reactFlowInternalNodeCount = useStore((state) => state.nodeLookup.size);
+  const reactFlowInternalEdgeCount = useStore((state) => state.edgeLookup.size);
+  const reactFlowNodesInitialized = useNodesInitialized({ includeHiddenNodes: true });
+  // React Flow v12は実DOMが0x0でも内部storeへ500x500をfallback設定する。
+  // 外側canvasのResizeObserver値を正本にし、未対応環境だけ内部storeへfallbackする。
+  const paneWidth = observedCanvasSize?.width ?? reactFlowPaneWidth;
+  const paneHeight = observedCanvasSize?.height ?? reactFlowPaneHeight;
+  const lastGoodLayoutRef = useRef(new Map<string, { x: number; y: number }>());
   const analysisItemIds = useMemo(
     () => new Set((analysisItems ?? []).map((item) => item.id)),
     [analysisItems],
@@ -211,6 +347,10 @@ function DiscussionFlow({
   const displayTree = useMemo(
     () => stageTentativeTree(nodes, edges, analysisItems ?? []),
     [nodes, edges, analysisItems],
+  );
+  const propDuplicateNodeIds = useMemo(
+    () => uniqueDiscussionTreeNodes(nodes).duplicateNodeIds,
+    [nodes],
   );
   const displayNodes = displayTree.nodes;
   const displayEdges = displayTree.edges;
@@ -293,14 +433,23 @@ function DiscussionFlow({
   // 他ノードへ付け替わらないよう、可視ノードに絞る前のidで判定する。
   const lastNodeId = displayNodes.length > 0 ? displayNodes[displayNodes.length - 1].id : null;
 
+  const layoutResult = useMemo(
+    () => layoutDiscussionTree(visibleNodes, visibleEdges, lastGoodLayoutRef.current),
+    [visibleEdges, visibleNodes],
+  );
+  useEffect(() => {
+    if (!layoutResult.usedFallback && layoutResult.outputNodeCount > 0) {
+      lastGoodLayoutRef.current = new Map(layoutResult.positions);
+    }
+  }, [layoutResult]);
+
   const flowNodes = useMemo<DiscussionFlowNode[]>(() => {
-    const laidOut = layoutPositions(visibleNodes, visibleEdges);
     return visibleNodes.map((node, index) => {
       const kindCounts = discussionModel.descendantKindCounts.get(node.id) ?? {};
       return {
         id: node.id,
         type: "discussion",
-        position: laidOut.get(node.id) ?? { x: 0, y: index * (NODE_HEIGHT + 24) },
+        position: layoutResult.positions.get(node.id) ?? { x: 0, y: index * (NODE_HEIGHT + 24) },
         selected: node.id === selectedId,
         data: {
           id: node.id,
@@ -325,7 +474,7 @@ function DiscussionFlow({
     });
   }, [
     visibleNodes,
-    visibleEdges,
+    layoutResult,
     discussionModel,
     selectedId,
     analysisItemIds,
@@ -372,22 +521,61 @@ function DiscussionFlow({
       displayNodes.length,
       flowNodes.length,
       visibleNodes.length,
+      reactFlowInternalNodeCount,
+      reactFlowInternalEdgeCount,
+      reactFlowNodesInitialized,
+      layoutResult.invalidPositionNodeIds.length,
+      paneWidth,
+      paneHeight,
     ].join("|");
     if (renderLogSignatureRef.current === signature) {
       return;
     }
     renderLogSignatureRef.current = signature;
-    console.debug("Discussion tree render state.", {
+    const viewport = getViewport();
+    meetingStartDebug("meeting-page", "Discussion tree render state", {
+      sessionId: sessionId || null,
+      flowInstanceId: flowInstanceIdRef.current,
+      pathname: typeof window === "undefined" ? null : window.location.pathname,
+      analysisVersion,
+      treeVersion,
       incomingTreeVersion: treeChanges?.treeVersion ?? null,
+      propTreeVersion: treeVersion,
+      propNodeCount: nodes.length,
       canonicalNodeCount: nodes.length,
       canonicalEdgeCount: edges.length,
+      convertedNodeCount: displayNodes.length,
       displayNodeCount: displayNodes.length,
+      filteredNodeCount: visibleNodes.length,
+      layoutInputNodeCount: layoutResult.inputNodeCount,
+      layoutOutputNodeCount: layoutResult.outputNodeCount,
+      renderNodeCount: flowNodes.length,
       renderedNodeCount: flowNodes.length,
+      reactFlowInternalNodeCount,
+      reactFlowNodesInitialized,
+      edgeCount: flowEdges.length,
       renderedEdgeCount: flowEdges.length,
+      reactFlowInternalEdgeCount,
       visibleNodeCount: visibleNodes.length,
+      invalidPositionCount: layoutResult.invalidPositionNodeIds.length,
+      missingParentCount: layoutResult.missingParentNodeIds.length,
+      unreachableNodeCount: layoutResult.unreachableNodeIds.length,
+      cycleDetected: layoutResult.cycleDetected,
+      duplicateNodeIdCount: propDuplicateNodeIds.length,
+      layoutError: layoutResult.layoutError,
+      layoutFallbackUsed: layoutResult.usedFallback,
+      containerWidth: paneWidth,
+      containerHeight: paneHeight,
+      reactFlowPaneWidth,
+      reactFlowPaneHeight,
+      viewportX: viewport.x,
+      viewportY: viewport.y,
+      viewportZoom: viewport.zoom,
+      bounds: layoutResult.bounds,
       focusTargetCount: pendingAutoFocusIds.length + queuedAutoFocusIds.length,
-      viewport: getViewport(),
+      viewport,
       updateReason: "tree_props_changed",
+      timestamp: new Date().toISOString(),
     });
   }, [
     treeChanges,
@@ -396,22 +584,167 @@ function DiscussionFlow({
     displayNodes,
     flowNodes,
     flowEdges,
+    reactFlowInternalNodeCount,
+    reactFlowInternalEdgeCount,
+    reactFlowNodesInitialized,
     visibleNodes,
+    layoutResult,
+    propDuplicateNodeIds,
+    paneWidth,
+    paneHeight,
+    reactFlowPaneWidth,
+    reactFlowPaneHeight,
     pendingAutoFocusIds,
     queuedAutoFocusIds,
     getViewport,
+    sessionId,
+    analysisVersion,
+    treeVersion,
   ]);
 
-  // 初回(ノードが空→非空になった最初)だけ自動フィットする。以降のライブ更新・
-  // 展開/折りたたみでは自動フィットしない(手動フィットは既存のControlsで可能)。
+  // 初回(ノードが空→非空になった最初)だけ自動フィットする。0x0のcontainerで
+  // fitViewを確定させると、その後も全ノードがviewport外に残り得るため延期する。
   const didInitialFitRef = useRef(false);
+  const fitViewPendingRef = useRef(false);
+  const deferredFitRequestRef = useRef<{ reason: string; duration: number } | null>(null);
+  const [fitRetryEpoch, setFitRetryEpoch] = useState(0);
+  const lastDeferredFitSignatureRef = useRef("");
+  const requestFitView = useCallback(
+    (reason: string, duration: number) => {
+      const signature = `${reason}:${treeVersion ?? "none"}:${flowNodes.length}:${paneWidth}x${paneHeight}`;
+      if (flowNodes.length === 0 || paneWidth <= 0 || paneHeight <= 0) {
+        deferredFitRequestRef.current = { reason, duration };
+        if (lastDeferredFitSignatureRef.current !== signature) {
+          lastDeferredFitSignatureRef.current = signature;
+          meetingStartDebug("meeting-page", "Discussion tree fit deferred", {
+            sessionId: sessionId || null,
+            treeVersion,
+            renderNodeCount: flowNodes.length,
+            containerWidth: paneWidth,
+            containerHeight: paneHeight,
+            fitViewRequested: false,
+            fitViewReason: reason,
+            reactFlowNodesInitialized,
+            reactFlowInternalNodeCount,
+            timestamp: new Date().toISOString(),
+          });
+        }
+        return false;
+      }
+      if (fitViewPendingRef.current) {
+        deferredFitRequestRef.current = { reason, duration };
+        return false;
+      }
+      deferredFitRequestRef.current = null;
+      fitViewPendingRef.current = true;
+      meetingStartDebug("meeting-page", "Discussion tree fit requested", {
+        sessionId: sessionId || null,
+        treeVersion,
+        renderNodeCount: flowNodes.length,
+        containerWidth: paneWidth,
+        containerHeight: paneHeight,
+        fitViewRequested: true,
+        fitViewReason: reason,
+        timestamp: new Date().toISOString(),
+      });
+      void fitView({ padding: 0.2, duration })
+        .then((applied) => {
+          if (applied && reason === "initial") {
+            didInitialFitRef.current = true;
+          }
+          const viewport = getViewport();
+          meetingStartDebug("meeting-page", "Discussion tree fit completed", {
+            sessionId: sessionId || null,
+            treeVersion,
+            fitViewApplied: applied,
+            fitViewReason: reason,
+            containerWidth: paneWidth,
+            containerHeight: paneHeight,
+            viewportX: viewport.x,
+            viewportY: viewport.y,
+            viewportZoom: viewport.zoom,
+            timestamp: new Date().toISOString(),
+          });
+        })
+        .catch((cause: unknown) => {
+          meetingStartDebug("meeting-page", "Discussion tree fit failed", {
+            sessionId: sessionId || null,
+            treeVersion,
+            fitViewReason: reason,
+            error: cause instanceof Error ? cause.message : String(cause),
+            timestamp: new Date().toISOString(),
+          });
+        })
+        .finally(() => {
+          fitViewPendingRef.current = false;
+          if (deferredFitRequestRef.current) {
+            setFitRetryEpoch((current) => current + 1);
+          }
+        });
+      return true;
+    },
+    [
+      fitView,
+      flowNodes.length,
+      getViewport,
+      paneHeight,
+      paneWidth,
+      reactFlowInternalNodeCount,
+      reactFlowNodesInitialized,
+      sessionId,
+      treeVersion,
+    ],
+  );
   useEffect(() => {
-    if (didInitialFitRef.current || flowNodes.length === 0) {
+    const deferred = deferredFitRequestRef.current;
+    if (deferred) {
+      requestFitView(deferred.reason, deferred.duration);
+    }
+  }, [fitRetryEpoch, requestFitView]);
+  useEffect(() => {
+    if (!didInitialFitRef.current) {
+      requestFitView("initial", 300);
+    }
+  }, [requestFitView]);
+
+  const viewportRecoverySignatureRef = useRef("");
+  useEffect(() => {
+    if (flowNodes.length === 0 || paneWidth <= 0 || paneHeight <= 0) {
       return;
     }
-    didInitialFitRef.current = true;
-    void fitView({ padding: 0.2, duration: 300 });
-  }, [flowNodes, fitView]);
+    const viewport = getViewport();
+    const invalidViewport = !isFiniteViewport(viewport) || layoutResult.bounds === null;
+    const allNodesOutside = !anyTargetVisible(
+      flowNodes.map((node) => node.position),
+      viewport,
+      { width: paneWidth, height: paneHeight },
+      { width: NODE_WIDTH, height: NODE_HEIGHT },
+    );
+    const recentlyManipulated =
+      Date.now() - lastManualInteractionAtRef.current < AUTO_FOLLOW_INTERACTION_GRACE_MS;
+    const reason = invalidViewport
+      ? "invalid_viewport"
+      : allNodesOutside && !recentlyManipulated
+        ? "all_nodes_outside"
+        : null;
+    if (!reason) {
+      return;
+    }
+    const signature = `${reason}:${treeVersion ?? "none"}:${flowNodes.length}`;
+    if (viewportRecoverySignatureRef.current === signature) {
+      return;
+    }
+    viewportRecoverySignatureRef.current = signature;
+    requestFitView(reason, 200);
+  }, [
+    flowNodes,
+    getViewport,
+    layoutResult.bounds,
+    paneHeight,
+    paneWidth,
+    requestFitView,
+    treeVersion,
+  ]);
 
   // layoutSignal(タイムライン列の開閉など、このパネル自身のライブ更新とは
   // 無関係な外部要因による表示幅の変化)が変わったときだけ、一度だけ再フィットする。
@@ -423,23 +756,29 @@ function DiscussionFlow({
     if (!didInitialFitRef.current || layoutSignal === previous) {
       return;
     }
-    void fitView({ padding: 0.2, duration: 200 });
-  }, [layoutSignal, fitView]);
-
-  // パネルの実描画幅(React Flowが計測した値)。詳細カードを避ける補正に使う。
-  const paneWidth = useStore((state) => state.width);
-  const paneHeight = useStore((state) => state.height);
+    requestFitView("layout_signal", 200);
+  }, [layoutSignal, requestFitView]);
 
   const recordFocusMetric = useCallback(
     (outcome: "focused" | "suppressed" | "alreadyVisible", targetCount: number) => {
       focusMetricsRef.current[outcome] += 1;
-      console.debug("Discussion tree structural focus.", {
+      const viewport = getViewport();
+      meetingStartDebug("meeting-page", "Discussion tree structural focus", {
+        sessionId: sessionId || null,
+        analysisVersion,
+        treeVersion,
         outcome,
         targetCount,
+        containerWidth: paneWidth,
+        containerHeight: paneHeight,
+        viewportX: viewport.x,
+        viewportY: viewport.y,
+        viewportZoom: viewport.zoom,
         counters: { ...focusMetricsRef.current },
+        timestamp: new Date().toISOString(),
       });
     },
-    [],
+    [analysisVersion, getViewport, paneHeight, paneWidth, sessionId, treeVersion],
   );
 
   const queueStructuralFocus = useCallback(
@@ -524,8 +863,15 @@ function DiscussionFlow({
     if (targets.length !== queuedAutoFocusIds.length) {
       return;
     }
+    if (paneWidth <= 0 || paneHeight <= 0) {
+      return;
+    }
     setQueuedAutoFocusIds([]);
     const viewport = getViewport();
+    if (!isFiniteViewport(viewport)) {
+      requestFitView("invalid_viewport_before_focus", 0);
+      return;
+    }
     if (
       allTargetsVisible(
         targets.map((node) => node.position),
@@ -568,9 +914,21 @@ function DiscussionFlow({
       const bottom = Math.max(...framingNodes.map((node) => node.position.y + NODE_HEIGHT));
       const boundsWidth = right - left;
       const boundsHeight = bottom - top;
+      if (
+        ![left, top, right, bottom, boundsWidth, boundsHeight].every(Number.isFinite) ||
+        boundsWidth < 0 ||
+        boundsHeight < 0
+      ) {
+        requestFitView("invalid_focus_bounds", 0);
+        return;
+      }
       const widthZoom = paneWidth > 0 ? (paneWidth * 0.75) / boundsWidth : viewport.zoom;
       const heightZoom = paneHeight > 0 ? (paneHeight * 0.75) / boundsHeight : viewport.zoom;
       const targetZoom = Math.max(0.2, Math.min(viewport.zoom, widthZoom, heightZoom, 1));
+      if (!Number.isFinite(targetZoom)) {
+        requestFitView("invalid_focus_zoom", 0);
+        return;
+      }
       void setCenter(left + boundsWidth / 2, top + boundsHeight / 2, {
         zoom: targetZoom,
         duration,
@@ -592,6 +950,7 @@ function DiscussionFlow({
     paneWidth,
     queuedAutoFocusIds,
     recordFocusMetric,
+    requestFitView,
     setCenter,
   ]);
 
@@ -669,7 +1028,7 @@ function DiscussionFlow({
     }
     setPendingFocusNodeId(null);
     centerNodeBesideDetailCard(node.position);
-  }, [pendingFocusNodeId, flowNodes, centerNodeBesideDetailCard]);
+  }, [pendingFocusNodeId, flowNodes, reactFlowInternalNodeCount, centerNodeBesideDetailCard]);
 
   const detailNodeId = selectedId ?? hoveredId;
   const selectedNode = detailNodeId
@@ -687,7 +1046,6 @@ function DiscussionFlow({
         nodes={flowNodes}
         edges={flowEdges}
         nodeTypes={nodeTypes}
-        fitView
         minZoom={0.2}
         maxZoom={1.25}
         proOptions={{ hideAttribution: true }}
@@ -698,6 +1056,19 @@ function DiscussionFlow({
           if (event && !autoMovingRef.current) {
             markManualInteraction();
           }
+        }}
+        onMoveEnd={(_, viewport) => {
+          meetingStartDebug("meeting-page", "Discussion tree viewport settled", {
+            sessionId: sessionId || null,
+            analysisVersion,
+            treeVersion,
+            containerWidth: paneWidth,
+            containerHeight: paneHeight,
+            viewportX: viewport.x,
+            viewportY: viewport.y,
+            viewportZoom: viewport.zoom,
+            timestamp: new Date().toISOString(),
+          });
         }}
         onNodeClick={(_, node) => {
           markManualInteraction();
@@ -725,6 +1096,20 @@ function DiscussionFlow({
       >
         <Background variant={BackgroundVariant.Dots} gap={22} color="var(--node-border)" />
         <Controls showInteractive={false} position="bottom-left" />
+        {layoutResult.usedFallback && (
+          <Panel position="top-left">
+            <span
+              className="rounded-(--ds-radius-control) border px-2 py-1 text-[10px] font-semibold"
+              style={{
+                background: "var(--ds-surface)",
+                borderColor: "var(--ds-border)",
+                color: "var(--text-sub)",
+              }}
+            >
+              配置を安全な表示へ復旧しました
+            </span>
+          </Panel>
+        )}
         <Panel position="top-right" className="flex max-w-[80%] flex-wrap justify-end gap-1">
           {pendingAutoFocusIds.length > 0 && (
             <button
@@ -828,12 +1213,19 @@ export function stageTentativeTree(
   edges: TreeEdgePayload[],
   analysisItems: AnalysisItem[],
 ): { nodes: TreeNodePayload[]; edges: TreeEdgePayload[] } {
+  // React keyとlayout graphのIDを一意に保つ。API normalize経路は既にdedupeするが、
+  // 旧runtime eventや壊れたfixtureが直接渡されても一つの重複で全描画を壊さない。
+  const uniqueNodes = uniqueDiscussionTreeNodes(nodes).nodes;
+  const uniqueNodeIds = new Set(uniqueNodes.map((node) => node.id));
+  const validEdges = edges.filter(
+    (edge) => uniqueNodeIds.has(edge.source) && uniqueNodeIds.has(edge.target),
+  );
   const hiddenIds = new Set(
     analysisItems
       .filter((item) => item.classificationStatus === "tentative")
       .map((item) => item.id),
   );
-  for (const node of nodes) {
+  for (const node of uniqueNodes) {
     if (node.agendaRole === "action_summary") {
       hiddenIds.add(node.id);
     }
@@ -845,7 +1237,7 @@ export function stageTentativeTree(
   let agendaTopicRemoved = true;
   while (agendaTopicRemoved) {
     agendaTopicRemoved = false;
-    for (const node of nodes) {
+    for (const node of uniqueNodes) {
       const agendaTopic =
         node.kind === "topic" &&
         node.id !== "root" &&
@@ -855,13 +1247,13 @@ export function stageTentativeTree(
       if (!agendaTopic || hiddenIds.has(node.id)) {
         continue;
       }
-      const hasVisibleChild = nodes.some((candidate) => {
+      const hasVisibleChild = uniqueNodes.some((candidate) => {
         if (hiddenIds.has(candidate.id)) {
           return false;
         }
         return (
           candidate.parentId === node.id ||
-          edges.some((edge) => edge.source === node.id && edge.target === candidate.id)
+          validEdges.some((edge) => edge.source === node.id && edge.target === candidate.id)
         );
       });
       if (!hasVisibleChild) {
@@ -872,12 +1264,12 @@ export function stageTentativeTree(
   }
   // 「追加論点」(topic-unclassified)は、tentative item除外後に表示できる子が
   // 一つも無ければ表示しない。実アジェンダだけがroot直下に並ぶ状態を保つ。
-  const hasUnclassified = nodes.some((node) => node.id === UNCLASSIFIED_TOPIC_ID);
+  const hasUnclassified = uniqueNodes.some((node) => node.id === UNCLASSIFIED_TOPIC_ID);
   if (hasUnclassified) {
     const edgeChildIds = new Set(
-      edges.filter((edge) => edge.source === UNCLASSIFIED_TOPIC_ID).map((edge) => edge.target),
+      validEdges.filter((edge) => edge.source === UNCLASSIFIED_TOPIC_ID).map((edge) => edge.target),
     );
-    const hasVisibleChild = nodes.some(
+    const hasVisibleChild = uniqueNodes.some(
       (node) =>
         (node.parentId === UNCLASSIFIED_TOPIC_ID || edgeChildIds.has(node.id)) &&
         !hiddenIds.has(node.id),
@@ -887,11 +1279,11 @@ export function stageTentativeTree(
     }
   }
   if (hiddenIds.size === 0) {
-    return { nodes, edges };
+    return { nodes: uniqueNodes, edges: validEdges };
   }
   return {
-    nodes: nodes.filter((node) => !hiddenIds.has(node.id)),
-    edges: edges.filter((edge) => !hiddenIds.has(edge.source) && !hiddenIds.has(edge.target)),
+    nodes: uniqueNodes.filter((node) => !hiddenIds.has(node.id)),
+    edges: validEdges.filter((edge) => !hiddenIds.has(edge.source) && !hiddenIds.has(edge.target)),
   };
 }
 

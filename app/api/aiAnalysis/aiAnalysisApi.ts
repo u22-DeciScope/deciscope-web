@@ -10,6 +10,7 @@ import type {
 export type MeetingAIAnalysisType = "live" | "final";
 export type MeetingAIAnalysisStatus = "running" | "completed" | "failed";
 export type MeetingAIAnalysisImportance = "high" | "medium" | "low";
+export type LiveTreePayloadState = "omitted" | "null" | "empty" | "snapshot" | "invalid";
 
 // ライブ分析payload v2。items/treeは既存の analysis.delta / tree.update の語彙
 // (AnalysisItem / TreeUpdatePayload)と互換の形に正規化して保持する。
@@ -21,6 +22,12 @@ export type LiveAnalysisPayload = {
   items: AnalysisItem[];
   tree: TreeUpdatePayload | null;
   treeVersion?: number;
+  // APIのraw payloadでtreeがどのように表現されていたかを保持するクライアント側の
+  // merge情報。旧payload向けに合成treeを作った場合も omitted/empty のままなので、
+  // 既存の完全snapshotを暗黙に置換しない判断ができる。
+  treePayloadState?: LiveTreePayloadState;
+  // treeの消去はこの明示フラグを伴うcompleted payloadだけが要求できる。
+  treeReset?: boolean;
   treeChanges?: TreeChangesPayload;
   degraded?: boolean;
   degradedReason?: string;
@@ -325,9 +332,19 @@ function normalizeLivePayload(value: unknown): LiveAnalysisPayload | null {
     duplicateNodeIds: [] as string[],
     crossKindIdCollisions: [] as string[],
   };
-  const tree =
-    normalizeLiveTree(source.tree, itemIds, clientIntegrity) ??
-    synthesizeLiveTree(currentTopic, items);
+  const hasTreeField = Object.prototype.hasOwnProperty.call(source, "tree");
+  const normalizedTree = normalizeLiveTree(source.tree, itemIds, clientIntegrity);
+  const tree = normalizedTree ?? synthesizeLiveTree(currentTopic, items);
+  const treeReset = source.treeReset === true || source.tree_reset === true;
+  const treePayloadState: LiveTreePayloadState = !hasTreeField
+    ? "omitted"
+    : source.tree === null
+      ? "null"
+      : normalizedTree
+        ? "snapshot"
+        : isExplicitlyEmptyTree(source.tree)
+          ? "empty"
+          : "invalid";
   const treeVersion = optionalNumber(source.treeVersion);
   const treeChanges = normalizeTreeChanges(source.treeChanges);
   const serverIntegrity = normalizeTreeIntegrity(source.treeIntegrity);
@@ -360,6 +377,8 @@ function normalizeLivePayload(value: unknown): LiveAnalysisPayload | null {
     items,
     tree,
     ...(treeVersion !== undefined ? { treeVersion } : {}),
+    treePayloadState,
+    ...(treeReset ? { treeReset: true } : {}),
     ...(treeChanges ? { treeChanges } : {}),
     ...(degraded ? { degraded: true } : {}),
     ...(optionalString(source.degradedReason)?.trim()
@@ -378,6 +397,14 @@ function normalizeLivePayload(value: unknown): LiveAnalysisPayload | null {
     ...(agendaAnchors.length > 0 ? { agendaAnchors } : {}),
     ...(agendaProgress ? { agendaProgress } : {}),
   };
+}
+
+function isExplicitlyEmptyTree(value: unknown): boolean {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const nodes = (value as Record<string, unknown>).nodes;
+  return Array.isArray(nodes) && nodes.length === 0;
 }
 
 // agendaProgress を正規化する。未知フィールド(サーバー内部trackingのactiveRounds等)は
