@@ -265,6 +265,7 @@ export function MeetingWorkspaceGrid({
         treeChanges={livePayload?.treeChanges}
         analysisVersion={analysisVersion}
         treeVersion={treeVersion}
+        treeHash={livePayload?.treeHash}
       />
       <MeetingAssistantPanel
         insights={insights}

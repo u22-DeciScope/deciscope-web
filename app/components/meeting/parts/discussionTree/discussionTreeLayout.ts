@@ -119,6 +119,57 @@ export function normalizeEdges(
   });
 }
 
+// React Flow currently receives a flat, edge-only graph (no sub-flow
+// parentId), but keeping every logical parent before its children makes the
+// conversion deterministic and prevents a future grouping implementation
+// from accidentally violating React Flow's parent-first requirement.
+export function orderDiscussionTreeNodesParentFirst(
+  inputNodes: TreeNodePayload[],
+  inputEdges: TreeEdgePayload[],
+): TreeNodePayload[] {
+  const { nodes } = uniqueDiscussionTreeNodes(inputNodes);
+  if (nodes.length < 2) {
+    return nodes;
+  }
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const edges = normalizeEdges(nodes, inputEdges);
+  const children = new Map<string, string[]>();
+  const parentById = new Map<string, string>();
+  for (const edge of edges) {
+    if (!byId.has(edge.source) || !byId.has(edge.target) || parentById.has(edge.target)) {
+      continue;
+    }
+    parentById.set(edge.target, edge.source);
+    children.set(edge.source, [...(children.get(edge.source) ?? []), edge.target]);
+  }
+  const ordered: TreeNodePayload[] = [];
+  const visited = new Set<string>();
+  const visit = (id: string) => {
+    if (visited.has(id)) {
+      return;
+    }
+    visited.add(id);
+    const node = byId.get(id);
+    if (node) {
+      ordered.push(node);
+    }
+    for (const childId of children.get(id) ?? []) {
+      visit(childId);
+    }
+  };
+  for (const node of nodes) {
+    if (!parentById.has(node.id)) {
+      visit(node.id);
+    }
+  }
+  // Cycles/malformed leftovers are retained for diagnostics instead of being
+  // silently dropped. The frame validator will reject that candidate to LKG.
+  for (const node of nodes) {
+    visit(node.id);
+  }
+  return ordered;
+}
+
 export function layoutDiscussionTree(
   inputNodes: TreeNodePayload[],
   inputEdges: TreeEdgePayload[],

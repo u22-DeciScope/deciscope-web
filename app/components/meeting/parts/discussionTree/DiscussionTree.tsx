@@ -35,6 +35,7 @@ import {
   NODE_WIDTH,
   layoutDiscussionTree,
   normalizeEdges,
+  orderDiscussionTreeNodesParentFirst,
   uniqueDiscussionTreeNodes,
 } from "./discussionTreeLayout";
 import { DiscussionTreeErrorBoundary } from "./DiscussionTreeErrorBoundary";
@@ -83,7 +84,18 @@ const MIN_VISIBLE_WIDTH_FOR_OVERLAY_OFFSET = 320;
 const AUTO_FOLLOW_INTERACTION_GRACE_MS = 4000;
 const AUTO_FOLLOW_COOLDOWN_MS = 2000;
 const STRUCTURAL_HIGHLIGHT_MS = 3000;
+const FLOW_SYNC_SETTLE_MS = 350;
 let discussionFlowInstanceSequence = 0;
+
+type DiscussionRenderFrame = {
+  signature: string;
+  nodes: DiscussionFlowNode[];
+  edges: Edge[];
+  bounds: ReturnType<typeof layoutDiscussionTree>["bounds"];
+  viewport: { x: number; y: number; zoom: number };
+  treeVersion: number | null;
+  treeHash: string | null;
+};
 
 // AIアシスタントのカードクリックなど、外部から「この分析itemに対応するノードへ
 // フォーカスしてほしい」という要求。同じitemIdを連続でクリックしても再フォーカス
@@ -108,6 +120,7 @@ type DiscussionTreeProps = {
   treeChanges?: TreeChangesPayload;
   analysisVersion?: number | null;
   treeVersion?: number | null;
+  treeHash?: string;
 };
 
 export function DiscussionTree({
@@ -123,6 +136,7 @@ export function DiscussionTree({
   treeChanges,
   analysisVersion = null,
   treeVersion = null,
+  treeHash,
 }: DiscussionTreeProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const observedCanvasSize = useDiscussionTreeCanvasSize(canvasRef);
@@ -136,6 +150,7 @@ export function DiscussionTree({
     treeVersion,
     nodeCount: nodes.length,
     analysisVersion,
+    treeHash: treeHash ?? null,
   });
   lifecycleSnapshotRef.current = {
     sessionId: sessionId || null,
@@ -143,6 +158,7 @@ export function DiscussionTree({
     treeVersion,
     nodeCount: nodes.length,
     analysisVersion,
+    treeHash: treeHash ?? null,
   };
   useEffect(() => {
     meetingStartDebug("meeting-page", "DiscussionTree mounted", {
@@ -224,6 +240,7 @@ export function DiscussionTree({
                 treeChanges={treeChanges}
                 analysisVersion={analysisVersion}
                 treeVersion={treeVersion}
+                treeHash={treeHash}
                 observedCanvasSize={observedCanvasSize}
               />
             </DiscussionTreeErrorBoundary>
@@ -278,6 +295,7 @@ function DiscussionFlow({
   treeChanges,
   analysisVersion = null,
   treeVersion = null,
+  treeHash,
   observedCanvasSize,
 }: DiscussionTreeProps & {
   observedCanvasSize: { width: number; height: number } | null;
@@ -291,12 +309,14 @@ function DiscussionFlow({
     sessionId: sessionId || null,
     analysisVersion,
     treeVersion,
+    treeHash: treeHash ?? null,
     nodeCount: nodes.length,
   });
   flowLifecycleSnapshotRef.current = {
     sessionId: sessionId || null,
     analysisVersion,
     treeVersion,
+    treeHash: treeHash ?? null,
     nodeCount: nodes.length,
   };
   useEffect(() => {
@@ -329,7 +349,7 @@ function DiscussionFlow({
   const structuralHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoMoveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const focusMetricsRef = useRef({ focused: 0, suppressed: 0, alreadyVisible: 0 });
-  const { fitView, getNode, getViewport, setCenter } = useReactFlow();
+  const { fitView, getNode, getViewport, setCenter, setViewport } = useReactFlow();
   const reactFlowPaneWidth = useStore((state) => state.width);
   const reactFlowPaneHeight = useStore((state) => state.height);
   const reactFlowInternalNodeCount = useStore((state) => state.nodeLookup.size);
@@ -412,6 +432,10 @@ function DiscussionFlow({
     () => treeEdges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target)),
     [treeEdges, visibleIds],
   );
+  const orderedVisibleNodes = useMemo(
+    () => orderDiscussionTreeNodesParentFirst(visibleNodes, visibleEdges),
+    [visibleEdges, visibleNodes],
+  );
 
   // フォーカス強調(選択時): 選択ノード自身 + 直接の親 + 直接の子。
   const focusIds = useMemo(() => {
@@ -434,8 +458,8 @@ function DiscussionFlow({
   const lastNodeId = displayNodes.length > 0 ? displayNodes[displayNodes.length - 1].id : null;
 
   const layoutResult = useMemo(
-    () => layoutDiscussionTree(visibleNodes, visibleEdges, lastGoodLayoutRef.current),
-    [visibleEdges, visibleNodes],
+    () => layoutDiscussionTree(orderedVisibleNodes, visibleEdges, lastGoodLayoutRef.current),
+    [visibleEdges, orderedVisibleNodes],
   );
   useEffect(() => {
     if (!layoutResult.usedFallback && layoutResult.outputNodeCount > 0) {
@@ -444,7 +468,7 @@ function DiscussionFlow({
   }, [layoutResult]);
 
   const flowNodes = useMemo<DiscussionFlowNode[]>(() => {
-    return visibleNodes.map((node, index) => {
+    return orderedVisibleNodes.map((node, index) => {
       const kindCounts = discussionModel.descendantKindCounts.get(node.id) ?? {};
       return {
         id: node.id,
@@ -473,7 +497,7 @@ function DiscussionFlow({
       };
     });
   }, [
-    visibleNodes,
+    orderedVisibleNodes,
     layoutResult,
     discussionModel,
     selectedId,
@@ -510,6 +534,228 @@ function DiscussionFlow({
     [visibleEdges, selectedId],
   );
 
+  // React Flow is intentionally an edge-only graph: domain parentId feeds
+  // normalizeEdges/Dagre but is never copied to the React Flow node.parentId.
+  // Dagre positions therefore remain absolute canvas coordinates; no sub-flow
+  // relative-coordinate conversion or parent sizing is involved.
+  const candidateFrame = useMemo<DiscussionRenderFrame>(() => {
+    const signature = [
+      treeVersion ?? "none",
+      treeHash ?? "no-hash",
+      `${paneWidth}x${paneHeight}`,
+      flowNodes.map((node) => `${node.id}@${node.position.x},${node.position.y}`).join(","),
+      flowEdges.map((edge) => `${edge.source}>${edge.target}`).join(","),
+    ].join("|");
+    return {
+      signature,
+      nodes: flowNodes,
+      edges: flowEdges,
+      bounds: layoutResult.bounds,
+      viewport: { x: 0, y: 0, zoom: 1 },
+      treeVersion,
+      treeHash: treeHash ?? null,
+    };
+  }, [flowEdges, flowNodes, layoutResult.bounds, paneHeight, paneWidth, treeHash, treeVersion]);
+  const candidateFrameInvalidReasons = useMemo(() => {
+    const reasons: string[] = [];
+    if (layoutResult.layoutError) reasons.push("layout_error");
+    if (layoutResult.invalidPositionNodeIds.length > 0) reasons.push("invalid_position");
+    if (layoutResult.missingParentNodeIds.length > 0) reasons.push("missing_parent");
+    if (layoutResult.unreachableNodeIds.length > 0) reasons.push("unreachable_node");
+    if (layoutResult.cycleDetected) reasons.push("cycle");
+    if (propDuplicateNodeIds.length > 0) reasons.push("duplicate_node");
+    if (layoutResult.outputNodeCount !== flowNodes.length) reasons.push("node_count_mismatch");
+    if (layoutResult.bounds === null) reasons.push("invalid_bounds");
+    return reasons;
+  }, [flowNodes.length, layoutResult, propDuplicateNodeIds.length]);
+  const lastGoodRenderFrameRef = useRef<DiscussionRenderFrame | null>(null);
+  const lastGoodRenderFrameSessionRef = useRef(sessionId);
+  const [syncRejectedSignature, setSyncRejectedSignature] = useState<string | null>(null);
+  const flowRootRef = useRef<HTMLDivElement>(null);
+  const [renderedDomNodeCount, setRenderedDomNodeCount] = useState(0);
+  const syncObservationRef = useRef({
+    internalNodeCount: reactFlowInternalNodeCount,
+    internalEdgeCount: reactFlowInternalEdgeCount,
+    nodesInitialized: reactFlowNodesInitialized,
+    renderedDomNodeCount,
+  });
+  syncObservationRef.current = {
+    internalNodeCount: reactFlowInternalNodeCount,
+    internalEdgeCount: reactFlowInternalEdgeCount,
+    nodesInitialized: reactFlowNodesInitialized,
+    renderedDomNodeCount,
+  };
+
+  const canvasUnavailable = paneWidth <= 0 || paneHeight <= 0;
+  const frameRejected =
+    candidateFrameInvalidReasons.length > 0 ||
+    canvasUnavailable ||
+    syncRejectedSignature === candidateFrame.signature;
+  const lastGoodRenderFrame =
+    lastGoodRenderFrameSessionRef.current === sessionId ? lastGoodRenderFrameRef.current : null;
+  const usingLastGoodFrame = Boolean(lastGoodRenderFrame && frameRejected);
+  const renderedFrame =
+    usingLastGoodFrame && lastGoodRenderFrame ? lastGoodRenderFrame : candidateFrame;
+  const renderedFlowNodes = renderedFrame.nodes;
+  const renderedFlowEdges = renderedFrame.edges;
+  const renderedBounds = renderedFrame.bounds;
+
+  useEffect(() => {
+    if (lastGoodRenderFrameSessionRef.current === sessionId) {
+      return;
+    }
+    lastGoodRenderFrameSessionRef.current = sessionId;
+    lastGoodRenderFrameRef.current = null;
+    restoredLkgSignatureRef.current = "";
+    setSyncRejectedSignature(null);
+  }, [sessionId]);
+
+  useEffect(() => {
+    const root = flowRootRef.current;
+    if (!root || typeof MutationObserver === "undefined") {
+      return;
+    }
+    const update = () => {
+      const count = root.querySelectorAll(".react-flow__node").length;
+      setRenderedDomNodeCount((current) => (current === count ? current : count));
+    };
+    update();
+    const observer = new MutationObserver(update);
+    observer.observe(root, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
+  // Promote a candidate frame to LKG only after the real React Flow store and
+  // DOM have converged. A candidate that still has an internal-count mismatch,
+  // zero rendered nodes, or an invalid viewport after the settle window is
+  // rejected; the previous positions and viewport remain visible until the
+  // next snapshot/resize retry.
+  useEffect(() => {
+    if (
+      candidateFrameInvalidReasons.length > 0 ||
+      canvasUnavailable ||
+      syncRejectedSignature === candidateFrame.signature
+    ) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const observation = syncObservationRef.current;
+      const viewport = getViewport();
+      // nodesInitialized can lag (and stays false in jsdom because there is no
+      // layout engine), while a complete DOM + store count proves that every
+      // node has already been materialized. Accept either signal.
+      const nodesReady =
+        observation.nodesInitialized ||
+        observation.renderedDomNodeCount === candidateFrame.nodes.length;
+      const synchronized =
+        observation.internalNodeCount === candidateFrame.nodes.length &&
+        observation.internalEdgeCount === candidateFrame.edges.length &&
+        nodesReady &&
+        observation.renderedDomNodeCount === candidateFrame.nodes.length &&
+        isFiniteViewport(viewport);
+      if (synchronized) {
+        lastGoodRenderFrameSessionRef.current = sessionId;
+        lastGoodRenderFrameRef.current = {
+          ...candidateFrame,
+          viewport,
+        };
+        setSyncRejectedSignature((current) =>
+          current === candidateFrame.signature ? null : current,
+        );
+        meetingStartDebug("meeting-page", "Discussion tree frame committed", {
+          sessionId: sessionId || null,
+          flowInstanceId: flowInstanceIdRef.current,
+          treeVersion,
+          treeHash: candidateFrame.treeHash,
+          frameSignature: compactDebugSignature(candidateFrame.signature),
+          internalNodeCount: observation.internalNodeCount,
+          internalEdgeCount: observation.internalEdgeCount,
+          renderedNodeCount: observation.renderedDomNodeCount,
+          nodesInitialized: observation.nodesInitialized,
+          nodesReady,
+          viewportX: viewport.x,
+          viewportY: viewport.y,
+          viewportZoom: viewport.zoom,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+      if (lastGoodRenderFrameRef.current) {
+        setSyncRejectedSignature(candidateFrame.signature);
+      }
+      meetingStartDebug("meeting-page", "Discussion tree frame rejected", {
+        sessionId: sessionId || null,
+        flowInstanceId: flowInstanceIdRef.current,
+        treeVersion,
+        treeHash: candidateFrame.treeHash,
+        frameSignature: compactDebugSignature(candidateFrame.signature),
+        expectedNodeCount: candidateFrame.nodes.length,
+        expectedEdgeCount: candidateFrame.edges.length,
+        internalNodeCount: observation.internalNodeCount,
+        internalEdgeCount: observation.internalEdgeCount,
+        renderedNodeCount: observation.renderedDomNodeCount,
+        nodesInitialized: observation.nodesInitialized,
+        viewportX: viewport.x,
+        viewportY: viewport.y,
+        viewportZoom: viewport.zoom,
+        lkgAvailable: Boolean(lastGoodRenderFrameRef.current),
+        timestamp: new Date().toISOString(),
+      });
+    }, FLOW_SYNC_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [
+    candidateFrame,
+    candidateFrameInvalidReasons.length,
+    canvasUnavailable,
+    getViewport,
+    sessionId,
+    syncRejectedSignature,
+    treeVersion,
+    treeHash,
+  ]);
+
+  const restoredLkgSignatureRef = useRef("");
+  useEffect(() => {
+    if (!usingLastGoodFrame || !lastGoodRenderFrame) {
+      return;
+    }
+    const reason =
+      candidateFrameInvalidReasons.join(",") ||
+      (canvasUnavailable ? "container_0x0" : "react_flow_sync");
+    const signature = `${candidateFrame.signature}:${lastGoodRenderFrame.signature}:${reason}`;
+    if (restoredLkgSignatureRef.current === signature) {
+      return;
+    }
+    restoredLkgSignatureRef.current = signature;
+    if (isFiniteViewport(lastGoodRenderFrame.viewport)) {
+      void setViewport(lastGoodRenderFrame.viewport, { duration: 0 });
+    }
+    meetingStartDebug("meeting-page", "Discussion tree LKG retained", {
+      sessionId: sessionId || null,
+      flowInstanceId: flowInstanceIdRef.current,
+      rejectedTreeVersion: treeVersion,
+      rejectedTreeHash: candidateFrame.treeHash,
+      retainedTreeVersion: lastGoodRenderFrame.treeVersion,
+      retainedTreeHash: lastGoodRenderFrame.treeHash,
+      reason,
+      retainedNodeCount: lastGoodRenderFrame.nodes.length,
+      retainedEdgeCount: lastGoodRenderFrame.edges.length,
+      viewportX: lastGoodRenderFrame.viewport.x,
+      viewportY: lastGoodRenderFrame.viewport.y,
+      viewportZoom: lastGoodRenderFrame.viewport.zoom,
+      timestamp: new Date().toISOString(),
+    });
+  }, [
+    candidateFrame.signature,
+    candidateFrameInvalidReasons,
+    canvasUnavailable,
+    lastGoodRenderFrame,
+    sessionId,
+    setViewport,
+    treeVersion,
+    usingLastGoodFrame,
+  ]);
+
   // 描画状態の観測ログ: canonical(props)・表示フィルタ後・React Flow描画・
   // 可視判定の各ノード数とviewportを出す。stateからノードが消えたのか、
   // 表示領域外へ移動しただけなのかをログだけで判別できるようにする。
@@ -517,16 +763,20 @@ function DiscussionFlow({
   useEffect(() => {
     const signature = [
       treeChanges?.treeVersion ?? "",
+      treeHash ?? "",
       nodes.length,
       displayNodes.length,
-      flowNodes.length,
+      renderedFlowNodes.length,
       visibleNodes.length,
       reactFlowInternalNodeCount,
       reactFlowInternalEdgeCount,
       reactFlowNodesInitialized,
       layoutResult.invalidPositionNodeIds.length,
+      candidateFrameInvalidReasons.join(","),
       paneWidth,
       paneHeight,
+      renderedDomNodeCount,
+      usingLastGoodFrame,
     ].join("|");
     if (renderLogSignatureRef.current === signature) {
       return;
@@ -539,6 +789,7 @@ function DiscussionFlow({
       pathname: typeof window === "undefined" ? null : window.location.pathname,
       analysisVersion,
       treeVersion,
+      treeHash: treeHash ?? null,
       incomingTreeVersion: treeChanges?.treeVersion ?? null,
       propTreeVersion: treeVersion,
       propNodeCount: nodes.length,
@@ -549,14 +800,17 @@ function DiscussionFlow({
       filteredNodeCount: visibleNodes.length,
       layoutInputNodeCount: layoutResult.inputNodeCount,
       layoutOutputNodeCount: layoutResult.outputNodeCount,
-      renderNodeCount: flowNodes.length,
-      renderedNodeCount: flowNodes.length,
+      candidateRenderNodeCount: flowNodes.length,
+      renderNodeCount: renderedFlowNodes.length,
+      renderedNodeCount: renderedDomNodeCount,
       reactFlowInternalNodeCount,
       reactFlowNodesInitialized,
-      edgeCount: flowEdges.length,
-      renderedEdgeCount: flowEdges.length,
+      edgeCount: renderedFlowEdges.length,
+      renderedEdgeCount: renderedFlowEdges.length,
       reactFlowInternalEdgeCount,
       visibleNodeCount: visibleNodes.length,
+      groupNodeCount: displayNodes.filter((node) => node.kind === "group").length,
+      reparentedNodeCount: treeChanges?.reparentedNodeIds?.length ?? 0,
       invalidPositionCount: layoutResult.invalidPositionNodeIds.length,
       missingParentCount: layoutResult.missingParentNodeIds.length,
       unreachableNodeCount: layoutResult.unreachableNodeIds.length,
@@ -564,6 +818,9 @@ function DiscussionFlow({
       duplicateNodeIdCount: propDuplicateNodeIds.length,
       layoutError: layoutResult.layoutError,
       layoutFallbackUsed: layoutResult.usedFallback,
+      lkgRetained: usingLastGoodFrame,
+      lkgTreeVersion: usingLastGoodFrame ? lastGoodRenderFrame?.treeVersion : null,
+      frameRejectionReasons: candidateFrameInvalidReasons,
       containerWidth: paneWidth,
       containerHeight: paneHeight,
       reactFlowPaneWidth,
@@ -571,7 +828,7 @@ function DiscussionFlow({
       viewportX: viewport.x,
       viewportY: viewport.y,
       viewportZoom: viewport.zoom,
-      bounds: layoutResult.bounds,
+      bounds: renderedBounds,
       focusTargetCount: pendingAutoFocusIds.length + queuedAutoFocusIds.length,
       viewport,
       updateReason: "tree_props_changed",
@@ -583,7 +840,9 @@ function DiscussionFlow({
     edges,
     displayNodes,
     flowNodes,
-    flowEdges,
+    renderedFlowNodes,
+    renderedFlowEdges,
+    renderedDomNodeCount,
     reactFlowInternalNodeCount,
     reactFlowInternalEdgeCount,
     reactFlowNodesInitialized,
@@ -600,6 +859,10 @@ function DiscussionFlow({
     sessionId,
     analysisVersion,
     treeVersion,
+    treeHash,
+    usingLastGoodFrame,
+    lastGoodRenderFrame,
+    candidateFrameInvalidReasons,
   ]);
 
   // 初回(ノードが空→非空になった最初)だけ自動フィットする。0x0のcontainerで
@@ -611,15 +874,15 @@ function DiscussionFlow({
   const lastDeferredFitSignatureRef = useRef("");
   const requestFitView = useCallback(
     (reason: string, duration: number) => {
-      const signature = `${reason}:${treeVersion ?? "none"}:${flowNodes.length}:${paneWidth}x${paneHeight}`;
-      if (flowNodes.length === 0 || paneWidth <= 0 || paneHeight <= 0) {
+      const signature = `${reason}:${treeVersion ?? "none"}:${renderedFlowNodes.length}:${paneWidth}x${paneHeight}`;
+      if (renderedFlowNodes.length === 0 || paneWidth <= 0 || paneHeight <= 0) {
         deferredFitRequestRef.current = { reason, duration };
         if (lastDeferredFitSignatureRef.current !== signature) {
           lastDeferredFitSignatureRef.current = signature;
           meetingStartDebug("meeting-page", "Discussion tree fit deferred", {
             sessionId: sessionId || null,
             treeVersion,
-            renderNodeCount: flowNodes.length,
+            renderNodeCount: renderedFlowNodes.length,
             containerWidth: paneWidth,
             containerHeight: paneHeight,
             fitViewRequested: false,
@@ -640,7 +903,7 @@ function DiscussionFlow({
       meetingStartDebug("meeting-page", "Discussion tree fit requested", {
         sessionId: sessionId || null,
         treeVersion,
-        renderNodeCount: flowNodes.length,
+        renderNodeCount: renderedFlowNodes.length,
         containerWidth: paneWidth,
         containerHeight: paneHeight,
         fitViewRequested: true,
@@ -667,6 +930,12 @@ function DiscussionFlow({
           });
         })
         .catch((cause: unknown) => {
+          if (
+            lastGoodRenderFrameRef.current &&
+            lastGoodRenderFrameRef.current.signature !== candidateFrame.signature
+          ) {
+            setSyncRejectedSignature(candidateFrame.signature);
+          }
           meetingStartDebug("meeting-page", "Discussion tree fit failed", {
             sessionId: sessionId || null,
             treeVersion,
@@ -685,7 +954,7 @@ function DiscussionFlow({
     },
     [
       fitView,
-      flowNodes.length,
+      candidateFrame.signature,
       getViewport,
       paneHeight,
       paneWidth,
@@ -693,6 +962,7 @@ function DiscussionFlow({
       reactFlowNodesInitialized,
       sessionId,
       treeVersion,
+      renderedFlowNodes.length,
     ],
   );
   useEffect(() => {
@@ -709,13 +979,13 @@ function DiscussionFlow({
 
   const viewportRecoverySignatureRef = useRef("");
   useEffect(() => {
-    if (flowNodes.length === 0 || paneWidth <= 0 || paneHeight <= 0) {
+    if (renderedFlowNodes.length === 0 || paneWidth <= 0 || paneHeight <= 0) {
       return;
     }
     const viewport = getViewport();
-    const invalidViewport = !isFiniteViewport(viewport) || layoutResult.bounds === null;
+    const invalidViewport = !isFiniteViewport(viewport) || renderedBounds === null;
     const allNodesOutside = !anyTargetVisible(
-      flowNodes.map((node) => node.position),
+      renderedFlowNodes.map((node) => node.position),
       viewport,
       { width: paneWidth, height: paneHeight },
       { width: NODE_WIDTH, height: NODE_HEIGHT },
@@ -730,16 +1000,16 @@ function DiscussionFlow({
     if (!reason) {
       return;
     }
-    const signature = `${reason}:${treeVersion ?? "none"}:${flowNodes.length}`;
+    const signature = `${reason}:${treeVersion ?? "none"}:${renderedFlowNodes.length}`;
     if (viewportRecoverySignatureRef.current === signature) {
       return;
     }
     viewportRecoverySignatureRef.current = signature;
     requestFitView(reason, 200);
   }, [
-    flowNodes,
+    renderedFlowNodes,
     getViewport,
-    layoutResult.bounds,
+    renderedBounds,
     paneHeight,
     paneWidth,
     requestFitView,
@@ -858,7 +1128,7 @@ function DiscussionFlow({
       return;
     }
     const targets = queuedAutoFocusIds
-      .map((id) => flowNodes.find((node) => node.id === id))
+      .map((id) => renderedFlowNodes.find((node) => node.id === id))
       .filter((node): node is DiscussionFlowNode => node !== undefined);
     if (targets.length !== queuedAutoFocusIds.length) {
       return;
@@ -891,7 +1161,7 @@ function DiscussionFlow({
     const framingNodes = [...targets];
     if (targets.length > 1 && targetParentIds.size === 1) {
       const parentId = [...targetParentIds][0];
-      const parent = parentId ? flowNodes.find((node) => node.id === parentId) : undefined;
+      const parent = parentId ? renderedFlowNodes.find((node) => node.id === parentId) : undefined;
       if (parent) {
         framingNodes.push(parent);
       }
@@ -944,7 +1214,7 @@ function DiscussionFlow({
     }, duration + 50);
   }, [
     discussionModel,
-    flowNodes,
+    renderedFlowNodes,
     getViewport,
     paneHeight,
     paneWidth,
@@ -1006,29 +1276,72 @@ function DiscussionFlow({
     if (!focusItemRequest || processedFocusTokenRef.current === focusItemRequest.token) {
       return;
     }
+    meetingStartDebug("meeting-page", "Discussion tree focus requested", {
+      sessionId: sessionId || null,
+      treeVersion,
+      itemOrNodeId: focusItemRequest.itemId,
+      focusToken: focusItemRequest.token,
+      timestamp: new Date().toISOString(),
+    });
     markManualInteraction();
     processedFocusTokenRef.current = focusItemRequest.token;
     const targetId = findNodeIdForAnalysisItem(displayNodes, focusItemRequest.itemId);
     if (!targetId) {
+      meetingStartDebug("meeting-page", "Discussion tree focus target missing", {
+        sessionId: sessionId || null,
+        treeVersion,
+        itemOrNodeId: focusItemRequest.itemId,
+        focusToken: focusItemRequest.token,
+        timestamp: new Date().toISOString(),
+      });
       return;
     }
     setSelectedId(targetId);
     setHoveredId(null);
     setCollapsed((current) => withAncestorsExpanded(current, discussionModel, targetId));
     setPendingFocusNodeId(targetId);
-  }, [focusItemRequest, displayNodes, discussionModel, markManualInteraction]);
+    meetingStartDebug("meeting-page", "Discussion tree focus deferred", {
+      sessionId: sessionId || null,
+      treeVersion,
+      targetNodeId: targetId,
+      reason: "awaiting_expansion_and_layout",
+      timestamp: new Date().toISOString(),
+    });
+  }, [
+    focusItemRequest,
+    displayNodes,
+    discussionModel,
+    markManualInteraction,
+    sessionId,
+    treeVersion,
+  ]);
 
   useEffect(() => {
     if (!pendingFocusNodeId) {
       return;
     }
-    const node = flowNodes.find((flowNode) => flowNode.id === pendingFocusNodeId);
+    const node = renderedFlowNodes.find((flowNode) => flowNode.id === pendingFocusNodeId);
     if (!node) {
       return;
     }
     setPendingFocusNodeId(null);
     centerNodeBesideDetailCard(node.position);
-  }, [pendingFocusNodeId, flowNodes, reactFlowInternalNodeCount, centerNodeBesideDetailCard]);
+    meetingStartDebug("meeting-page", "Discussion tree focus completed", {
+      sessionId: sessionId || null,
+      treeVersion,
+      targetNodeId: node.id,
+      positionX: node.position.x,
+      positionY: node.position.y,
+      timestamp: new Date().toISOString(),
+    });
+  }, [
+    pendingFocusNodeId,
+    renderedFlowNodes,
+    reactFlowInternalNodeCount,
+    centerNodeBesideDetailCard,
+    sessionId,
+    treeVersion,
+  ]);
 
   const detailNodeId = selectedId ?? hoveredId;
   const selectedNode = detailNodeId
@@ -1042,143 +1355,155 @@ function DiscussionFlow({
           ? `議論ツリーに${structuralHighlightIds.size}件の重要な更新があります`
           : ""}
       </div>
-      <ReactFlow
-        nodes={flowNodes}
-        edges={flowEdges}
-        nodeTypes={nodeTypes}
-        minZoom={0.2}
-        maxZoom={1.25}
-        proOptions={{ hideAttribution: true }}
-        nodesDraggable={false}
-        nodesConnectable={false}
-        edgesFocusable={false}
-        onMoveStart={(event) => {
-          if (event && !autoMovingRef.current) {
-            markManualInteraction();
-          }
-        }}
-        onMoveEnd={(_, viewport) => {
-          meetingStartDebug("meeting-page", "Discussion tree viewport settled", {
-            sessionId: sessionId || null,
-            analysisVersion,
-            treeVersion,
-            containerWidth: paneWidth,
-            containerHeight: paneHeight,
-            viewportX: viewport.x,
-            viewportY: viewport.y,
-            viewportZoom: viewport.zoom,
-            timestamp: new Date().toISOString(),
-          });
-        }}
-        onNodeClick={(_, node) => {
-          markManualInteraction();
-          setSelectedId(node.id);
-          const selectedNode = displayNodes.find((candidate) => candidate.id === node.id);
-          const itemId = selectedNode
-            ? relatedItemIdsForNode(selectedNode, analysisItemIds)[0]
-            : undefined;
-          if (itemId) {
-            onSelectAnalysisItem?.(itemId);
-          }
-        }}
-        onNodeMouseEnter={(_, node) => {
-          markManualInteraction();
-          setHoveredId(node.id);
-        }}
-        onNodeMouseLeave={(_, node) =>
-          setHoveredId((current) => (current === node.id ? null : current))
-        }
-        onPaneClick={() => {
-          markManualInteraction();
-          setSelectedId(null);
-          setHoveredId(null);
-        }}
+      <div
+        ref={flowRootRef}
+        className="relative h-full w-full"
+        data-discussion-flow-instance-id={flowInstanceIdRef.current}
+        data-discussion-tree-version={renderedFrame.treeVersion ?? "none"}
+        data-discussion-tree-hash={treeHash ?? ""}
+        data-discussion-lkg-retained={usingLastGoodFrame ? "true" : "false"}
+        data-discussion-coordinate-strategy="edge-only-absolute"
       >
-        <Background variant={BackgroundVariant.Dots} gap={22} color="var(--node-border)" />
-        <Controls showInteractive={false} position="bottom-left" />
-        {layoutResult.usedFallback && (
-          <Panel position="top-left">
-            <span
+        <ReactFlow
+          nodes={renderedFlowNodes}
+          edges={renderedFlowEdges}
+          nodeTypes={nodeTypes}
+          minZoom={0.2}
+          maxZoom={1.25}
+          proOptions={{ hideAttribution: true }}
+          nodesDraggable={false}
+          nodesConnectable={false}
+          edgesFocusable={false}
+          onMoveStart={(event) => {
+            if (event && !autoMovingRef.current) {
+              markManualInteraction();
+            }
+          }}
+          onMoveEnd={(_, viewport) => {
+            meetingStartDebug("meeting-page", "Discussion tree viewport settled", {
+              sessionId: sessionId || null,
+              analysisVersion,
+              treeVersion,
+              containerWidth: paneWidth,
+              containerHeight: paneHeight,
+              viewportX: viewport.x,
+              viewportY: viewport.y,
+              viewportZoom: viewport.zoom,
+              timestamp: new Date().toISOString(),
+            });
+          }}
+          onNodeClick={(_, node) => {
+            markManualInteraction();
+            setSelectedId(node.id);
+            const selectedNode = displayNodes.find((candidate) => candidate.id === node.id);
+            const itemId = selectedNode
+              ? relatedItemIdsForNode(selectedNode, analysisItemIds)[0]
+              : undefined;
+            if (itemId) {
+              onSelectAnalysisItem?.(itemId);
+            }
+          }}
+          onNodeMouseEnter={(_, node) => {
+            markManualInteraction();
+            setHoveredId(node.id);
+          }}
+          onNodeMouseLeave={(_, node) =>
+            setHoveredId((current) => (current === node.id ? null : current))
+          }
+          onPaneClick={() => {
+            markManualInteraction();
+            setSelectedId(null);
+            setHoveredId(null);
+          }}
+        >
+          <Background variant={BackgroundVariant.Dots} gap={22} color="var(--node-border)" />
+          <Controls showInteractive={false} position="bottom-left" />
+          {(layoutResult.usedFallback || usingLastGoodFrame) && (
+            <Panel position="top-left">
+              <span
+                className="rounded-(--ds-radius-control) border px-2 py-1 text-[10px] font-semibold"
+                style={{
+                  background: "var(--ds-surface)",
+                  borderColor: "var(--ds-border)",
+                  color: "var(--text-sub)",
+                }}
+              >
+                {usingLastGoodFrame
+                  ? "直前の安全な表示を維持しています"
+                  : "配置を安全な表示へ復旧しました"}
+              </span>
+            </Panel>
+          )}
+          <Panel position="top-right" className="flex max-w-[80%] flex-wrap justify-end gap-1">
+            {pendingAutoFocusIds.length > 0 && (
+              <button
+                type="button"
+                className="rounded-(--ds-radius-control) border px-2 py-1 text-[10px] font-semibold"
+                style={{
+                  background: "var(--brand-light)",
+                  borderColor: "var(--brand)",
+                  color: "var(--brand)",
+                }}
+                aria-live="polite"
+                onClick={() => {
+                  markManualInteraction();
+                  const targets = pendingAutoFocusIds;
+                  setPendingAutoFocusIds([]);
+                  queueStructuralFocus(targets);
+                }}
+              >
+                変化を表示 ({pendingAutoFocusIds.length})
+              </button>
+            )}
+            <button
+              type="button"
+              className="rounded-(--ds-radius-control) border px-2 py-1 text-[10px] font-semibold"
+              style={{
+                background: autoFollow ? "var(--brand-light)" : "var(--ds-surface)",
+                borderColor: autoFollow ? "var(--brand)" : "var(--ds-border)",
+                color: autoFollow ? "var(--brand)" : "var(--text-sub)",
+              }}
+              aria-pressed={autoFollow}
+              onClick={() => {
+                markManualInteraction();
+                setAutoFollow((current) => !current);
+              }}
+            >
+              自動追従 {autoFollow ? "ON" : "OFF"}
+            </button>
+            <button
+              type="button"
               className="rounded-(--ds-radius-control) border px-2 py-1 text-[10px] font-semibold"
               style={{
                 background: "var(--ds-surface)",
                 borderColor: "var(--ds-border)",
                 color: "var(--text-sub)",
               }}
+              onClick={() => {
+                markManualInteraction();
+                setCollapsed(new Set());
+              }}
             >
-              配置を安全な表示へ復旧しました
-            </span>
-          </Panel>
-        )}
-        <Panel position="top-right" className="flex max-w-[80%] flex-wrap justify-end gap-1">
-          {pendingAutoFocusIds.length > 0 && (
+              全展開
+            </button>
             <button
               type="button"
               className="rounded-(--ds-radius-control) border px-2 py-1 text-[10px] font-semibold"
               style={{
-                background: "var(--brand-light)",
-                borderColor: "var(--brand)",
-                color: "var(--brand)",
+                background: "var(--ds-surface)",
+                borderColor: "var(--ds-border)",
+                color: "var(--text-sub)",
               }}
-              aria-live="polite"
               onClick={() => {
                 markManualInteraction();
-                const targets = pendingAutoFocusIds;
-                setPendingAutoFocusIds([]);
-                queueStructuralFocus(targets);
+                setCollapsed(collapsibleNodeIds(discussionModel));
               }}
             >
-              変化を表示 ({pendingAutoFocusIds.length})
+              全折りたたみ
             </button>
-          )}
-          <button
-            type="button"
-            className="rounded-(--ds-radius-control) border px-2 py-1 text-[10px] font-semibold"
-            style={{
-              background: autoFollow ? "var(--brand-light)" : "var(--ds-surface)",
-              borderColor: autoFollow ? "var(--brand)" : "var(--ds-border)",
-              color: autoFollow ? "var(--brand)" : "var(--text-sub)",
-            }}
-            aria-pressed={autoFollow}
-            onClick={() => {
-              markManualInteraction();
-              setAutoFollow((current) => !current);
-            }}
-          >
-            自動追従 {autoFollow ? "ON" : "OFF"}
-          </button>
-          <button
-            type="button"
-            className="rounded-(--ds-radius-control) border px-2 py-1 text-[10px] font-semibold"
-            style={{
-              background: "var(--ds-surface)",
-              borderColor: "var(--ds-border)",
-              color: "var(--text-sub)",
-            }}
-            onClick={() => {
-              markManualInteraction();
-              setCollapsed(new Set());
-            }}
-          >
-            全展開
-          </button>
-          <button
-            type="button"
-            className="rounded-(--ds-radius-control) border px-2 py-1 text-[10px] font-semibold"
-            style={{
-              background: "var(--ds-surface)",
-              borderColor: "var(--ds-border)",
-              color: "var(--text-sub)",
-            }}
-            onClick={() => {
-              markManualInteraction();
-              setCollapsed(collapsibleNodeIds(discussionModel));
-            }}
-          >
-            全折りたたみ
-          </button>
-        </Panel>
-      </ReactFlow>
+          </Panel>
+        </ReactFlow>
+      </div>
 
       {selectedNode && (
         <NodeDetailCard
@@ -1367,6 +1692,15 @@ function sortedKindCounts(counts: Record<string, number>): Array<{ kind: string;
       return orderA !== orderB ? orderA - orderB : kindA.localeCompare(kindB);
     })
     .map(([kind, count]) => ({ kind, count }));
+}
+
+function compactDebugSignature(value: string) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 // 分析itemに対応するツリーノードを探す。ノードidがitemidと一致するものを優先し、

@@ -9,6 +9,7 @@ export default [
   route("workspaces", "routes/workspaces.tsx"),
   route("workspaces/new", "routes/workspaces.new.tsx"),
   route("invitations/accept", "routes/invitations.accept.tsx"),
+  route("debug/discussion-tree-transition", "routes/debug.discussion-tree-transition.tsx"),
   route(WORKSPACE_ROUTE_SEGMENT, "routes/workspace-resolver.tsx"),
   route(WORKSPACE_ROUTE_PATH, "routes/workspace-layout.tsx", [
     index("routes/workspace.tsx"),

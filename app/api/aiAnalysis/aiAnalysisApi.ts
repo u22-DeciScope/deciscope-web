@@ -52,6 +52,7 @@ export type LiveAnalysisPayload = {
 export type AgendaProgressStatus = "not_started" | "discussing" | "discussed";
 export type AgendaProgressOutcome = "concluded" | "unresolved";
 export type AgendaProgressSourceType = "fixed_agenda" | "dynamic_topic";
+export type AdditionalTopicLinkState = "materialized-topic" | "visible-items" | "not-linkable";
 
 export type AgendaProgressEntryPayload = {
   id: string;
@@ -66,6 +67,10 @@ export type AgendaProgressEntryPayload = {
   relatedItemCounts?: Record<string, number>;
   materializedTopicIds?: string[];
   primaryNodeId?: string;
+  candidateId?: string;
+  materializedTopicId?: string;
+  focusNodeIds: string[];
+  linkState: AdditionalTopicLinkState;
 };
 
 export type AgendaProgressPayload = {
@@ -486,6 +491,20 @@ function normalizeAgendaProgressEntries(value: unknown): AgendaProgressEntryPayl
     const relatedItemCounts = normalizeRelatedItemCounts(source.relatedItemCounts);
     const materializedTopicIds = normalizeStringArray(source.materializedTopicIds);
     const primaryNodeId = optionalString(source.primaryNodeId)?.trim();
+    const candidateId = optionalString(source.candidateId)?.trim();
+    const materializedTopicId =
+      optionalString(source.materializedTopicId)?.trim() || materializedTopicIds[0];
+    const explicitFocusNodeIds = normalizeStringArray(source.focusNodeIds);
+    const focusNodeIds =
+      explicitFocusNodeIds.length > 0 ? explicitFocusNodeIds : primaryNodeId ? [primaryNodeId] : [];
+    const linkStateRaw = source.linkState;
+    const linkState = isAdditionalTopicLinkState(linkStateRaw)
+      ? linkStateRaw
+      : materializedTopicId
+        ? "materialized-topic"
+        : focusNodeIds.length > 0
+          ? "visible-items"
+          : "not-linkable";
     return [
       {
         id,
@@ -500,6 +519,10 @@ function normalizeAgendaProgressEntries(value: unknown): AgendaProgressEntryPayl
         ...(relatedItemCounts ? { relatedItemCounts } : {}),
         ...(materializedTopicIds.length > 0 ? { materializedTopicIds } : {}),
         ...(primaryNodeId ? { primaryNodeId } : {}),
+        ...(candidateId ? { candidateId } : {}),
+        ...(materializedTopicId ? { materializedTopicId } : {}),
+        focusNodeIds,
+        linkState,
       },
     ];
   });
@@ -511,6 +534,10 @@ function isAgendaProgressStatus(value: unknown): value is AgendaProgressStatus {
 
 function isAgendaProgressOutcome(value: unknown): value is AgendaProgressOutcome {
   return value === "concluded" || value === "unresolved";
+}
+
+function isAdditionalTopicLinkState(value: unknown): value is AdditionalTopicLinkState {
+  return value === "materialized-topic" || value === "visible-items" || value === "not-linkable";
 }
 
 function isAgendaProgressSourceType(value: unknown): value is AgendaProgressSourceType {
@@ -791,6 +818,7 @@ function normalizeTreeNodes(
       );
       const relatedItemIds = normalizeRelatedItemIds(source, id, itemIds);
       const origin = optionalString(source.origin)?.trim();
+      const sourceCandidateId = optionalString(source.sourceCandidateId)?.trim();
       const agendaRole = optionalString(source.agendaRole)?.trim();
       const agendaRefs = normalizeStringArray(source.agendaRefs);
       const mergedFromNodeIds = normalizeStringArray(source.mergedFromNodeIds);
@@ -814,6 +842,7 @@ function normalizeTreeNodes(
         ...(description ? { description } : {}),
         ...(relatedItemIds.length > 0 ? { relatedItemIds } : {}),
         ...(origin ? { origin } : {}),
+        ...(sourceCandidateId ? { sourceCandidateId } : {}),
         ...(agendaRole ? { agendaRole } : {}),
         ...(agendaRefs.length > 0 ? { agendaRefs } : {}),
         ...(mergedFromNodeIds.length > 0 ? { mergedFromNodeIds } : {}),

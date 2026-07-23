@@ -16,6 +16,7 @@ import type {
   LiveAnalysisMeta,
   TranscriptSessionConnectionStatus,
 } from "~/hooks/useMeetingTranscriptSession";
+import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
 type AgendaProgressSectionProps = {
   progress: AgendaProgressPayload | null | undefined;
@@ -29,8 +30,35 @@ type AgendaProgressSectionProps = {
   onProgressPatched?: (progress: AgendaProgressPayload) => void;
 };
 
-const focusNoticeDurationMs = 1500;
 const overrideErrorDurationMs = 4000;
+
+export type AgendaEntryFocusDecision =
+  | { decision: "materialized-topic"; targetId: string }
+  | { decision: "visible-item"; targetId: string }
+  | { decision: "not-linkable" }
+  | { decision: "target-missing" };
+
+export function resolveAgendaEntryFocusDecision(
+  entry: AgendaProgressEntryPayload,
+  treeNodeIds: ReadonlySet<string>,
+): AgendaEntryFocusDecision {
+  if (entry.linkState === "not-linkable") {
+    return { decision: "not-linkable" };
+  }
+  const materializedTopicId = entry.materializedTopicId ?? entry.materializedTopicIds?.[0];
+  if (
+    entry.linkState === "materialized-topic" &&
+    materializedTopicId &&
+    treeNodeIds.has(materializedTopicId)
+  ) {
+    return { decision: "materialized-topic", targetId: materializedTopicId };
+  }
+  const visibleTarget = entry.focusNodeIds.find((id) => treeNodeIds.has(id));
+  if (visibleTarget) {
+    return { decision: "visible-item", targetId: visibleTarget };
+  }
+  return { decision: "target-missing" };
+}
 
 // AIによる「現在地の可視化」。警告・推奨・severity表示は行わない
 // (アジェンダ進捗契約 §0 絶対制約)。
@@ -51,25 +79,19 @@ export function AgendaProgressSection({
   const [localPatch, setLocalPatch] = useState<AgendaProgressPayload | null>(null);
   const [pending, setPending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [noticeEntryId, setNoticeEntryId] = useState<string | null>(null);
   const errorTimerRef = useRef<number | null>(null);
-  const noticeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     // セッションが変わったら、前のセッションのoverlay/通知を持ち越さない。
     setLocalPatch(null);
     setPending(false);
     setErrorMessage(null);
-    setNoticeEntryId(null);
   }, [sessionId]);
 
   useEffect(
     () => () => {
       if (errorTimerRef.current !== null) {
         window.clearTimeout(errorTimerRef.current);
-      }
-      if (noticeTimerRef.current !== null) {
-        window.clearTimeout(noticeTimerRef.current);
       }
     },
     [],
@@ -91,22 +113,53 @@ export function AgendaProgressSection({
     [displayProgress],
   );
   const canOperate = canManage && Boolean(workspaceId) && Boolean(sessionId);
+  const linkLogSignatureRef = useRef("");
+
+  useEffect(() => {
+    const records = dynamicEntries.map((entry) => {
+      const focus = resolveAgendaEntryFocusDecision(entry, treeNodeIds);
+      return {
+        candidateId: entry.candidateId ?? null,
+        materializedTopicId: entry.materializedTopicId ?? null,
+        focusNodeIds: entry.focusNodeIds,
+        linkState: entry.linkState,
+        focusDecision: focus.decision,
+        focusTargetId: "targetId" in focus ? focus.targetId : null,
+      };
+    });
+    const signature = JSON.stringify(records);
+    if (linkLogSignatureRef.current === signature) {
+      return;
+    }
+    linkLogSignatureRef.current = signature;
+    for (const record of records) {
+      meetingStartDebug("meeting-page", "Agenda progress link state", {
+        sessionId: sessionId || null,
+        ...record,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }, [dynamicEntries, sessionId, treeNodeIds]);
 
   const handleEntryClick = useCallback(
     (entry: AgendaProgressEntryPayload) => {
-      if (entry.primaryNodeId && treeNodeIds.has(entry.primaryNodeId)) {
-        onFocusTreeItem?.(entry.primaryNodeId);
+      const focus = resolveAgendaEntryFocusDecision(entry, treeNodeIds);
+      meetingStartDebug("meeting-page", "Agenda progress focus decision", {
+        sessionId: sessionId || null,
+        candidateId: entry.candidateId ?? null,
+        materializedTopicId: entry.materializedTopicId ?? null,
+        focusNodeIds: entry.focusNodeIds,
+        linkState: entry.linkState,
+        focusDecision: focus.decision,
+        focusTargetId: "targetId" in focus ? focus.targetId : null,
+        timestamp: new Date().toISOString(),
+      });
+      if ("targetId" in focus) {
+        onFocusTreeItem?.(focus.targetId);
         return;
       }
-      if (noticeTimerRef.current !== null) {
-        window.clearTimeout(noticeTimerRef.current);
-      }
-      setNoticeEntryId(entry.id);
-      noticeTimerRef.current = window.setTimeout(() => {
-        setNoticeEntryId((current) => (current === entry.id ? null : current));
-      }, focusNoticeDurationMs);
     },
-    [onFocusTreeItem, treeNodeIds],
+    [onFocusTreeItem, sessionId, treeNodeIds],
   );
 
   const handleOverride = useCallback(
@@ -167,7 +220,7 @@ export function AgendaProgressSection({
                 hasManualCurrent={displayProgress?.manualCurrentTopicId === entry.id}
                 canManage={canOperate}
                 pending={pending}
-                noticeVisible={noticeEntryId === entry.id}
+                focusDecision={resolveAgendaEntryFocusDecision(entry, treeNodeIds)}
                 onEntryClick={handleEntryClick}
                 onOverride={handleOverride}
               />
@@ -196,7 +249,7 @@ export function AgendaProgressSection({
                 hasManualCurrent={displayProgress?.manualCurrentTopicId === entry.id}
                 canManage={canOperate}
                 pending={pending}
-                noticeVisible={noticeEntryId === entry.id}
+                focusDecision={resolveAgendaEntryFocusDecision(entry, treeNodeIds)}
                 onEntryClick={handleEntryClick}
                 onOverride={handleOverride}
               />
@@ -253,7 +306,7 @@ function AgendaEntryRow({
   hasManualCurrent,
   canManage,
   pending,
-  noticeVisible,
+  focusDecision,
   onEntryClick,
   onOverride,
 }: {
@@ -263,7 +316,7 @@ function AgendaEntryRow({
   hasManualCurrent: boolean;
   canManage: boolean;
   pending: boolean;
-  noticeVisible: boolean;
+  focusDecision: AgendaEntryFocusDecision;
   onEntryClick: (entry: AgendaProgressEntryPayload) => void;
   onOverride: (input: AgendaProgressOverrideInput) => void;
 }) {
@@ -272,21 +325,23 @@ function AgendaEntryRow({
     : statusIconStyle(entry.effectiveStatus);
   const countsLabel = relatedItemCountsLabel(entry.relatedItemCounts);
   const statusLabel = agendaStatusLabel(entry);
+  const linkable = "targetId" in focusDecision;
 
   return (
     <li>
       <div
-        role="button"
-        tabIndex={0}
+        {...(linkable ? { role: "button", tabIndex: 0 } : {})}
         data-agenda-entry-id={entry.id}
-        onClick={() => onEntryClick(entry)}
+        data-link-state={entry.linkState}
+        data-focus-decision={focusDecision.decision}
+        onClick={linkable ? () => onEntryClick(entry) : undefined}
         onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
+          if (linkable && (event.key === "Enter" || event.key === " ")) {
             event.preventDefault();
             onEntryClick(entry);
           }
         }}
-        className="cursor-pointer rounded-(--ds-radius-control) border px-2.5 py-2"
+        className={`${linkable ? "cursor-pointer" : "cursor-default"} rounded-(--ds-radius-control) border px-2.5 py-2`}
         style={{
           background: isCurrent
             ? "color-mix(in srgb, var(--brand) 8%, var(--ds-surface))"
@@ -351,6 +406,7 @@ function AgendaEntryRow({
           <span className="truncate">
             {statusLabel}
             {countsLabel ? `・${countsLabel}` : ""}
+            {dynamic && !linkable ? "・ツリー整理待ち" : ""}
           </span>
           {entry.manualStatus && (
             <span
@@ -361,11 +417,6 @@ function AgendaEntryRow({
             </span>
           )}
         </div>
-        {noticeVisible && (
-          <p className="mt-1 text-[11px]" style={{ color: "var(--text-sub)" }}>
-            関連する議論はまだありません
-          </p>
-        )}
       </div>
     </li>
   );

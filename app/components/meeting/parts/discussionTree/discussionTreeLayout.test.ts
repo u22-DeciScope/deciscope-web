@@ -10,12 +10,18 @@ import {
   NODE_WIDTH,
   layoutDiscussionTree,
   normalizeEdges,
+  orderDiscussionTreeNodesParentFirst,
   uniqueDiscussionTreeNodes,
 } from "./discussionTreeLayout";
 import {
   rawSession1fdcLiveAnalysis,
   session1fdcSnapshots,
 } from "./__fixtures__/session1fdcTreeSnapshots";
+import {
+  session28f3GroupChildren,
+  session28f3ReparentedNodeIds,
+  session28f3Snapshots,
+} from "./__fixtures__/session28f3TreeSnapshots";
 
 const boundaryCounts = [19, 20, 21, 22, 23, 24, 25, 30, 40];
 
@@ -71,6 +77,92 @@ describe("session_1fdc26b44086f0b8 actual tree structure", () => {
     expect(edges.filter((edge) => edge.target === target?.id)).toEqual([
       expect.objectContaining({ source: "topic-agenda-7dd3ab9e5ea9" }),
     ]);
+  });
+});
+
+describe("session_28f3f2e6706a28a4 exact v12→v13→v14 group boundary", () => {
+  it.each([12, 13, 14] as const)("preserves every node and finite position at v%i", (version) => {
+    const snapshot = session28f3Snapshots[version];
+    const layout = layoutDiscussionTree(snapshot.nodes, snapshot.edges);
+
+    expect(snapshot.nodes).toHaveLength(version === 13 ? 23 : 21);
+    expect(snapshot.treeHash).toBe(version === 13 ? "4d20f581d3ad4232" : "110377280ea42539");
+    expect(layout).toMatchObject({
+      inputNodeCount: snapshot.nodes.length,
+      outputNodeCount: snapshot.nodes.length,
+      missingParentNodeIds: [],
+      unreachableNodeIds: [],
+      invalidPositionNodeIds: [],
+      cycleDetected: false,
+      layoutError: null,
+    });
+    expect(layout.bounds).not.toBeNull();
+  });
+
+  it("records the exact two groups and eight v13 reparent operations", () => {
+    const v12 = session28f3Snapshots[12];
+    const v13 = session28f3Snapshots[13];
+    const v14 = session28f3Snapshots[14];
+    const parent = (version: typeof v12, id: string) =>
+      version.nodes.find((node) => node.id === id)?.parentId;
+
+    expect(v13.groupIds).toEqual(Object.keys(session28f3GroupChildren));
+    expect(session28f3ReparentedNodeIds).toHaveLength(8);
+    for (const nodeId of session28f3ReparentedNodeIds) {
+      expect(parent(v13, nodeId)).not.toBe(parent(v12, nodeId));
+      expect(parent(v14, nodeId)).toBe(parent(v12, nodeId));
+      expect(v13.depthByNodeId[nodeId]).toBe(3);
+      expect(v12.depthByNodeId[nodeId]).toBe(2);
+    }
+  });
+
+  it("discards old reparent edges and emits parents before children even for child-first input", () => {
+    const snapshot = session28f3Snapshots[13];
+    const targetId = session28f3ReparentedNodeIds[0];
+    const oldParent = session28f3Snapshots[12].nodes.find((node) => node.id === targetId)?.parentId;
+    const canonicalParent = snapshot.nodes.find((node) => node.id === targetId)?.parentId;
+    const normalized = normalizeEdges(snapshot.nodes, [
+      ...snapshot.edges,
+      {
+        id: "stale-v12-parent",
+        source: oldParent!,
+        target: targetId,
+      },
+    ]);
+    const ordered = orderDiscussionTreeNodesParentFirst([...snapshot.nodes].reverse(), normalized);
+    const indexById = new Map(ordered.map((node, index) => [node.id, index]));
+
+    expect(normalized.filter((edge) => edge.target === targetId)).toEqual([
+      expect.objectContaining({ source: canonicalParent }),
+    ]);
+    for (const node of ordered) {
+      if (node.parentId) {
+        expect(indexById.get(node.parentId)).toBeLessThan(indexById.get(node.id)!);
+      }
+    }
+  });
+
+  it("demonstrates why absolute Dagre positions are valid only for the edge-only strategy", () => {
+    const parentAbsolute = { x: 900, y: 400 };
+    const childAbsolute = { x: 1180, y: 520 };
+    const correctChildRelative = {
+      x: childAbsolute.x - parentAbsolute.x,
+      y: childAbsolute.y - parentAbsolute.y,
+    };
+    const subflowWithAbsoluteChild = {
+      x: parentAbsolute.x + childAbsolute.x,
+      y: parentAbsolute.y + childAbsolute.y,
+    };
+    const subflowWithRelativeChild = {
+      x: parentAbsolute.x + correctChildRelative.x,
+      y: parentAbsolute.y + correctChildRelative.y,
+    };
+
+    expect(subflowWithAbsoluteChild).toEqual({ x: 2080, y: 920 });
+    expect(subflowWithRelativeChild).toEqual(childAbsolute);
+    // Production uses no React Flow parentId, so Dagre's absolute coordinate
+    // remains childAbsolute and cannot receive the parent offset a second time.
+    expect(childAbsolute).toEqual({ x: 1180, y: 520 });
   });
 });
 
