@@ -9,7 +9,6 @@ export { APP_SIDEBAR_SIZES };
 type AppSidebarProps = {
   navigation: {
     collapsed: boolean;
-    onCollapsedChange: (collapsed: boolean) => void;
     onWidthChange: (width: number) => void;
     onWidthReset: () => void;
     width: number;
@@ -17,15 +16,9 @@ type AppSidebarProps = {
 };
 
 export function AppSidebar({ navigation }: AppSidebarProps) {
-  const sidebarContentWidth = navigation.width + APP_SIDEBAR_SIZES.resizeHandleWidth;
-
   return (
     <aside className="ds-surface-elevated flex h-full flex-col overflow-hidden z-[999]">
-      <AppSidebarHeader
-        navigation={navigation}
-        navigationWidth={navigation.width}
-        width={sidebarContentWidth}
-      />
+      <AppSidebarHeader navigationWidth={navigation.width} />
 
       <div className="flex flex-1 flex-col min-h-0 min-w-0">
         <div

@@ -15,7 +15,6 @@ export default [
     index("routes/workspace.tsx"),
     route("meetings", "routes/home.tsx"),
     route("meetings/new", "routes/meeting.new.tsx"),
-    route("meetings/upcoming", "routes/meetings.upcoming.tsx"),
     route("meetings/history", "routes/meetings.history.tsx"),
     route("meetings/:id", "routes/meeting.$id.tsx"),
     route("meetings/:id/summary", "routes/meeting.$id.summary.tsx"),

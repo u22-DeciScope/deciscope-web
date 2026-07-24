@@ -11,9 +11,6 @@ export function useActiveNavigationItem(): AppNavigationItemId {
   if (pathname.startsWith(workspacePath(workspaceId, "/meetings/new"))) {
     return "new";
   }
-  if (pathname.startsWith(workspacePath(workspaceId, "/meetings/upcoming"))) {
-    return "upcoming";
-  }
   if (pathname.startsWith(workspacePath(workspaceId, "/settings/workspace"))) {
     return "workspace";
   }

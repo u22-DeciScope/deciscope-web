@@ -200,7 +200,7 @@ export function layoutDiscussionTree(
   const positions = new Map<string, DiscussionTreePosition>();
   const invalidPositionNodeIds: string[] = [];
   const siblingOffsets = new Map<number, number>();
-  for (const [index, node] of nodes.entries()) {
+  for (const node of nodes) {
     const laidOut = layoutError ? undefined : graph.node(node.id);
     const candidate = laidOut
       ? { x: laidOut.x - NODE_WIDTH / 2, y: laidOut.y - NODE_HEIGHT / 2 }
@@ -237,11 +237,6 @@ export function layoutDiscussionTree(
     usedFallback: layoutError !== null || invalidPositionNodeIds.length > 0,
     bounds: calculateDiscussionTreeBounds(positions),
   };
-}
-
-// 後方互換の公開API。新規コードはdiagnosticsを返すlayoutDiscussionTreeを使う。
-export function layoutPositions(nodes: TreeNodePayload[], edges: TreeEdgePayload[]) {
-  return layoutDiscussionTree(nodes, edges).positions;
 }
 
 export function calculateDiscussionTreeBounds(

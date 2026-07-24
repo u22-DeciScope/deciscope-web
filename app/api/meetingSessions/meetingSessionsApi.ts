@@ -65,7 +65,6 @@ export type MeetingSessionDto = {
   lastError?: string;
 };
 
-const MEETING_SESSIONS_PATH = "/api/v1/meeting-sessions";
 const meetingSessionStatuses: MeetingSessionStatus[] = [
   "requested",
   "pending_join",
@@ -165,29 +164,6 @@ export async function endWorkspaceMeetingSession(
   const session = normalizeMeetingSession(payload);
   if (!session) {
     throw new Error("Go APIの会議セッション終了レスポンスを解析できませんでした。");
-  }
-  return session;
-}
-
-export async function getMeetingSession(sessionId: string): Promise<MeetingSessionDto> {
-  const response = await fetch(
-    apiUrl(`${MEETING_SESSIONS_PATH}/${encodeURIComponent(sessionId)}`),
-    {
-      headers: { Accept: "application/json" },
-      credentials: "include",
-    },
-  );
-
-  const payload = await readJsonBody(response);
-  if (!response.ok) {
-    throw new Error(
-      errorMessageFromPayload(payload) || `${response.status} ${response.statusText}`,
-    );
-  }
-
-  const session = normalizeMeetingSession(payload);
-  if (!session) {
-    throw new Error("Go APIの会議セッション取得レスポンスを解析できませんでした。");
   }
   return session;
 }
@@ -372,48 +348,6 @@ function extractMeetingSessions(payload: unknown) {
     }
   }
   return [];
-}
-
-async function readJsonBody(response: Response) {
-  const text = await response.text();
-  if (!text) {
-    return null;
-  }
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return text;
-  }
-}
-
-function errorMessageFromPayload(payload: unknown): string | null {
-  if (typeof payload === "string") {
-    return payload.trim() || null;
-  }
-  if (!payload || typeof payload !== "object") {
-    return null;
-  }
-  const body = payload as Record<string, unknown>;
-  const nestedError = body.error;
-  if (nestedError && typeof nestedError === "object") {
-    const message = optionalString((nestedError as Record<string, unknown>).message);
-    if (message) {
-      return message;
-    }
-  }
-  return optionalString(body.message) ?? optionalString(body.error) ?? null;
-}
-
-function apiUrl(path: string) {
-  const configured = String(import.meta.env.VITE_DECISCOPE_API_BASE_URL ?? "").trim();
-  return new URL(path, configured || browserOrigin()).toString();
-}
-
-function browserOrigin() {
-  if (typeof window !== "undefined") {
-    return window.location.origin;
-  }
-  return "http://localhost:5193";
 }
 
 function optionalString(value: unknown) {

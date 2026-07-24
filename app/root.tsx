@@ -5,7 +5,6 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
-  useLoaderData,
 } from "react-router";
 import type { ReactNode } from "react";
 
@@ -59,19 +58,6 @@ export function Layout({ children }: { children: ReactNode }) {
       </body>
     </html>
   );
-}
-
-export function loader() {
-  return {
-    env: {
-      VITE_API_BASE_URL: process.env.VITE_API_BASE_URL,
-      VITE_WS_BASE_URL: process.env.VITE_WS_BASE_URL,
-      VITE_FIREBASE_API_KEY: process.env.VITE_FIREBASE_API_KEY,
-      VITE_FIREBASE_AUTH_DOMAIN: process.env.VITE_FIREBASE_AUTH_DOMAIN,
-      VITE_FIREBASE_PROJECT_ID: process.env.VITE_FIREBASE_PROJECT_ID,
-      VITE_FIREBASE_APP_ID: process.env.VITE_FIREBASE_APP_ID,
-    },
-  };
 }
 
 export default function App() {

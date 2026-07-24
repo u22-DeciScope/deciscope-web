@@ -57,10 +57,6 @@ import {
   treeChangeSignature,
 } from "./discussionTreeFocus";
 
-// Compatibility re-export for existing unit tests/importers. The projection
-// is rendered only by MeetingAssistantPanel.
-export { buildActionSummaryProjection } from "../actionSummaryProjection";
-
 // バッジ表示・件数バッジの種別の並び順(安定した順序で見比べやすくする)。
 const KIND_ORDER = [
   "issue",

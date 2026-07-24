@@ -226,8 +226,6 @@ export default function MeetingSummary() {
     analysisItems.length > 0
       ? analysisItems
       : (livePayload?.items ?? []).filter((item) => item.status !== "dismissed");
-  const analysisQualityDegraded = treeSnapshot?.degraded || livePayload?.degraded;
-
   async function exportMarkdown() {
     const content = session
       ? transcriptMarkdown(session, transcriptSegments)
@@ -296,7 +294,7 @@ export default function MeetingSummary() {
           {finalAnalysisError}
         </p>
       )}
-{session ? (
+      {session ? (
         <>
           {/* 1. ヘッダーエリア */}
           <div className="shrink-0">
@@ -332,7 +330,8 @@ export default function MeetingSummary() {
             sessionId={id}
           />
         </>
-      ) : (        <>
+      ) : (
+        <>
           <MeetingSummaryMain meetingsPath={meetingsPath} summary={summary} />
           <MarkdownReportPanel content={markdown || report?.content || ""} />
         </>

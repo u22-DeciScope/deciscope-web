@@ -61,10 +61,6 @@ export async function updateWorkspace(workspaceId: string, input: WorkspaceUpdat
   return normalizeWorkspace(payload);
 }
 
-export function updateWorkspaceName(workspaceId: string, name: string) {
-  return updateWorkspace(workspaceId, { name });
-}
-
 export async function listWorkspaceMembers(workspaceId: string) {
   const payload = await requestJson<unknown>(`${workspaceBase(workspaceId)}/members`);
   return {

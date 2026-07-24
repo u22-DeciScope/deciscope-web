@@ -28,7 +28,7 @@ export function WorkspaceHeader({
   subtitle,
   title,
 }: WorkspaceHeaderConfig) {
-  const { user, workspaceId } = useAuthenticatedLayout();
+  const { workspaceId } = useAuthenticatedLayout();
   const hasBreadcrumbs = Boolean(breadcrumbs?.length);
 
   return (
@@ -71,11 +71,7 @@ export function WorkspaceHeader({
   );
 }
 
-function WorkspaceHeaderBreadcrumbs({
-  breadcrumbs,
-}: {
-  breadcrumbs: WorkspaceHeaderBreadcrumb[];
-}) {
+function WorkspaceHeaderBreadcrumbs({ breadcrumbs }: { breadcrumbs: WorkspaceHeaderBreadcrumb[] }) {
   return (
     <nav className="flex min-w-0 items-center gap-2" aria-label="Breadcrumb">
       {breadcrumbs.map((breadcrumb, index) => {
@@ -99,10 +95,7 @@ function WorkspaceHeaderBreadcrumbs({
               </span>
             )}
             {!isLast && (
-              <HiChevronRight
-                className="h-3 w-3 shrink-0"
-                style={{ color: "var(--text-muted)" }}
-              />
+              <HiChevronRight className="h-3 w-3 shrink-0" style={{ color: "var(--text-muted)" }} />
             )}
           </span>
         );
