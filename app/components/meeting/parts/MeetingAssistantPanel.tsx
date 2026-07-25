@@ -1170,16 +1170,10 @@ function LiveAnalysisStatus({ liveAnalysis }: { liveAnalysis: MeetingAIAnalysis 
     return () => window.clearInterval(timer);
   }, [needsTicker]);
 
+  // 分析中の表示はライブタブ上部の状態行とパネルヘッダーのチップに集約したため、
+  // ここには出さない(同じ「分析中」が画面内に3つ並ぶのを避ける)。
   if (liveAnalysis.status === "running") {
-    return (
-      <span
-        className="flex min-w-0 items-center justify-end gap-1 text-[11px] font-semibold"
-        style={{ color: "var(--ai-quest-fg)" }}
-      >
-        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-current" />
-        <span className="min-w-0 truncate">分析中…</span>
-      </span>
-    );
+    return null;
   }
 
   if (liveAnalysis.status === "failed") {

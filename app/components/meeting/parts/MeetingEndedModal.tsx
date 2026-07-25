@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { HiCheck } from "react-icons/hi2";
 
 import { DsButton } from "~/components/DsButton";
@@ -16,7 +17,10 @@ export function MeetingEndedModal({
   onGoSummary: () => void;
 }) {
   const ending = mode === "ending";
-  const activeProgressIndex = endingProgressSteps.findIndex((step) => step.id === progressStage);
+  const activeProgressIndex = Math.max(
+    0,
+    endingProgressSteps.findIndex((step) => step.id === progressStage),
+  );
 
   return (
     <AppModalFrame
@@ -95,26 +99,15 @@ export function MeetingEndedModal({
                 );
               })}
             </ol>
-            <div
-              className="h-1.5 overflow-hidden rounded-full"
-              role="progressbar"
-              aria-label="会議の終了処理中"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={[33, 66, 90][activeProgressIndex] ?? 33}
-              style={{ background: "var(--input-bg)" }}
-            >
-              <div
-                className="h-full rounded-full transition-[width] duration-500"
-                style={{
-                  background: "var(--brand)",
-                  width: `${[33, 66, 90][activeProgressIndex] ?? 33}%`,
-                }}
-              />
-            </div>
+            <MeetingEndProgressBar
+              stage={endingProgressSteps[activeProgressIndex].id}
+              percent={endingProgressPercents[activeProgressIndex]}
+            />
           </div>
         ) : (
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          // 横並び時は2つのボタンを左右に振り分ける。ダイアログの端に張り付かないよう、
+          // 左右に少しだけ余白(px-3)を足して間隔のバランスを取る。
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between sm:px-3">
             <DsButton type="button" variant="secondary" onClick={onGoHome}>
               メイン画面へ戻る
             </DsButton>
@@ -128,8 +121,59 @@ export function MeetingEndedModal({
   );
 }
 
+// 終了処理の進捗バー。バックエンドから取れる節目は3段階と粗く、段階内では
+// 数十秒バーが止まって見えてしまうため、現在の段階の到達点へ向けて減速しながら
+// 伸び続ける(到達点は段階の境界なので、実際の進捗を追い越しては見せない)。
+// 段階が進むと目標値と所要時間が切り替わり、そのまま次の到達点へ伸びていく。
+function MeetingEndProgressBar({
+  stage,
+  percent,
+}: {
+  stage: MeetingEndProgressStage;
+  percent: number;
+}) {
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    // 描画と同じフレームで目標値を入れるとCSS transitionが走らないため、
+    // 次フレームで反映する。段階が進んだときは現在位置から続きを描く。
+    const frame = requestAnimationFrame(() => setWidth(percent));
+    return () => cancelAnimationFrame(frame);
+  }, [percent]);
+
+  return (
+    <div
+      className="h-1.5 overflow-hidden rounded-full"
+      role="progressbar"
+      aria-label="会議の終了処理中"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percent}
+      style={{ background: "var(--input-bg)" }}
+    >
+      <div
+        className="ds-progress-fill relative h-full overflow-hidden rounded-full"
+        data-stage={stage}
+        style={{ background: "var(--brand)", width: `${width}%` }}
+      >
+        <span
+          aria-hidden="true"
+          className="ds-progress-sheen absolute inset-y-0 left-0 w-1/2"
+          style={{
+            background:
+              "linear-gradient(90deg, transparent, color-mix(in srgb, white 45%, transparent), transparent)",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 const endingProgressSteps: Array<{ id: MeetingEndProgressStage; label: string }> = [
   { id: "transcript", label: "文字起こしを確定" },
   { id: "tree", label: "議論ツリーを整理" },
   { id: "report", label: "会議レポートを作成" },
 ];
+
+// 各段階の到達点(バーの目標値・aria-valuenow)。endingProgressStepsと同じ順。
+const endingProgressPercents = [33, 66, 90];

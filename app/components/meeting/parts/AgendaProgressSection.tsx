@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { HiArrowPath } from "react-icons/hi2";
 
 import {
   updateAgendaProgressOverride,
@@ -619,12 +620,28 @@ function AgendaStatusLine({
     return null;
   }
 
+  // 分析中は議論ツリー列の更新チップ(AiUpdateStatusChip)と同じ回転矢印を添える。
+  // 再接続中の表示が分析中より優先されるのは agendaStatusLineText と同じ順序。
+  const reconnecting = Boolean(
+    connectionStatus && reconnectingConnectionStatuses.has(connectionStatus),
+  );
+  const generating = !reconnecting && effectiveMeta.generating;
+
   return (
     <p
-      className="rounded-(--ds-radius-control) px-2.5 py-1.5 text-[12px] font-medium leading-4"
+      className="flex items-center gap-1.5 rounded-(--ds-radius-control) px-2.5 py-1.5 text-[12px] font-medium leading-4"
       style={{ background: "var(--ds-surface-muted)", color: "var(--text-sub)" }}
     >
-      {agendaStatusLineText(effectiveMeta, connectionStatus, nowMs)}
+      {generating && (
+        <HiArrowPath
+          aria-hidden="true"
+          className="h-3.5 w-3.5 shrink-0 animate-spin"
+          style={{ color: "var(--brand)" }}
+        />
+      )}
+      <span className="min-w-0">
+        {agendaStatusLineText(effectiveMeta, connectionStatus, nowMs)}
+      </span>
     </p>
   );
 }

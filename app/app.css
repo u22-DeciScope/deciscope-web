@@ -60,29 +60,46 @@ body {
 }
 
 /* ============================================================
-   Indeterminate progress bar (e.g. 会議終了処理中モーダル)
-   進捗率が取れない処理中表示に使う。バーがトラックを左から右へ
-   流れ続け、処理が「止まっていない」ことを視覚的に示す。
+   Staged progress bar (会議終了モーダルの進捗バー)
+   バックエンドから取れる節目は3段階と粗いため、段階内では
+   到達点へ向かって減速しながら進み続ける。段階が進むと目標値が
+   切り替わり、そのままバーが伸び続ける。
    ============================================================ */
-@keyframes ds-progress-slide {
+.ds-progress-fill {
+  transition: width 16s cubic-bezier(0.22, 0.9, 0.28, 1);
+}
+
+.ds-progress-fill[data-stage="tree"] {
+  transition-duration: 26s;
+}
+
+.ds-progress-fill[data-stage="report"] {
+  transition-duration: 34s;
+}
+
+/* 塗り部分を左から右へ流れる光沢。バーが到達点で止まっている間も
+   処理が続いていることを示す。 */
+@keyframes ds-progress-sheen {
   0% {
     transform: translateX(-100%);
   }
   100% {
-    transform: translateX(350%);
+    transform: translateX(200%);
   }
 }
 
-.ds-progress-indeterminate {
-  animation: ds-progress-slide 1.4s ease-in-out infinite;
+.ds-progress-sheen {
+  animation: ds-progress-sheen 1.8s ease-in-out infinite;
   will-change: transform;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ds-progress-indeterminate {
+  .ds-progress-fill {
+    transition: none;
+  }
+
+  .ds-progress-sheen {
     animation: none;
-    /* アニメーション無効時はトラック全体を塗り、処理中表示として成立させる */
-    width: 100%;
-    transform: none;
+    opacity: 0;
   }
 }
