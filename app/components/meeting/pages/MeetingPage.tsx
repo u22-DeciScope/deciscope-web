@@ -3,6 +3,8 @@ import { useLocation, useNavigate, useParams, useSearchParams } from "react-rout
 
 import { DsButton } from "~/components/DsButton";
 import { BotStatusToasts } from "~/components/meeting/parts/BotStatusToasts";
+import { DiagnosticsDownloadButton } from "~/components/meeting/parts/DiagnosticsDownloadButton";
+import { MeetingDiagnosticsBoundary } from "~/components/meeting/parts/MeetingDiagnosticsBoundary";
 import { LiveStatusBadge } from "~/components/meeting/parts/LiveStatusBadge";
 import { MeetingEndedModal } from "~/components/meeting/parts/MeetingEndedModal";
 import { MeetingEndAction } from "~/components/meeting/parts/MeetingEndAction";
@@ -23,6 +25,10 @@ import { clearPendingMeetingNavigation } from "~/api/meetingSessions/pendingMeet
 import { workspaceMeetingSummaryPath, workspacePath } from "~/routing/workspacePaths";
 import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
 import { meetingStartDebug } from "~/utils/meetingStartDebug";
+import {
+  isDiagnosticsDownloadEnabled,
+  recordDiagnosticEvent,
+} from "~/utils/clientDiagnostics/clientDiagnostics";
 import { mergeDisplaySegments } from "~/utils/meetingSegments";
 import {
   formatStatus,
@@ -205,16 +211,35 @@ export default function Meeting() {
   const previousRouteRef = useRef({ pathname: "", sessionId: "" });
   useEffect(() => {
     const previous = previousRouteRef.current;
+    const snapshot = lifecycleSnapshotRef.current;
     meetingStartDebug("meeting-page", "route state observed", {
-      ...lifecycleSnapshotRef.current,
+      ...snapshot,
       previousPathname: previous.pathname || null,
       previousSessionId: previous.sessionId || null,
       pathnameChanged: Boolean(previous.pathname && previous.pathname !== location.pathname),
       sessionIdChanged: Boolean(previous.sessionId && previous.sessionId !== sessionId),
       timestamp: new Date().toISOString(),
     });
+    recordDiagnosticEvent("route_changed", {
+      sessionId,
+      workspaceId,
+      route: location.pathname,
+      treeVersion: snapshot.treeVersion,
+      analysisVersion: snapshot.analysisVersion,
+      nodeCount: snapshot.nodeCount,
+      sessionStatus: transcriptSession.sessionStatus ?? "",
+      snapshotSource: snapshot.selectedAnalysisType ?? "",
+      details: {
+        previousPathname: previous.pathname || null,
+        previousSessionId: previous.sessionId || null,
+        pathnameChanged: Boolean(previous.pathname && previous.pathname !== location.pathname),
+        sessionIdChanged: Boolean(previous.sessionId && previous.sessionId !== sessionId),
+      },
+    });
     previousRouteRef.current = { pathname: location.pathname, sessionId };
-  }, [location.pathname, sessionId]);
+    // transcriptSession.sessionStatus は route 変化時点の状態を載せるためだけに
+    // 参照しており、状態変化だけでこの効果を再実行する必要はない。
+  }, [location.pathname, sessionId, workspaceId]);
   const meetingSessionStatus = sessionId
     ? endFlow.effectiveStatus
     : transcriptSession.sessionStatus;
@@ -252,6 +277,35 @@ export default function Meeting() {
       : null;
   const pageNotice = runtime.error ?? sessionEndError ?? endedNotice ?? transcriptNotice;
   const connectionRecoveryRequired = runtime.recoveryRequired || transcriptSession.recoveryRequired;
+  // 開発用ダウンロードに載せる議論ツリー概要。ノード本文は含めない。
+  // 本番ビルドではダウンロード機能自体を出さないため、組み立ても行わない。
+  const discussionTreeSummary = useMemo(
+    () =>
+      isDiagnosticsDownloadEnabled()
+        ? {
+            nodeCount: treeNodes.length,
+            edgeCount: treeEdges.length,
+            treeVersion: transcriptSession.discussionTree.treeVersion,
+            analysisVersion: transcriptSession.analysisRuntimeStatus.liveVersion,
+            source: transcriptSession.discussionTree.source,
+            selectionReason: transcriptSession.discussionTree.selectionReason,
+            nodes: treeNodes.map((node) => ({
+              id: node.id,
+              kind: node.kind ?? null,
+              parentId: node.parentId ?? null,
+              status: node.status ?? null,
+            })),
+          }
+        : {},
+    [
+      transcriptSession.analysisRuntimeStatus.liveVersion,
+      transcriptSession.discussionTree.selectionReason,
+      transcriptSession.discussionTree.source,
+      transcriptSession.discussionTree.treeVersion,
+      treeEdges.length,
+      treeNodes,
+    ],
+  );
 
   const retryConnections = useCallback(() => {
     if (runtime.recoveryRequired) {
@@ -337,23 +391,42 @@ export default function Meeting() {
         </div>
       )}
 
-      <MeetingWorkspaceGrid
-        className="min-h-0 flex-1"
-        partials={partials}
-        segments={segments}
-        treeNodes={treeNodes}
-        treeEdges={treeEdges}
-        insights={runtime.analysisItems}
-        speakerSummaries={runtime.speakerSummaries}
-        liveAnalysis={transcriptSession.liveAnalysis}
-        liveAnalysisMeta={transcriptSession.liveAnalysisMeta}
-        connectionStatus={transcriptSession.connectionStatus}
-        canManageSessions={canManageSessions}
-        workspaceId={workspaceId}
+      {isDiagnosticsDownloadEnabled() && (
+        <div className="flex shrink-0 justify-end">
+          <DiagnosticsDownloadButton
+            sessionId={sessionId}
+            sessionStatus={meetingSessionStatus ?? null}
+            websocketStatus={transcriptSession.connectionStatus}
+            discussionTree={discussionTreeSummary}
+          />
+        </div>
+      )}
+
+      <MeetingDiagnosticsBoundary
         sessionId={sessionId}
-        analysisVersion={transcriptSession.analysisRuntimeStatus.liveVersion}
+        workspaceId={workspaceId}
         treeVersion={transcriptSession.discussionTree.treeVersion}
-      />
+        nodeCount={treeNodes.length}
+        resetKey={`${sessionId}:${transcriptSession.discussionTree.treeVersion ?? "none"}:${treeNodes.length}`}
+      >
+        <MeetingWorkspaceGrid
+          className="min-h-0 flex-1"
+          partials={partials}
+          segments={segments}
+          treeNodes={treeNodes}
+          treeEdges={treeEdges}
+          insights={runtime.analysisItems}
+          speakerSummaries={runtime.speakerSummaries}
+          liveAnalysis={transcriptSession.liveAnalysis}
+          liveAnalysisMeta={transcriptSession.liveAnalysisMeta}
+          connectionStatus={transcriptSession.connectionStatus}
+          canManageSessions={canManageSessions}
+          workspaceId={workspaceId}
+          sessionId={sessionId}
+          analysisVersion={transcriptSession.analysisRuntimeStatus.liveVersion}
+          treeVersion={transcriptSession.discussionTree.treeVersion}
+        />
+      </MeetingDiagnosticsBoundary>
 
       {endOverlayMode && (
         <MeetingEndedModal

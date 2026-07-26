@@ -28,6 +28,10 @@ import {
   treeNodeMomentLabel,
 } from "~/components/meeting/parts/meetingDisplayMetadata";
 import { meetingStartDebug } from "~/utils/meetingStartDebug";
+import {
+  flushDiagnosticsWithBeacon,
+  recordDiagnosticEvent,
+} from "~/utils/clientDiagnostics/clientDiagnostics";
 
 import { type DiscussionFlowNode, nodeTypes } from "./DiscussionNodeView";
 import {
@@ -103,6 +107,8 @@ export type DiscussionTreeFocusRequest = {
 
 type DiscussionTreeProps = {
   sessionId?: string;
+  // workspaceId は診断ログ(client diagnostics)の認可単位。表示には使わない。
+  workspaceId?: string;
   nodes: TreeNodePayload[];
   edges: TreeEdgePayload[];
   analysisItems?: AnalysisItem[];
@@ -121,6 +127,7 @@ type DiscussionTreeProps = {
 
 export function DiscussionTree({
   sessionId = "",
+  workspaceId = "",
   nodes,
   edges,
   analysisItems,
@@ -156,16 +163,35 @@ export function DiscussionTree({
     analysisVersion,
     treeHash: treeHash ?? null,
   };
+  const diagnosticFieldsRef = useRef({ sessionId, workspaceId, treeVersion, analysisVersion });
+  diagnosticFieldsRef.current = { sessionId, workspaceId, treeVersion, analysisVersion };
   useEffect(() => {
     meetingStartDebug("meeting-page", "DiscussionTree mounted", {
       ...lifecycleSnapshotRef.current,
       timestamp: new Date().toISOString(),
     });
+    recordDiagnosticEvent("tree_component_mounted", {
+      ...diagnosticFieldsRef.current,
+      nodeCount: lifecycleSnapshotRef.current.nodeCount,
+      rootNodeId: discussionTreeRootNodeId(nodes),
+      details: { displayedNodeCount: lifecycleSnapshotRef.current.nodeCount },
+    });
     return () => {
+      const snapshot = lifecycleSnapshotRef.current;
       meetingStartDebug("meeting-page", "DiscussionTree unmounted", {
-        ...lifecycleSnapshotRef.current,
+        ...snapshot,
         timestamp: new Date().toISOString(),
       });
+      recordDiagnosticEvent("tree_component_unmounted", {
+        ...diagnosticFieldsRef.current,
+        nodeCount: snapshot.nodeCount,
+        details: { nodeCountAtUnmount: snapshot.nodeCount },
+      });
+      // ノードを保持したままのunmountは想定外の破棄の可能性があるため、
+      // ページ遷移で失う前に未送信イベントの退避を試みる。
+      if (snapshot.nodeCount > 0) {
+        flushDiagnosticsWithBeacon("tree_component_unmounted");
+      }
     };
   }, []);
   return (
@@ -221,6 +247,7 @@ export function DiscussionTree({
             <DiscussionTreeErrorBoundary
               nodes={nodes}
               sessionId={sessionId}
+              workspaceId={workspaceId}
               treeVersion={treeVersion}
               resetKey={`${treeVersion ?? "none"}:${nodes.length}:${edges.length}`}
             >
@@ -245,6 +272,16 @@ export function DiscussionTree({
       </div>
     </div>
   );
+}
+
+// 診断ログ用の起点ノードID。親を持たない最初のノード、無ければ先頭ノード。
+function discussionTreeRootNodeId(nodes: TreeNodePayload[]) {
+  if (nodes.length === 0) {
+    return "";
+  }
+  const ids = new Set(nodes.map((node) => node.id));
+  const root = nodes.find((node) => !node.parentId || !ids.has(node.parentId));
+  return root?.id ?? nodes[0].id;
 }
 
 function useDiscussionTreeCanvasSize(ref: React.RefObject<HTMLDivElement | null>) {

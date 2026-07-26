@@ -254,6 +254,7 @@ export function MeetingWorkspaceGrid({
       </div>
       <DiscussionTree
         sessionId={sessionId}
+        workspaceId={workspaceId}
         nodes={treeNodes}
         edges={treeEdges}
         analysisItems={relatedAnalysisItems}

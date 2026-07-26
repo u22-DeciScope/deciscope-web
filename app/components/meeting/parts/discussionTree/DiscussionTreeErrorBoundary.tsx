@@ -1,12 +1,14 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
 import type { TreeNodePayload } from "~/api/meetings/meetingRuntimeTypes";
+import { recordDiagnosticEvent, truncateStack } from "~/utils/clientDiagnostics/clientDiagnostics";
 import { isMeetingStartDebugEnabled, meetingStartDebug } from "~/utils/meetingStartDebug";
 
 type DiscussionTreeErrorBoundaryProps = {
   children: ReactNode;
   nodes: TreeNodePayload[];
   sessionId: string;
+  workspaceId?: string;
   treeVersion: number | null;
   resetKey: string;
 };
@@ -47,6 +49,19 @@ export class DiscussionTreeErrorBoundary extends Component<
       error: error.message,
       componentStack: info.componentStack ?? null,
       timestamp: new Date().toISOString(),
+    });
+    recordDiagnosticEvent("react_error_captured", {
+      sessionId: this.props.sessionId,
+      workspaceId: this.props.workspaceId ?? "",
+      treeVersion: this.props.treeVersion,
+      nodeCount: this.props.nodes.length,
+      details: {
+        boundary: "discussion_tree",
+        errorName: error.name,
+        // メッセージ・スタックは機密混入の可能性を考慮して上限を設ける。
+        errorMessage: truncateStack(error.message),
+        componentStack: truncateStack(info.componentStack),
+      },
     });
   }
 

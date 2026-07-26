@@ -18,6 +18,7 @@ import {
   type MeetingListItem,
 } from "~/components/home/meetingListItems";
 import { MeetingTitleLine } from "~/components/home/parts/MeetingTitleLine";
+import { markIntentionalTreeTeardown } from "~/utils/clientDiagnostics/treeEmptiness";
 import { ConfirmDialog } from "~/components/shared/modal/ConfirmDialog";
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
@@ -111,6 +112,8 @@ export default function MeetingHistoryPage() {
     setDeletingId(meeting.id);
     setDeleteError(null);
     try {
+      // セッション削除に伴う議論ツリーの消失は正当なため、異常検出の対象外にする。
+      markIntentionalTreeTeardown("session_deleted");
       await deleteWorkspaceMeetingSession(workspaceId, meeting.id);
       setMeetingSessions((current) =>
         current.filter((session) => session.sessionId !== meeting.id),
