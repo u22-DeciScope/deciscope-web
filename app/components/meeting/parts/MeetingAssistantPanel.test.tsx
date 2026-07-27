@@ -8,6 +8,7 @@ import { analysisKindLabel } from "~/components/meeting/parts/analysisKindPalett
 import {
   buildLiveCardUpdateHistoryFromLiveHistory,
   filterForInsightItem,
+  hasInsightTab,
   isLiveDisplayItem,
   isResolvedDisplayItem,
   matchesInsightFilter,
@@ -46,6 +47,31 @@ describe("MeetingAssistantPanel item filters", () => {
     expect(matchesInsightFilter(item("todo-completed", "todo", "completed"), "resolved")).toBe(
       true,
     );
+  });
+
+  it("treats facts as tree-only: no tab, no tab switch on focus", () => {
+    const fact = item("fact-1", "fact", "open");
+
+    expect(hasInsightTab(fact)).toBe(false);
+    expect(filterForInsightItem(fact)).toBeNull();
+    for (const kind of ["issue", "question", "risk", "todo", "decision"]) {
+      expect(hasInsightTab(item(kind, kind, "open"))).toBe(true);
+    }
+    expect(hasInsightTab(item("issue-resolved", "issue", "resolved"))).toBe(true);
+  });
+
+  it("keeps facts out of the header count so the badge matches what the tabs list", () => {
+    render(
+      <MeetingAssistantPanel
+        insights={[item("fact-1", "fact", "open")]}
+        speakerSummaries={[]}
+        showLiveTab={false}
+      />,
+    );
+
+    // 事実カードは件数に数えないため、属性タブは「0件」の空状態になる。
+    expect(screen.getByText("まだAIメモはありません")).not.toBeNull();
+    expect(screen.queryByText("このタブに表示するカードはありません")).toBeNull();
   });
 
   it("shows questions, open issues, and issues in the unresolved tab", () => {

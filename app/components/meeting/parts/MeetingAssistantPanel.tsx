@@ -122,7 +122,17 @@ export function analysisItemElementId(itemId: string) {
   return `ai-analysis-item-${encodeURIComponent(itemId)}`;
 }
 
-export function filterForInsightItem(item: AnalysisItem): InsightFilter {
+// 属性タブ(ライブ以外)のいずれかに一覧表示される種別かどうか。事実(fact)のように
+// どのタブにも一致しない種別は、件数バッジにも数えない。「件数には入るのにどのタブを
+// 開いても出てこない」状態を作らないための判定で、タブ定義から導出しているため
+// タブを増減しても自動で追従する。事実は議論ツリーと「カードの更新」で確認する。
+export function hasInsightTab(item: AnalysisItem) {
+  return insightFilterTabs.some((tab) => tab.key !== "live" && matchesInsightFilter(item, tab.key));
+}
+
+// フォーカスされたカードを表示するタブ。タブを持たない種別(事実など)では null を返し、
+// 呼び出し側はタブを切り替えない(切り替えても該当カードが無いため)。
+export function filterForInsightItem(item: AnalysisItem): InsightFilter | null {
   if (isResolvedDisplayItem(item)) {
     return "resolved";
   }
@@ -135,7 +145,7 @@ export function filterForInsightItem(item: AnalysisItem): InsightFilter {
   if (isIssueKind(item.kind)) {
     return "unresolved";
   }
-  return item.kind === "todo" ? "todo" : "live";
+  return item.kind === "todo" ? "todo" : null;
 }
 
 export function isResolvedItem(item: AnalysisItem) {
@@ -220,7 +230,8 @@ export function MeetingAssistantPanel({
     () => (livePayload?.items ?? []).filter((item) => !isDismissedItem(item)),
     [livePayload],
   );
-  const totalCount = visibleInsights.length + liveItems.length;
+  const totalCount =
+    visibleInsights.filter(hasInsightTab).length + liveItems.filter(hasInsightTab).length;
   const liveItemIds = useMemo(() => new Set(liveItems.map((item) => item.id)), [liveItems]);
   const filteredLiveItems = useMemo(
     () => liveItems.filter((item) => matchesInsightFilter(item, filter)),
@@ -275,7 +286,10 @@ export function MeetingAssistantPanel({
     }
     processedFocusIdRef.current = focusedAnalysisItemId;
     if (!matchesInsightFilter(target, filter)) {
-      setFilter(filterForInsightItem(target));
+      const nextFilter = filterForInsightItem(target);
+      if (nextFilter) {
+        setFilter(nextFilter);
+      }
     }
   }, [filter, focusedAnalysisItemId, liveItems, visibleInsights]);
 

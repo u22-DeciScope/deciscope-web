@@ -44,10 +44,15 @@ export const analysisKindPalette: Record<string, AnalysisKindColor> = {
     fg: "var(--ai-risk-fg)",
     border: "var(--ai-risk-border)",
   },
+  // 事実(fact)は「確認済みの情報」で、対応が必要な種別(論点・リスク・TODO・決定事項)とは
+  // 役割が違う。他の種別が色相を使い切っている(青=トピック / 紫=論点 / 赤=リスク /
+  // 緑=決定事項 / 琥珀=TODO)ため、彩度を落とした中立色を割り当てる。
+  // 以前は --ai-point-* を使っていたが、これは TODO の --badge-action-* と同値
+  // (light/dark とも)で、事実とTODOが完全に同じ色になっていた。
   fact: {
-    bg: "var(--ai-point-bg)",
-    fg: "var(--ai-point-fg)",
-    border: "var(--ai-point-border)",
+    bg: "color-mix(in srgb, var(--text-sub) 12%, var(--ds-surface))",
+    fg: "var(--text-sub)",
+    border: "color-mix(in srgb, var(--text-sub) 30%, transparent)",
   },
   decision: {
     bg: "var(--badge-decision-bg)",
