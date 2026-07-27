@@ -124,7 +124,12 @@ export function allTargetsVisible(
   nodeSize: { width: number; height: number },
   margin = 20,
 ): boolean {
-  if (positions.length === 0 || pane.width <= 0 || pane.height <= 0) {
+  if (
+    positions.length === 0 ||
+    pane.width <= 0 ||
+    pane.height <= 0 ||
+    !isFiniteViewport(viewport)
+  ) {
     return false;
   }
   return positions.every((position) => {
@@ -139,6 +144,41 @@ export function allTargetsVisible(
       bottom <= pane.height - margin
     );
   });
+}
+
+export function anyTargetVisible(
+  positions: Array<{ x: number; y: number }>,
+  viewport: { x: number; y: number; zoom: number },
+  pane: { width: number; height: number },
+  nodeSize: { width: number; height: number },
+): boolean {
+  if (
+    positions.length === 0 ||
+    pane.width <= 0 ||
+    pane.height <= 0 ||
+    !isFiniteViewport(viewport)
+  ) {
+    return false;
+  }
+  return positions.some((position) => {
+    if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) {
+      return false;
+    }
+    const left = position.x * viewport.zoom + viewport.x;
+    const top = position.y * viewport.zoom + viewport.y;
+    const right = left + nodeSize.width * viewport.zoom;
+    const bottom = top + nodeSize.height * viewport.zoom;
+    return right >= 0 && bottom >= 0 && left <= pane.width && top <= pane.height;
+  });
+}
+
+export function isFiniteViewport(viewport: { x: number; y: number; zoom: number }): boolean {
+  return (
+    Number.isFinite(viewport.x) &&
+    Number.isFinite(viewport.y) &&
+    Number.isFinite(viewport.zoom) &&
+    viewport.zoom > 0
+  );
 }
 
 function validUniqueIds(ids: string[] | undefined, allowed: Set<string>): string[] {

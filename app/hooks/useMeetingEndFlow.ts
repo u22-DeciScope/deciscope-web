@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { getWorkspaceMeetingSessionAIAnalyses } from "~/api/aiAnalysis/aiAnalysisApi";
 import {
   endWorkspaceMeetingSession,
   getWorkspaceMeetingSession,
@@ -33,9 +34,29 @@ export type MeetingEndFlow = {
   showEndedModal: boolean;
   endedAt: string;
   endError: string | null;
+  // バックエンドのfinalization進捗を、終了モーダルの3段階へ集約した状態。
+  progressStage: MeetingEndProgressStage;
   // 終了ボタン押下。二重押下・StrictMode再実行では2回目以降は同じ処理を待つ。
   requestEnd: () => Promise<void>;
 };
+
+export type MeetingEndProgressStage = "transcript" | "tree" | "report";
+
+export function meetingEndProgressStage(finalizationStage: string | null | undefined) {
+  const normalized = finalizationStage?.trim().toLowerCase() ?? "";
+  if (
+    normalized === "tree_saved" ||
+    normalized === "final_summary_running" ||
+    normalized === "completed" ||
+    normalized.startsWith("final_summary_")
+  ) {
+    return "report" satisfies MeetingEndProgressStage;
+  }
+  if (normalized === "final_flush_completed" || normalized.startsWith("final_tree_")) {
+    return "tree" satisfies MeetingEndProgressStage;
+  }
+  return "transcript" satisfies MeetingEndProgressStage;
+}
 
 // 会議終了フローの状態機械。
 //  - 終了APIのレスポンスstatusをそのまま反映する(endingをendedへ変換しない)。
@@ -56,6 +77,7 @@ export function useMeetingEndFlow({
   const [showEndedModal, setShowEndedModal] = useState(false);
   const [endedAtOverride, setEndedAtOverride] = useState("");
   const [endError, setEndError] = useState<string | null>(null);
+  const [progressStage, setProgressStage] = useState<MeetingEndProgressStage>("transcript");
   // 同期的な二重送信ガード(disabledやstateの反映より速いクリック連打対策)。
   const endRequestedRef = useRef(false);
   // 一度でもending(finalization中)を観測したか。再読み込み復帰時、
@@ -69,6 +91,7 @@ export function useMeetingEndFlow({
     setShowEndedModal(false);
     setEndedAtOverride("");
     setEndError(null);
+    setProgressStage("transcript");
     endRequestedRef.current = false;
     sawEndingRef.current = false;
   }, [workspaceId, sessionId]);
@@ -139,6 +162,42 @@ export function useMeetingEndFlow({
     };
   }, [sessionId, workspaceId, isEndingStatus, showEndedModal, wsConnected, pollIntervalMs]);
 
+  // finalizationの段階は既存のai-analyses REST payloadにdurableに保存されている。
+  // status_changed WSはsession statusだけを運ぶため、WS接続中もこの軽量pollを行い、
+  // 見せかけのタイマーではなく実処理の節目をモーダルへ反映する。
+  useEffect(() => {
+    if (!workspaceId || !sessionId || !isEndingStatus || showEndedModal) {
+      return;
+    }
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const pollProgress = async () => {
+      try {
+        const analyses = await getWorkspaceMeetingSessionAIAnalyses(workspaceId, sessionId);
+        if (!active) {
+          return;
+        }
+        const next = meetingEndProgressStage(analyses.finalization?.payload.stage);
+        setProgressStage((current) => (current === next ? current : next));
+      } catch {
+        // session statusの監視は別経路で継続する。進捗だけ取得できない場合は、
+        // 最後に確認できた段階を維持して次回pollで回復させる。
+      }
+      if (active) {
+        timer = setTimeout(() => void pollProgress(), pollIntervalMs);
+      }
+    };
+
+    void pollProgress();
+    return () => {
+      active = false;
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, [isEndingStatus, pollIntervalMs, sessionId, showEndedModal, workspaceId]);
+
   const requestEnd = useCallback(async () => {
     if (!sessionId || endRequestedRef.current || showEndedModal) {
       return;
@@ -188,8 +247,18 @@ export function useMeetingEndFlow({
       showEndedModal,
       endedAt,
       endError,
+      progressStage,
       requestEnd,
     }),
-    [effectiveStatus, isFinalizing, isRequestingEnd, showEndedModal, endedAt, endError, requestEnd],
+    [
+      effectiveStatus,
+      isFinalizing,
+      isRequestingEnd,
+      showEndedModal,
+      endedAt,
+      endError,
+      progressStage,
+      requestEnd,
+    ],
   );
 }

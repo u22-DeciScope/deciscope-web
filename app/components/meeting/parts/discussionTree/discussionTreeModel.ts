@@ -17,7 +17,11 @@ export function buildDiscussionTreeModel(
   edges: TreeEdgePayload[],
 ): DiscussionTreeModel {
   const rootId =
-    nodes.find((node) => (node.kind ?? "topic") === "topic")?.id ?? nodes[0]?.id ?? null;
+    nodes.find((node) => node.id === "root")?.id ??
+    nodes.find((node) => !node.parentId && (node.kind ?? "topic") === "topic")?.id ??
+    nodes.find((node) => (node.kind ?? "topic") === "topic")?.id ??
+    nodes[0]?.id ??
+    null;
 
   const hasParentIds = nodes.some((node) => typeof node.parentId === "string" && node.parentId);
   const { parentOf, depthOf } = hasParentIds

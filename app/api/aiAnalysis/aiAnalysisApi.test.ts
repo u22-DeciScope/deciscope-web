@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   normalizeAIAnalysis,
   normalizeAgendaProgress,
+  normalizeFinalizationAnalysis,
   type LiveAnalysisPayload,
 } from "./aiAnalysisApi";
 
@@ -245,6 +246,51 @@ describe("normalizeAIAnalysis live tree changes", () => {
   });
 });
 
+describe("normalizeAIAnalysis tree payload contract", () => {
+  const normalizedPayload = (payload: Record<string, unknown>) =>
+    normalizeAIAnalysis({
+      analysisType: "live",
+      status: "completed",
+      version: 2,
+      payload,
+    })?.payload as LiveAnalysisPayload;
+
+  it("distinguishes omitted, null, empty, snapshot, and explicit reset trees", () => {
+    expect(normalizedPayload({ items: [] }).treePayloadState).toBe("omitted");
+    expect(normalizedPayload({ items: [], tree: null }).treePayloadState).toBe("null");
+    expect(normalizedPayload({ items: [], tree: { nodes: [], edges: [] } }).treePayloadState).toBe(
+      "empty",
+    );
+    expect(
+      normalizedPayload({
+        items: [],
+        tree: { nodes: [{ id: "root", kind: "topic", label: "会議" }], edges: [] },
+      }).treePayloadState,
+    ).toBe("snapshot");
+    expect(normalizedPayload({ items: [], tree: null, treeReset: true })).toMatchObject({
+      treePayloadState: "null",
+      treeReset: true,
+    });
+  });
+
+  it("marks a synthesized legacy tree as omitted instead of a full snapshot", () => {
+    const payload = normalizedPayload({
+      items: [
+        {
+          id: "risk-1",
+          kind: "risk",
+          severity: "high",
+          title: "懸念",
+          body: "確認が必要",
+          status: "open",
+        },
+      ],
+    });
+    expect(payload.tree?.nodes).toHaveLength(2);
+    expect(payload.treePayloadState).toBe("omitted");
+  });
+});
+
 describe("agendaProgress normalization", () => {
   it("normalizes a fully-stamped payload and drops server-internal tracking fields", () => {
     const analysis = normalizeAIAnalysis({
@@ -302,7 +348,10 @@ describe("agendaProgress normalization", () => {
           outcomeStatus: "concluded",
           discussionWeight: 0.62,
           relatedItemCounts: { issue: 2, risk: 1, todo: 1, decision: 1 },
+          materializedTopicId: "topic-agenda-ab12cd34ef56",
           materializedTopicIds: ["topic-agenda-ab12cd34ef56"],
+          focusNodeIds: ["topic-agenda-ab12cd34ef56"],
+          linkState: "materialized-topic",
           primaryNodeId: "topic-agenda-ab12cd34ef56",
         },
       ],
@@ -388,5 +437,46 @@ describe("agendaProgress normalization", () => {
     });
 
     expect((analysis?.payload as LiveAnalysisPayload).agendaProgress).toBeUndefined();
+  });
+});
+
+describe("finalization progress normalization", () => {
+  it("keeps the durable backend stage used by the ending dialog", () => {
+    expect(
+      normalizeFinalizationAnalysis({
+        analysisType: "finalization",
+        status: "running",
+        version: 2,
+        updatedAtUtc: "2026-07-23T10:00:00Z",
+        payload: {
+          finalizationId: "finalization-1",
+          stage: "tree_saved",
+          pendingSegmentCount: 0,
+          finalizationIncomplete: false,
+        },
+      }),
+    ).toEqual({
+      analysisType: "finalization",
+      status: "running",
+      version: 2,
+      updatedAtUtc: "2026-07-23T10:00:00Z",
+      payload: {
+        finalizationId: "finalization-1",
+        stage: "tree_saved",
+        pendingSegmentCount: 0,
+        finalizationIncomplete: false,
+      },
+    });
+  });
+
+  it("rejects a missing stage instead of inventing progress", () => {
+    expect(
+      normalizeFinalizationAnalysis({
+        analysisType: "finalization",
+        status: "running",
+        version: 1,
+        payload: {},
+      }),
+    ).toBeNull();
   });
 });

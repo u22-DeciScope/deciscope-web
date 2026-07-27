@@ -1,5 +1,4 @@
 import { BrandLogo } from "~/components/BrandLogo";
-import { AppSidebarToggleButton } from "~/components/shared/navigation/AppSidebarToggleButton";
 import { APP_SIDEBAR_SIZES } from "~/components/shared/navigation/appSidebarSizes";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/routing/workspacePaths";
@@ -7,24 +6,13 @@ import { workspacePath } from "~/routing/workspacePaths";
 const LOGO_TEXT_MIN_WIDTH = 156;
 
 type AppSidebarHeaderProps = {
-  navigation: {
-    collapsed: boolean;
-    onCollapsedChange: (collapsed: boolean) => void;
-  };
   navigationWidth: number;
-  width: number;
 };
 
-export function AppSidebarHeader({ navigation, navigationWidth, width }: AppSidebarHeaderProps) {
+export function AppSidebarHeader({ navigationWidth }: AppSidebarHeaderProps) {
   const { workspaceId } = useAuthenticatedLayout();
   const showLogoText = navigationWidth >= LOGO_TEXT_MIN_WIDTH;
-  const showHeaderToggle = width >= LOGO_TEXT_MIN_WIDTH;
-  const toggleLabel = navigation.collapsed ? "メニューを展開" : "メニューを折りたたむ";
   const logoFrameWidth = showLogoText ? navigationWidth : APP_SIDEBAR_SIZES.collapsedPaneWidth;
-
-  function handleToggle() {
-    navigation.onCollapsedChange(!navigation.collapsed);
-  }
 
   return (
     <header

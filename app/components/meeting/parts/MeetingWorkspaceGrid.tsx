@@ -21,6 +21,7 @@ import type {
   LiveAnalysisMeta,
   TranscriptSessionConnectionStatus,
 } from "~/hooks/useMeetingTranscriptSession";
+import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
 // タイムライン(左カラム)の開閉状態を会議中(タブを閉じるまで)維持するためのキー。
 const TIMELINE_COLLAPSED_STORAGE_KEY = "deciscope.meeting.timelineCollapsed";
@@ -45,15 +46,22 @@ type MeetingWorkspaceGridProps = {
   insights: AnalysisItem[];
   speakerSummaries?: RuntimeSpeakerSummary[];
   liveAnalysis?: MeetingAIAnalysis | null;
+  // 完了したライブ分析の版履歴(版昇順)。/summary のレビュー画面で
+  // 「カードの更新」を再構築するために使う(会議中は未指定)。
+  liveHistory?: MeetingAIAnalysis[];
   liveAnalysisMeta?: LiveAnalysisMeta | null;
   // AIアシスタントのライブタブを表示するか。会議終了後のレビュー画面では false。
   showLiveTab?: boolean;
+  // ライブタブ内の「カードの更新」セクションを表示するか。会議終了後のレビュー画面では false。
+  showLiveUpdates?: boolean;
   // アジェンダ進捗セクションの状態行・操作可否向け。いずれもoptionalで、
   // workspaceId/sessionIdが無ければ操作UI(手動override)は非表示になる。
   connectionStatus?: TranscriptSessionConnectionStatus | null;
   canManageSessions?: boolean;
   workspaceId?: string;
   sessionId?: string;
+  analysisVersion?: number | null;
+  treeVersion?: number | null;
 };
 
 export function MeetingWorkspaceGrid({
@@ -65,12 +73,16 @@ export function MeetingWorkspaceGrid({
   insights,
   speakerSummaries = [],
   liveAnalysis,
+  liveHistory,
   liveAnalysisMeta,
   showLiveTab = true,
+  showLiveUpdates = true,
   connectionStatus,
   canManageSessions = false,
   workspaceId = "",
   sessionId = "",
+  analysisVersion = null,
+  treeVersion = null,
 }: MeetingWorkspaceGridProps) {
   const [focusedAnalysisItemId, setFocusedAnalysisItemId] = useState<string | null>(null);
   const [highlightedAnalysisItemId, setHighlightedAnalysisItemId] = useState<string | null>(null);
@@ -80,6 +92,32 @@ export function MeetingWorkspaceGrid({
   );
   const highlightTimerRef = useRef<number | null>(null);
   const livePayload = (liveAnalysis?.payload as LiveAnalysisPayload | null) ?? null;
+  const lifecycleSnapshotRef = useRef({
+    sessionId: sessionId || null,
+    pathname: typeof window === "undefined" ? null : window.location.pathname,
+    treeVersion,
+    nodeCount: treeNodes.length,
+    analysisVersion,
+  });
+  lifecycleSnapshotRef.current = {
+    sessionId: sessionId || null,
+    pathname: typeof window === "undefined" ? null : window.location.pathname,
+    treeVersion,
+    nodeCount: treeNodes.length,
+    analysisVersion,
+  };
+  useEffect(() => {
+    meetingStartDebug("meeting-page", "MeetingWorkspaceGrid mounted", {
+      ...lifecycleSnapshotRef.current,
+      timestamp: new Date().toISOString(),
+    });
+    return () => {
+      meetingStartDebug("meeting-page", "MeetingWorkspaceGrid unmounted", {
+        ...lifecycleSnapshotRef.current,
+        timestamp: new Date().toISOString(),
+      });
+    };
+  }, []);
   const liveItems = useMemo(
     () => (livePayload?.items ?? []).filter((item) => item.status !== "dismissed"),
     [livePayload],
@@ -141,7 +179,7 @@ export function MeetingWorkspaceGrid({
   return (
     <section
       className={[
-        "grid gap-2 transition-[grid-template-columns] duration-200",
+        "grid min-h-0 gap-2 overflow-y-auto transition-[grid-template-columns] duration-200 lg:overflow-hidden",
         timelineCollapsed
           ? "lg:grid-cols-[56px_minmax(420px,2.4fr)_minmax(280px,0.95fr)]"
           : "lg:grid-cols-[minmax(250px,0.85fr)_minmax(420px,1.65fr)_minmax(280px,0.95fr)]",
@@ -215,6 +253,8 @@ export function MeetingWorkspaceGrid({
         )}
       </div>
       <DiscussionTree
+        sessionId={sessionId}
+        workspaceId={workspaceId}
         nodes={treeNodes}
         edges={treeEdges}
         analysisItems={relatedAnalysisItems}
@@ -224,6 +264,9 @@ export function MeetingWorkspaceGrid({
         layoutSignal={timelineCollapsed}
         focusItemRequest={treeFocusRequest}
         treeChanges={livePayload?.treeChanges}
+        analysisVersion={analysisVersion}
+        treeVersion={treeVersion}
+        treeHash={livePayload?.treeHash}
       />
       <MeetingAssistantPanel
         insights={insights}
@@ -231,10 +274,12 @@ export function MeetingWorkspaceGrid({
         segments={segments}
         treeNodes={treeNodes}
         liveAnalysis={liveAnalysis}
+        liveHistory={liveHistory}
         focusedAnalysisItemId={focusedAnalysisItemId}
         highlightedAnalysisItemId={highlightedAnalysisItemId}
         updateStatus={liveAnalysisMeta ? <AiUpdateStatusChip meta={liveAnalysisMeta} /> : undefined}
         showLiveTab={showLiveTab}
+        showLiveUpdates={showLiveUpdates}
         onFocusTreeItem={handleFocusTreeItem}
         liveAnalysisMeta={liveAnalysisMeta}
         connectionStatus={connectionStatus}

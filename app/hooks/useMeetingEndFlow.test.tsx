@@ -1,13 +1,22 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useMeetingEndFlow } from "./useMeetingEndFlow";
+import { getWorkspaceMeetingSessionAIAnalyses } from "~/api/aiAnalysis/aiAnalysisApi";
 import {
   endWorkspaceMeetingSession,
   getWorkspaceMeetingSession,
   type MeetingSessionDto,
   type MeetingSessionStatus,
 } from "~/api/meetingSessions/meetingSessionsApi";
+import { meetingEndProgressStage, useMeetingEndFlow } from "./useMeetingEndFlow";
+
+vi.mock("~/api/aiAnalysis/aiAnalysisApi", async (importOriginal) => {
+  const original = await importOriginal<typeof import("~/api/aiAnalysis/aiAnalysisApi")>();
+  return {
+    ...original,
+    getWorkspaceMeetingSessionAIAnalyses: vi.fn(),
+  };
+});
 
 vi.mock("~/api/meetingSessions/meetingSessionsApi", async (importOriginal) => {
   const original =
@@ -21,6 +30,7 @@ vi.mock("~/api/meetingSessions/meetingSessionsApi", async (importOriginal) => {
 
 const endMock = vi.mocked(endWorkspaceMeetingSession);
 const getMock = vi.mocked(getWorkspaceMeetingSession);
+const analysesMock = vi.mocked(getWorkspaceMeetingSessionAIAnalyses);
 
 function session(status: MeetingSessionStatus, endedAt?: string): MeetingSessionDto {
   return { sessionId: "session-1", status, ...(endedAt ? { endedAt } : {}) };
@@ -57,6 +67,15 @@ function renderEndFlow(initial: Partial<HookProps> = {}) {
 beforeEach(() => {
   endMock.mockReset();
   getMock.mockReset();
+  analysesMock.mockReset();
+  analysesMock.mockResolvedValue({
+    sessionId: "session-1",
+    live: null,
+    final: null,
+    finalization: null,
+    treeSnapshot: null,
+    liveHistory: [],
+  });
 });
 
 afterEach(() => {
@@ -64,6 +83,14 @@ afterEach(() => {
 });
 
 describe("useMeetingEndFlow", () => {
+  it("バックエンドのfinalization stageを3段階の表示へ変換する", () => {
+    expect(meetingEndProgressStage("requested")).toBe("transcript");
+    expect(meetingEndProgressStage("final_flush_completed")).toBe("tree");
+    expect(meetingEndProgressStage("final_tree_review_completed")).toBe("tree");
+    expect(meetingEndProgressStage("tree_saved")).toBe("report");
+    expect(meetingEndProgressStage("final_summary_running")).toBe("report");
+  });
+
   it("終了APIがendingを返したらendingのまま待機し、endedモーダルを表示しない (8.1)", async () => {
     endMock.mockResolvedValue(session("ending"));
     const { result } = renderEndFlow();
@@ -76,6 +103,33 @@ describe("useMeetingEndFlow", () => {
     expect(result.current.effectiveStatus).toBe("ending");
     expect(result.current.isFinalizing).toBe(true);
     expect(result.current.showEndedModal).toBe(false);
+  });
+
+  it("ending中はdurableなfinalization進捗を取得して表示段階を更新する", async () => {
+    endMock.mockResolvedValue(session("ending"));
+    analysesMock.mockResolvedValue({
+      sessionId: "session-1",
+      live: null,
+      final: null,
+      finalization: {
+        analysisType: "finalization",
+        status: "running",
+        version: 1,
+        payload: { stage: "tree_saved" },
+      },
+      treeSnapshot: null,
+      liveHistory: [],
+    });
+    const { result } = renderEndFlow();
+
+    await act(async () => {
+      await result.current.requestEnd();
+    });
+
+    await waitFor(() => {
+      expect(result.current.progressStage).toBe("report");
+    });
+    expect(analysesMock).toHaveBeenCalledWith("ws-1", "session-1");
   });
 
   it("ending待機中にWSでendedを受信したら終了完了モーダルへ切り替える (8.2)", async () => {

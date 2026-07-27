@@ -10,6 +10,23 @@ import type {
 export type MeetingAIAnalysisType = "live" | "final";
 export type MeetingAIAnalysisStatus = "running" | "completed" | "failed";
 export type MeetingAIAnalysisImportance = "high" | "medium" | "low";
+export type LiveTreePayloadState = "omitted" | "null" | "empty" | "snapshot" | "invalid";
+
+export type MeetingFinalizationProgressPayload = {
+  stage: string;
+  finalizationId?: string;
+  pendingSegmentCount?: number;
+  finalizationIncomplete?: boolean;
+};
+
+export type MeetingFinalizationAnalysis = {
+  analysisType: "finalization";
+  status: MeetingAIAnalysisStatus;
+  version: number;
+  payload: MeetingFinalizationProgressPayload;
+  updatedAtUtc?: string;
+  error?: string;
+};
 
 // ライブ分析payload v2。items/treeは既存の analysis.delta / tree.update の語彙
 // (AnalysisItem / TreeUpdatePayload)と互換の形に正規化して保持する。
@@ -21,6 +38,12 @@ export type LiveAnalysisPayload = {
   items: AnalysisItem[];
   tree: TreeUpdatePayload | null;
   treeVersion?: number;
+  // APIのraw payloadでtreeがどのように表現されていたかを保持するクライアント側の
+  // merge情報。旧payload向けに合成treeを作った場合も omitted/empty のままなので、
+  // 既存の完全snapshotを暗黙に置換しない判断ができる。
+  treePayloadState?: LiveTreePayloadState;
+  // treeの消去はこの明示フラグを伴うcompleted payloadだけが要求できる。
+  treeReset?: boolean;
   treeChanges?: TreeChangesPayload;
   degraded?: boolean;
   degradedReason?: string;
@@ -45,6 +68,7 @@ export type LiveAnalysisPayload = {
 export type AgendaProgressStatus = "not_started" | "discussing" | "discussed";
 export type AgendaProgressOutcome = "concluded" | "unresolved";
 export type AgendaProgressSourceType = "fixed_agenda" | "dynamic_topic";
+export type AdditionalTopicLinkState = "materialized-topic" | "visible-items" | "not-linkable";
 
 export type AgendaProgressEntryPayload = {
   id: string;
@@ -59,6 +83,10 @@ export type AgendaProgressEntryPayload = {
   relatedItemCounts?: Record<string, number>;
   materializedTopicIds?: string[];
   primaryNodeId?: string;
+  candidateId?: string;
+  materializedTopicId?: string;
+  focusNodeIds: string[];
+  linkState: AdditionalTopicLinkState;
 };
 
 export type AgendaProgressPayload = {
@@ -154,10 +182,16 @@ export type MeetingAIAnalyses = {
   sessionId: string;
   live: MeetingAIAnalysis | null;
   final: MeetingAIAnalysis | null;
+  // 終了処理の実段階。バックエンドが文字起こし確定・ツリー整理・
+  // レポート生成の節目ごとに更新するdurableな進捗を保持する。
+  finalization?: MeetingFinalizationAnalysis | null;
   // 会議終了時に保存されたdurableツリースナップショット(未保存ならnull)。
   treeSnapshot: TreeSnapshotPayload | null;
   // GETレスポンスのトップレベルに載るlive分析の更新間隔(秒)。
   liveIntervalSeconds?: number;
+  // 完了したライブ分析の版履歴(版昇順)。/summary のレビュー画面で
+  // 「カードの更新」を再構築するために使う。
+  liveHistory: MeetingAIAnalysis[];
 };
 
 const workspaceMeetingSessionsPath = (workspaceId: string) =>
@@ -252,7 +286,14 @@ export function normalizeAIAnalysis(value: unknown): MeetingAIAnalysis | null {
 
 function normalizeAIAnalyses(value: unknown, fallbackSessionId: string): MeetingAIAnalyses {
   if (!value || typeof value !== "object") {
-    return { sessionId: fallbackSessionId, live: null, final: null, treeSnapshot: null };
+    return {
+      sessionId: fallbackSessionId,
+      live: null,
+      final: null,
+      finalization: null,
+      treeSnapshot: null,
+      liveHistory: [],
+    };
   }
   const source = value as Record<string, unknown>;
   const sessionId =
@@ -264,9 +305,57 @@ function normalizeAIAnalyses(value: unknown, fallbackSessionId: string): Meeting
     sessionId,
     live: normalizeAIAnalysis(source.live),
     final: normalizeAIAnalysis(source.final),
+    finalization: normalizeFinalizationAnalysis(source.finalization),
     treeSnapshot: normalizeTreeSnapshot(source.tree),
     ...(liveIntervalSeconds !== undefined ? { liveIntervalSeconds } : {}),
+    liveHistory: normalizeAIAnalysisList(source.liveHistory),
   };
+}
+
+export function normalizeFinalizationAnalysis(value: unknown): MeetingFinalizationAnalysis | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const source = value as Record<string, unknown>;
+  if (source.analysisType !== "finalization" || !isMeetingAIAnalysisStatus(source.status)) {
+    return null;
+  }
+  if (!source.payload || typeof source.payload !== "object") {
+    return null;
+  }
+  const payloadSource = source.payload as Record<string, unknown>;
+  const stage = optionalString(payloadSource.stage)?.trim();
+  if (!stage) {
+    return null;
+  }
+  const finalizationId = optionalString(payloadSource.finalizationId)?.trim();
+  const pendingSegmentCount = optionalNumber(payloadSource.pendingSegmentCount);
+  const updatedAtUtc = optionalString(source.updatedAtUtc) ?? optionalString(source.updated_at_utc);
+  const error = optionalString(source.error)?.trim();
+  return {
+    analysisType: "finalization",
+    status: source.status,
+    version: optionalNumber(source.version) ?? 0,
+    payload: {
+      stage,
+      ...(finalizationId ? { finalizationId } : {}),
+      ...(pendingSegmentCount !== undefined ? { pendingSegmentCount } : {}),
+      ...(typeof payloadSource.finalizationIncomplete === "boolean"
+        ? { finalizationIncomplete: payloadSource.finalizationIncomplete }
+        : {}),
+    },
+    ...(updatedAtUtc ? { updatedAtUtc } : {}),
+    ...(error ? { error } : {}),
+  };
+}
+
+function normalizeAIAnalysisList(value: unknown): MeetingAIAnalysis[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => normalizeAIAnalysis(item))
+    .filter((item): item is MeetingAIAnalysis => item !== null);
 }
 
 // tree行(durableスナップショット)のpayloadを正規化する。payloadは
@@ -325,9 +414,19 @@ function normalizeLivePayload(value: unknown): LiveAnalysisPayload | null {
     duplicateNodeIds: [] as string[],
     crossKindIdCollisions: [] as string[],
   };
-  const tree =
-    normalizeLiveTree(source.tree, itemIds, clientIntegrity) ??
-    synthesizeLiveTree(currentTopic, items);
+  const hasTreeField = Object.prototype.hasOwnProperty.call(source, "tree");
+  const normalizedTree = normalizeLiveTree(source.tree, itemIds, clientIntegrity);
+  const tree = normalizedTree ?? synthesizeLiveTree(currentTopic, items);
+  const treeReset = source.treeReset === true || source.tree_reset === true;
+  const treePayloadState: LiveTreePayloadState = !hasTreeField
+    ? "omitted"
+    : source.tree === null
+      ? "null"
+      : normalizedTree
+        ? "snapshot"
+        : isExplicitlyEmptyTree(source.tree)
+          ? "empty"
+          : "invalid";
   const treeVersion = optionalNumber(source.treeVersion);
   const treeChanges = normalizeTreeChanges(source.treeChanges);
   const serverIntegrity = normalizeTreeIntegrity(source.treeIntegrity);
@@ -360,6 +459,8 @@ function normalizeLivePayload(value: unknown): LiveAnalysisPayload | null {
     items,
     tree,
     ...(treeVersion !== undefined ? { treeVersion } : {}),
+    treePayloadState,
+    ...(treeReset ? { treeReset: true } : {}),
     ...(treeChanges ? { treeChanges } : {}),
     ...(degraded ? { degraded: true } : {}),
     ...(optionalString(source.degradedReason)?.trim()
@@ -378,6 +479,14 @@ function normalizeLivePayload(value: unknown): LiveAnalysisPayload | null {
     ...(agendaAnchors.length > 0 ? { agendaAnchors } : {}),
     ...(agendaProgress ? { agendaProgress } : {}),
   };
+}
+
+function isExplicitlyEmptyTree(value: unknown): boolean {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const nodes = (value as Record<string, unknown>).nodes;
+  return Array.isArray(nodes) && nodes.length === 0;
 }
 
 // agendaProgress を正規化する。未知フィールド(サーバー内部trackingのactiveRounds等)は
@@ -440,6 +549,20 @@ function normalizeAgendaProgressEntries(value: unknown): AgendaProgressEntryPayl
     const relatedItemCounts = normalizeRelatedItemCounts(source.relatedItemCounts);
     const materializedTopicIds = normalizeStringArray(source.materializedTopicIds);
     const primaryNodeId = optionalString(source.primaryNodeId)?.trim();
+    const candidateId = optionalString(source.candidateId)?.trim();
+    const materializedTopicId =
+      optionalString(source.materializedTopicId)?.trim() || materializedTopicIds[0];
+    const explicitFocusNodeIds = normalizeStringArray(source.focusNodeIds);
+    const focusNodeIds =
+      explicitFocusNodeIds.length > 0 ? explicitFocusNodeIds : primaryNodeId ? [primaryNodeId] : [];
+    const linkStateRaw = source.linkState;
+    const linkState = isAdditionalTopicLinkState(linkStateRaw)
+      ? linkStateRaw
+      : materializedTopicId
+        ? "materialized-topic"
+        : focusNodeIds.length > 0
+          ? "visible-items"
+          : "not-linkable";
     return [
       {
         id,
@@ -454,6 +577,10 @@ function normalizeAgendaProgressEntries(value: unknown): AgendaProgressEntryPayl
         ...(relatedItemCounts ? { relatedItemCounts } : {}),
         ...(materializedTopicIds.length > 0 ? { materializedTopicIds } : {}),
         ...(primaryNodeId ? { primaryNodeId } : {}),
+        ...(candidateId ? { candidateId } : {}),
+        ...(materializedTopicId ? { materializedTopicId } : {}),
+        focusNodeIds,
+        linkState,
       },
     ];
   });
@@ -465,6 +592,10 @@ function isAgendaProgressStatus(value: unknown): value is AgendaProgressStatus {
 
 function isAgendaProgressOutcome(value: unknown): value is AgendaProgressOutcome {
   return value === "concluded" || value === "unresolved";
+}
+
+function isAdditionalTopicLinkState(value: unknown): value is AdditionalTopicLinkState {
+  return value === "materialized-topic" || value === "visible-items" || value === "not-linkable";
 }
 
 function isAgendaProgressSourceType(value: unknown): value is AgendaProgressSourceType {
@@ -745,6 +876,7 @@ function normalizeTreeNodes(
       );
       const relatedItemIds = normalizeRelatedItemIds(source, id, itemIds);
       const origin = optionalString(source.origin)?.trim();
+      const sourceCandidateId = optionalString(source.sourceCandidateId)?.trim();
       const agendaRole = optionalString(source.agendaRole)?.trim();
       const agendaRefs = normalizeStringArray(source.agendaRefs);
       const mergedFromNodeIds = normalizeStringArray(source.mergedFromNodeIds);
@@ -768,6 +900,7 @@ function normalizeTreeNodes(
         ...(description ? { description } : {}),
         ...(relatedItemIds.length > 0 ? { relatedItemIds } : {}),
         ...(origin ? { origin } : {}),
+        ...(sourceCandidateId ? { sourceCandidateId } : {}),
         ...(agendaRole ? { agendaRole } : {}),
         ...(agendaRefs.length > 0 ? { agendaRefs } : {}),
         ...(mergedFromNodeIds.length > 0 ? { mergedFromNodeIds } : {}),

@@ -109,8 +109,6 @@ export function AuthenticatedWorkspaceLayout() {
   const navigationCollapsed = navigationWidth <= collapseThreshold;
   const navigationPane = {
     collapsed: navigationCollapsed,
-    onCollapsedChange: (collapsed: boolean) =>
-      setNavigationWidth(collapsed ? collapsedPaneWidth : defaultNavigationWidth),
     onWidthChange: (width: number) =>
       setNavigationWidth(width <= collapseThreshold ? collapsedPaneWidth : width),
     onWidthReset: () => setNavigationWidth(defaultNavigationWidth),

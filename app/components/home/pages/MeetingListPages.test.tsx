@@ -36,6 +36,7 @@ vi.mock("~/components/shared/layout/WorkspaceChromeContext", () => ({
 
 vi.mock("~/utils/meetingStartDebug", () => ({
   meetingStartDebug: vi.fn(),
+  isMeetingStartDebugEnabled: () => false,
 }));
 
 import Home from "./HomePage";
