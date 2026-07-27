@@ -172,6 +172,72 @@ function versionedLive(
   };
 }
 
+function reconciliationLive(
+  updatedAtUtc: string,
+  agendaStatus: "not_started" | "discussing" | "discussed",
+  corrected: boolean,
+): MeetingAIAnalysis {
+  const agendaTopicId = "topic-agenda-recovery";
+  const dynamicTopicId = "topic-dynamic-recovery";
+  const parentId = corrected ? agendaTopicId : dynamicTopicId;
+  return {
+    analysisType: "live",
+    status: "completed",
+    version: 12,
+    updatedAtUtc,
+    payload: {
+      items: [],
+      tree: {
+        nodes: [
+          { id: "root", kind: "topic", label: "会議" },
+          {
+            id: parentId,
+            kind: "topic",
+            parentId: "root",
+            label: "復旧対応",
+            ...(corrected ? { agendaRefs: ["agenda-2"] } : {}),
+          },
+          { id: "fact-recovery", kind: "fact", parentId, label: "通信を正常化" },
+        ],
+        edges: [
+          { id: `root-${parentId}`, source: "root", target: parentId },
+          {
+            id: `${parentId}-fact-recovery`,
+            source: parentId,
+            target: "fact-recovery",
+          },
+        ],
+      },
+      treeVersion: 12,
+      treePayloadState: "snapshot",
+      payloadKind: "full_snapshot",
+      agendaProgress: {
+        entries: [
+          {
+            id: "agenda-2",
+            sourceType: "fixed_agenda",
+            title: "復旧対応",
+            computedStatus: agendaStatus,
+            effectiveStatus: agendaStatus,
+            focusNodeIds: corrected ? [agendaTopicId] : [],
+            linkState: corrected ? "materialized-topic" : "not-linkable",
+            ...(corrected
+              ? {
+                  materializedTopicId: agendaTopicId,
+                  materializedTopicIds: [agendaTopicId],
+                  primaryNodeId: agendaTopicId,
+                  focusNodeIds: [agendaTopicId],
+                }
+              : {}),
+          },
+        ],
+        computedCurrentTopicId: corrected ? "" : "agenda-2",
+        effectiveCurrentTopicId: corrected ? "" : "agenda-2",
+      },
+    },
+  };
+}
+
 describe("meetingAnalysisReducer payload merge and REST/WS ordering", () => {
   it.each([
     [
@@ -260,6 +326,64 @@ describe("meetingAnalysisReducer payload merge and REST/WS ordering", () => {
       ),
     ).toEqual(["root", "issue-1", "issue-2"]);
   });
+
+  it.each([
+    ["old REST before corrected WS", true],
+    ["old REST after corrected WS", false],
+  ])(
+    "adopts a same-version agenda reconciliation and never rewinds it: %s",
+    (_name, oldRestFirst) => {
+      const oldSnapshot = reconciliationLive("2026-07-26T04:00:00.000Z", "discussing", false);
+      const correctedSnapshot = reconciliationLive("2026-07-26T04:00:00.001Z", "discussed", true);
+      let state = initialMeetingAnalysisState("session-a");
+      const applyOldRest = () => {
+        state = meetingAnalysisReducer(state, {
+          type: "rest_snapshot",
+          analyses: {
+            sessionId: "session-a",
+            live: oldSnapshot,
+            final: null,
+            treeSnapshot: null,
+            liveHistory: [],
+          },
+        });
+        expect(analysisTreeNodeCount(state)).toBeGreaterThan(0);
+      };
+      if (oldRestFirst) {
+        applyOldRest();
+      }
+      state = meetingAnalysisReducer(state, {
+        type: "analysis_event",
+        analysis: correctedSnapshot,
+      });
+      if (!oldRestFirst) {
+        applyOldRest();
+      }
+
+      const livePayload = state.liveAnalysis?.payload as LiveAnalysisPayload;
+      expect(state.liveAnalysis?.version).toBe(12);
+      expect(analysisTreeVersion(state)).toBe(12);
+      expect(analysisTreeNodeCount(state)).toBe(3);
+      expect(
+        livePayload.tree?.nodes?.find((node) => node.id === "topic-agenda-recovery"),
+      ).toMatchObject({ agendaRefs: ["agenda-2"] });
+      expect(livePayload.agendaProgress?.entries[0]).toMatchObject({
+        computedStatus: "discussed",
+        effectiveStatus: "discussed",
+        materializedTopicId: "topic-agenda-recovery",
+      });
+      expect(selectedAnalysisTree(state)).toMatchObject({
+        source: "live",
+        treeVersion: 12,
+      });
+      expect(
+        meetingAnalysisReducer(state, {
+          type: "analysis_event",
+          analysis: correctedSnapshot,
+        }),
+      ).toBe(state);
+    },
+  );
 
   it("does not let an older durable tree snapshot mask a newer WS tree", () => {
     const wsState = meetingAnalysisReducer(initialMeetingAnalysisState("session-a"), {

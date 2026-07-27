@@ -177,7 +177,11 @@ export function shouldReplaceAnalysis(
   const currentUpdatedAt = parseAnalysisTime(current.updatedAtUtc);
   const incomingUpdatedAt = parseAnalysisTime(incoming.updatedAtUtc);
   if (currentUpdatedAt !== null && incomingUpdatedAt !== null) {
-    return incomingUpdatedAt >= currentUpdatedAt;
+    // A same analysis/tree version correction is a projection replacement,
+    // and the backend contract gives it a strictly newer timestamp. Rejecting
+    // equality makes duplicate WS delivery idempotent without weakening the
+    // stale REST guard.
+    return incomingUpdatedAt > currentUpdatedAt;
   }
   return true;
 }
