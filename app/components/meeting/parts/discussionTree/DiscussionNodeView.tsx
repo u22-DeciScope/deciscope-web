@@ -3,6 +3,7 @@ import { HiCheck } from "react-icons/hi2";
 
 import {
   analysisKindLabel,
+  analysisKindNodeSurfaceColor,
   dimmedColor,
   issueSubtypeLabel,
   resolvedBadgeColor,
@@ -35,13 +36,14 @@ export type DiscussionFlowNode = Node<DiscussionNodeData, "discussion">;
 
 export function DiscussionNodeView({ data, selected }: NodeProps<DiscussionFlowNode>) {
   const style = tagStyle[data.tag] ?? tagStyle.topic;
+  const surface = analysisKindNodeSurfaceColor(tagStyle[data.tag] ? data.tag : "topic");
   const emphasized = selected || data.active;
   const resolved = data.status === "resolved";
   // バッジ(タグ色そのまま)が埋もれないよう、カード背景は同系色の薄いトーンにする。
   // resolved時は色相を保ったまま背景・枠線だけをさらに減衰させ(本文テキストは
   // 減衰しない)、選択/強調時は減衰前の枠線強度をそのまま使う。
-  const baseBackground = `color-mix(in srgb, ${style.bg} 55%, var(--node-bg))`;
-  const baseBorder = `color-mix(in srgb, ${style.fg} 35%, transparent)`;
+  const baseBackground = surface.background;
+  const baseBorder = surface.borderColor;
 
   const boxShadows: string[] = [];
   if (selected) {

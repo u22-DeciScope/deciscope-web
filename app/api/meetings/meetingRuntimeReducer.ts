@@ -98,8 +98,6 @@ function applyRuntimeEvent(state: MeetingRuntimeState, event: MeetingRealtimeEve
       return { ...base, tree: asObject<TreeUpdatePayload>(event.payload) };
     case "speaker.summary.delta":
       return applySpeakerSummary(base, event);
-    case "report.ready":
-      return base;
     case "error":
       return applyRuntimeError(base, event);
     default:

@@ -69,6 +69,25 @@ export function formatElapsedTime(milliseconds: number) {
     : `${twoDigits(totalMinutes)}:${twoDigits(seconds)}`;
 }
 
+// AIの更新鮮度(最終更新・分析完了時刻)向けの相対経過表示。会議中の出来事の経過
+// (analysisItemMomentLabel/formatElapsedTime、会議開始からのMM:SS)とは別物で、
+// こちらは現在時刻からの経過(wall clock)を「たった今/N秒前/N分前/N時間前」で表す。
+export function formatRelativeElapsedLabel(elapsedMs: number) {
+  const clamped = Math.max(0, elapsedMs);
+  if (clamped < 30_000) {
+    return "たった今";
+  }
+  if (clamped < 60_000) {
+    return `${Math.max(1, Math.floor(clamped / 1000))}秒前`;
+  }
+  const minutes = Math.floor(clamped / 60_000);
+  if (minutes < 60) {
+    return `${minutes}分前`;
+  }
+  const hours = Math.floor(clamped / 3_600_000);
+  return `${hours}時間前`;
+}
+
 export function buildAgendaLabelMap(
   nodes: TreeNodePayload[] = [],
   anchors: AgendaAnchorPayload[] = [],

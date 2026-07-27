@@ -1,5 +1,5 @@
 import { StrictMode, type ReactNode } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
@@ -15,6 +15,8 @@ const flow = vi.hoisted(() => ({
   setCenter: vi.fn((_x: number, _y: number, _options?: { zoom?: number; duration?: number }) =>
     Promise.resolve(true),
   ),
+  pane: { width: 900, height: 600 },
+  throwRender: false,
 }));
 
 vi.mock("@xyflow/react", () => ({
@@ -35,25 +37,37 @@ vi.mock("@xyflow/react", () => ({
     nodes: Array<{ id: string; data?: { momentLabel?: string } }>;
     onNodeClick?: (event: MouseEvent, node: { id: string }) => void;
     proOptions?: { hideAttribution?: boolean };
-  }) => (
-    <div data-testid="react-flow" data-hide-attribution={proOptions?.hideAttribution}>
-      {nodes.map((node) => (
-        <button
-          key={node.id}
-          type="button"
-          data-testid={`flow-node-${node.id}`}
-          onClick={(event) => onNodeClick?.(event.nativeEvent, node)}
-        >
-          {node.id}
-          {node.data?.momentLabel && <span>{node.data.momentLabel}</span>}
-        </button>
-      ))}
-      {children}
-    </div>
-  ),
+  }) => {
+    if (flow.throwRender) {
+      throw new Error("react flow failed");
+    }
+    return (
+      <div data-testid="react-flow" data-hide-attribution={proOptions?.hideAttribution}>
+        {nodes.map((node) => (
+          <button
+            key={node.id}
+            type="button"
+            data-testid={`flow-node-${node.id}`}
+            onClick={(event) => onNodeClick?.(event.nativeEvent, node)}
+          >
+            {node.id}
+            {node.data?.momentLabel && <span>{node.data.momentLabel}</span>}
+          </button>
+        ))}
+        {children}
+      </div>
+    );
+  },
   useReactFlow: () => flow,
-  useStore: (selector: (state: { width: number; height: number }) => unknown) =>
-    selector({ width: 900, height: 600 }),
+  useNodesInitialized: () => true,
+  useStore: (
+    selector: (state: {
+      width: number;
+      height: number;
+      nodeLookup: Map<string, unknown>;
+      edgeLookup: Map<string, unknown>;
+    }) => unknown,
+  ) => selector({ ...flow.pane, nodeLookup: new Map(), edgeLookup: new Map() }),
 }));
 
 import { DiscussionTree } from "./DiscussionTree";
@@ -79,6 +93,10 @@ const updatedEdges: TreeEdgePayload[] = [
 describe("DiscussionTree structural viewport focus", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    flow.getViewport.mockReturnValue({ x: -2_000, y: 0, zoom: 1 });
+    flow.pane.width = 900;
+    flow.pane.height = 600;
+    flow.throwRender = false;
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: vi.fn(() => ({ matches: false })),
@@ -232,6 +250,84 @@ describe("DiscussionTree structural viewport focus", () => {
     expect(screen.queryByTestId(/flow-node-agenda-reference/)).toBeNull();
     expect(screen.queryByTestId("discussion-tree-projections")).toBeNull();
     expect(screen.queryByText("今後の対応事項")).toBeNull();
+  });
+
+  it("keeps nodes rendered and defers fitView while the container is 0x0", async () => {
+    flow.pane.width = 0;
+    flow.pane.height = 0;
+    const view = render(<DiscussionTree nodes={initialNodes} edges={initialEdges} />);
+
+    expect(screen.getAllByTestId(/flow-node-/)).toHaveLength(initialNodes.length);
+    expect(flow.fitView).not.toHaveBeenCalled();
+
+    flow.pane.width = 900;
+    flow.pane.height = 600;
+    view.rerender(<DiscussionTree nodes={initialNodes} edges={initialEdges} />);
+    await waitFor(() => expect(flow.fitView).toHaveBeenCalled());
+  });
+
+  it("retries a layout fit requested while another fitView is still pending", async () => {
+    let resolvePendingFit: ((applied: boolean) => void) | undefined;
+    flow.fitView
+      .mockImplementationOnce(() => Promise.resolve(true))
+      .mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            resolvePendingFit = resolve;
+          }),
+      )
+      .mockImplementation(() => Promise.resolve(true));
+    const view = render(
+      <DiscussionTree nodes={initialNodes} edges={initialEdges} layoutSignal={false} />,
+    );
+    await waitFor(() => expect(flow.fitView).toHaveBeenCalledTimes(1));
+
+    view.rerender(<DiscussionTree nodes={initialNodes} edges={initialEdges} layoutSignal />);
+    await waitFor(() => expect(flow.fitView).toHaveBeenCalledTimes(2));
+    view.rerender(
+      <DiscussionTree nodes={initialNodes} edges={initialEdges} layoutSignal={false} />,
+    );
+    expect(flow.fitView).toHaveBeenCalledTimes(2);
+
+    await act(async () => resolvePendingFit?.(true));
+    await waitFor(() => expect(flow.fitView).toHaveBeenCalledTimes(3));
+    expect(screen.getAllByTestId(/flow-node-/)).toHaveLength(initialNodes.length);
+  });
+
+  it("shows the non-empty waiting state and skips fitView when there are no targets", () => {
+    render(<DiscussionTree nodes={[]} edges={[]} />);
+
+    expect(screen.getByText("議論構造を待っています")).toBeTruthy();
+    expect(flow.fitView).not.toHaveBeenCalled();
+  });
+
+  it("does not call setCenter with an invalid viewport", async () => {
+    flow.getViewport.mockReturnValue({ x: Number.NaN, y: Number.POSITIVE_INFINITY, zoom: 0 });
+    const view = render(<DiscussionTree nodes={initialNodes} edges={initialEdges} />);
+    await waitFor(() => expect(flow.fitView).toHaveBeenCalled());
+    flow.fitView.mockClear();
+
+    view.rerender(
+      <DiscussionTree
+        nodes={updatedNodes}
+        edges={updatedEdges}
+        treeChanges={{ treeVersion: 2, newNodeIds: ["group-1"] }}
+      />,
+    );
+    await waitFor(() => expect(flow.fitView).toHaveBeenCalled());
+    expect(flow.setCenter).not.toHaveBeenCalled();
+    expect(screen.getAllByTestId(/flow-node-/)).toHaveLength(updatedNodes.length);
+  });
+
+  it("shows a non-empty fallback when React Flow rendering throws", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    flow.throwRender = true;
+    render(<DiscussionTree nodes={initialNodes} edges={initialEdges} treeVersion={3} />);
+
+    expect(screen.getByTestId("discussion-tree-render-fallback")).toBeTruthy();
+    expect(screen.getByText("議論ツリーを簡易表示しています")).toBeTruthy();
+    expect(screen.getByText("騒音")).toBeTruthy();
+    consoleError.mockRestore();
   });
 
   it("hides library attribution and tentative staging details", () => {

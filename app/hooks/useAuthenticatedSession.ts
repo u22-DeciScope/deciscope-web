@@ -15,6 +15,7 @@ import { fetchMe, logoutSession, type BackendSession } from "~/api/auth/authApi"
 import { signOutOfFirebase } from "~/api/firebase/firebaseAuthClient";
 import { meetingStartDebug } from "~/utils/meetingStartDebug";
 import { performSecureLogout } from "~/utils/secureLogout";
+import { markIntentionalTreeTeardown } from "~/utils/clientDiagnostics/treeEmptiness";
 
 type AuthenticationStatus = "loading" | "authenticated" | "unauthenticated" | "error";
 
@@ -182,6 +183,8 @@ export function AuthenticatedSessionProvider({ children }: { children: ReactNode
   }, [clearLocalAuthentication, session?.expires_at, status]);
 
   async function handleLogout() {
+    // ログアウトに伴う議論ツリーの消失は正当なため、異常検出の対象外にする。
+    markIntentionalTreeTeardown("logout");
     await performSecureLogout({
       clearLocalAuthentication,
       notifyOtherTabs: notifyAuthenticationCleared,

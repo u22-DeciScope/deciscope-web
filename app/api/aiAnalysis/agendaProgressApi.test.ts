@@ -104,6 +104,8 @@ describe("updateAgendaProgressOverride", () => {
           title: "予算計画",
           computedStatus: "not_started",
           effectiveStatus: "not_started",
+          focusNodeIds: [],
+          linkState: "not-linkable",
         },
       ],
     });

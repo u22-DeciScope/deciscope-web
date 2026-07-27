@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   AgendaProgressEntryPayload,
@@ -25,6 +25,8 @@ function entry(
     sourceType: "fixed_agenda",
     computedStatus: "not_started",
     effectiveStatus: "not_started",
+    focusNodeIds: [],
+    linkState: "not-linkable",
     ...overrides,
   };
 }
@@ -125,10 +127,24 @@ describe("AgendaProgressSection", () => {
     };
     const { rerender } = renderSection({ progress });
 
-    expect(screen.getByRole("heading", { name: "話し合う項目" })).not.toBeNull();
-    expect(screen.getByRole("heading", { name: "会議中に追加された論点" })).not.toBeNull();
+    const fixedHeading = screen.getByRole("heading", { name: "話し合う項目" });
+    const dynamicHeading = screen.getByRole("heading", { name: "会議中に追加された論点" });
+    expect(fixedHeading.className).toContain("text-[16px]");
+    expect(dynamicHeading.className).toContain("text-[16px]");
+    expect(screen.getByRole("region", { name: "アジェンダ進捗" }).className).toContain("space-y-6");
     expect(screen.getByText("急遽出た話題")).not.toBeNull();
     expect(screen.getByText("もう一つの話題")).not.toBeNull();
+
+    const fixedSection = screen.getByTestId("fixed-agenda-section");
+    const dynamicSection = screen.getByTestId("dynamic-agenda-section");
+    expect(fixedSection.className).not.toContain("border");
+    expect(dynamicSection.className).not.toContain("border");
+    expect(screen.getByText("予算計画").closest("[data-agenda-entry-id]")?.className).toContain(
+      "border",
+    );
+    expect(screen.getByText("急遽出た話題").closest("[data-agenda-entry-id]")?.className).toContain(
+      "border",
+    );
 
     rerender(
       <AgendaProgressSection
@@ -156,6 +172,38 @@ describe("AgendaProgressSection", () => {
     );
     expect(screen.queryByRole("heading", { name: "話し合う項目" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "会議中に追加された論点" })).toBeNull();
+  });
+
+  it("places the update status beside the first section heading instead of a band above it", () => {
+    const meta: LiveAnalysisMeta = { ...idleMeta, lastCompletedAtMs: Date.now() };
+    const { rerender } = renderSection({
+      progress: { entries: [entry({ id: "agenda-1", title: "予算計画" })] },
+      meta,
+    });
+
+    const fixedRow = screen.getByRole("heading", { name: "話し合う項目" })
+      .parentElement as HTMLElement;
+    expect(within(fixedRow).getByText("たった今更新")).not.toBeNull();
+    // 背景付きの独立した帯ではなくなっている。
+    expect(screen.getByText("たった今更新").closest("p")?.style.background).toBe("");
+
+    // 固定アジェンダが無い会議では、最初に出る見出し(会議中に追加された論点)へ添える。
+    rerender(
+      <AgendaProgressSection
+        progress={{
+          entries: [entry({ id: "topic-1", title: "急遽出た話題", sourceType: "dynamic_topic" })],
+        }}
+        meta={meta}
+        connectionStatus="connected"
+        canManage={false}
+        workspaceId="workspace-1"
+        sessionId="session-1"
+        treeNodes={[]}
+      />,
+    );
+    const dynamicRow = screen.getByRole("heading", { name: "会議中に追加された論点" })
+      .parentElement as HTMLElement;
+    expect(within(dynamicRow).getByText("たった今更新")).not.toBeNull();
   });
 
   it("does not crash on a legacy payload without agendaProgress and shows the status line only", () => {
@@ -292,26 +340,61 @@ describe("AgendaProgressSection", () => {
     expect(screen.getByText("未着手")).not.toBeNull();
   });
 
-  it("focuses the tree via primaryNodeId when the node exists, and shows a temporary notice otherwise", () => {
+  it("focuses only explicit materialized/item targets and makes missing targets non-clickable", () => {
     const onFocusTreeItem = vi.fn();
     const progress: AgendaProgressPayload = {
       entries: [
-        entry({ id: "agenda-1", title: "予算計画", primaryNodeId: "topic-agenda-1" }),
-        entry({ id: "agenda-2", title: "採用計画" }),
+        entry({
+          id: "candidate-1",
+          candidateId: "candidate-1",
+          title: "予算計画",
+          sourceType: "dynamic_topic",
+          materializedTopicId: "topic-dynamic-1",
+          materializedTopicIds: ["topic-dynamic-1"],
+          primaryNodeId: "topic-dynamic-1",
+          focusNodeIds: ["topic-dynamic-1"],
+          linkState: "materialized-topic",
+        }),
+        entry({
+          id: "candidate-2",
+          candidateId: "candidate-2",
+          title: "採用計画",
+          sourceType: "dynamic_topic",
+          primaryNodeId: "item-visible-2",
+          focusNodeIds: ["item-visible-2"],
+          linkState: "visible-items",
+        }),
+        entry({
+          id: "candidate-3",
+          candidateId: "candidate-3",
+          title: "湿地調査",
+          sourceType: "dynamic_topic",
+          focusNodeIds: [],
+          linkState: "not-linkable",
+        }),
       ],
     };
     renderSection({
       progress,
       onFocusTreeItem,
-      treeNodes: [{ id: "topic-agenda-1", kind: "topic", label: "予算計画" }],
+      treeNodes: [
+        { id: "topic-dynamic-1", kind: "topic", label: "予算計画" },
+        { id: "item-visible-2", kind: "issue", label: "採用計画" },
+      ],
     });
 
     fireEvent.click(screen.getByText("予算計画"));
-    expect(onFocusTreeItem).toHaveBeenCalledWith("topic-agenda-1");
+    expect(onFocusTreeItem).toHaveBeenCalledWith("topic-dynamic-1");
 
     fireEvent.click(screen.getByText("採用計画"));
-    expect(onFocusTreeItem).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("関連する議論はまだありません")).not.toBeNull();
+    expect(onFocusTreeItem).toHaveBeenLastCalledWith("item-visible-2");
+
+    const missingRow = screen.getByText("湿地調査").closest("[data-agenda-entry-id]");
+    expect(missingRow?.getAttribute("role")).toBeNull();
+    expect(missingRow?.className).toContain("cursor-default");
+    expect(within(missingRow as HTMLElement).getByText(/ツリー整理待ち/)).not.toBeNull();
+    fireEvent.click(screen.getByText("湿地調査"));
+    expect(onFocusTreeItem).toHaveBeenCalledTimes(2);
   });
 
   it("branches the status line across generating / reconnecting / waiting / stalled", () => {
@@ -381,5 +464,45 @@ describe("AgendaProgressSection", () => {
       />,
     );
     expect(screen.getByText("次の分析を待っています")).not.toBeNull();
+  });
+
+  it("shows the last-updated time as a relative elapsed label instead of a wall-clock time", () => {
+    const now = Date.now();
+    const { rerender } = renderSection({
+      meta: { ...idleMeta, lastCompletedAtMs: now - 45_000 },
+    });
+    expect(screen.getByText("最終更新：45秒前")).not.toBeNull();
+
+    rerender(
+      <AgendaProgressSection
+        progress={undefined}
+        meta={{ ...idleMeta, lastCompletedAtMs: now - 90_000 }}
+        connectionStatus="connected"
+        canManage={false}
+        workspaceId="workspace-1"
+        sessionId="session-1"
+        treeNodes={[]}
+      />,
+    );
+    expect(screen.getByText("最終更新：1分前")).not.toBeNull();
+
+    rerender(
+      <AgendaProgressSection
+        progress={undefined}
+        meta={{ ...idleMeta, lastCompletedAtMs: now - (2 * 3_600_000 + 10_000) }}
+        connectionStatus="connected"
+        canManage={false}
+        workspaceId="workspace-1"
+        sessionId="session-1"
+        treeNodes={[]}
+      />,
+    );
+    expect(screen.getByText("最終更新：2時間前")).not.toBeNull();
+  });
+
+  it("hides the status line entirely when meta is absent (session review without live analysis meta)", () => {
+    const { container } = renderSection({ meta: null });
+    expect(container.querySelector("p")).toBeNull();
+    expect(screen.queryByText("次の分析を待っています")).toBeNull();
   });
 });

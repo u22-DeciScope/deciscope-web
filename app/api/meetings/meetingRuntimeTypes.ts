@@ -83,6 +83,7 @@ export type TreeNodePayload = {
   description?: string;
   relatedItemIds?: string[];
   origin?: string;
+  sourceCandidateId?: string;
   agendaRole?: "primary" | "action_summary" | string;
   agendaRefs?: string[];
   mergedFromNodeIds?: string[];

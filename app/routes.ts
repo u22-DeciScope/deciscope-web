@@ -9,12 +9,12 @@ export default [
   route("workspaces", "routes/workspaces.tsx"),
   route("workspaces/new", "routes/workspaces.new.tsx"),
   route("invitations/accept", "routes/invitations.accept.tsx"),
+  route("debug/discussion-tree-transition", "routes/debug.discussion-tree-transition.tsx"),
   route(WORKSPACE_ROUTE_SEGMENT, "routes/workspace-resolver.tsx"),
   route(WORKSPACE_ROUTE_PATH, "routes/workspace-layout.tsx", [
     index("routes/workspace.tsx"),
     route("meetings", "routes/home.tsx"),
     route("meetings/new", "routes/meeting.new.tsx"),
-    route("meetings/upcoming", "routes/meetings.upcoming.tsx"),
     route("meetings/history", "routes/meetings.history.tsx"),
     route("meetings/:id", "routes/meeting.$id.tsx"),
     route("meetings/:id/summary", "routes/meeting.$id.summary.tsx"),

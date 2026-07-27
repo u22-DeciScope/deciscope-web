@@ -4,9 +4,11 @@ import type { TreeNodePayload } from "~/api/meetings/meetingRuntimeTypes";
 
 import {
   allTargetsVisible,
+  anyTargetVisible,
   deriveTreeChanges,
   focusAnimationDuration,
   focusTargetIds,
+  isFiniteViewport,
   treeChangeSignature,
   shouldDeferTreeFocus,
 } from "./discussionTreeFocus";
@@ -103,6 +105,21 @@ describe("discussion tree structural focus", () => {
     expect(
       allTargetsVisible(
         [{ x: 700, y: 80 }],
+        { x: 0, y: 0, zoom: 1 },
+        { width: 800, height: 500 },
+        { width: 260, height: 90 },
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects non-finite/zero viewports and detects when every node is outside", () => {
+    expect(isFiniteViewport({ x: 0, y: 0, zoom: 1 })).toBe(true);
+    expect(isFiniteViewport({ x: Number.NaN, y: 0, zoom: 1 })).toBe(false);
+    expect(isFiniteViewport({ x: 0, y: Number.POSITIVE_INFINITY, zoom: 1 })).toBe(false);
+    expect(isFiniteViewport({ x: 0, y: 0, zoom: 0 })).toBe(false);
+    expect(
+      anyTargetVisible(
+        [{ x: 2_000, y: 2_000 }],
         { x: 0, y: 0, zoom: 1 },
         { width: 800, height: 500 },
         { width: 260, height: 90 },

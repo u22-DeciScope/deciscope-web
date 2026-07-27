@@ -1,3 +1,5 @@
+import { isMeetingStartDebugEnabled } from "./meetingStartDebug";
+
 export const FALLBACK_MEETING_DISPLAY_TITLE = "Teams会議";
 
 export type MeetingDisplayTitleSource = {
@@ -35,7 +37,7 @@ export function getMeetingDisplayTitle(
   const sessionId = session?.sessionId ?? session?.id ?? null;
   const component = options.component ?? "unknown";
   if (title) {
-    if (import.meta.env.DEV) {
+    if (isMeetingStartDebugEnabled()) {
       const logger =
         session?.titleSource === "fallback" || session?.titleResolutionErrorCode
           ? console.warn
@@ -53,7 +55,7 @@ export function getMeetingDisplayTitle(
     return title;
   }
 
-  if (import.meta.env.DEV) {
+  if (isMeetingStartDebugEnabled()) {
     console.warn("[meeting-title] fallback title used", {
       component,
       sessionId,

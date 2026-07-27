@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { HiArrowPath } from "react-icons/hi2";
 
 import {
   updateAgendaProgressOverride,
@@ -11,10 +12,12 @@ import type {
 } from "~/api/aiAnalysis/aiAnalysisApi";
 import type { TreeNodePayload } from "~/api/meetings/meetingRuntimeTypes";
 import { analysisKindLabel } from "~/components/meeting/parts/analysisKindPalette";
+import { formatRelativeElapsedLabel } from "~/components/meeting/parts/meetingDisplayMetadata";
 import type {
   LiveAnalysisMeta,
   TranscriptSessionConnectionStatus,
 } from "~/hooks/useMeetingTranscriptSession";
+import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
 type AgendaProgressSectionProps = {
   progress: AgendaProgressPayload | null | undefined;
@@ -28,8 +31,35 @@ type AgendaProgressSectionProps = {
   onProgressPatched?: (progress: AgendaProgressPayload) => void;
 };
 
-const focusNoticeDurationMs = 1500;
 const overrideErrorDurationMs = 4000;
+
+export type AgendaEntryFocusDecision =
+  | { decision: "materialized-topic"; targetId: string }
+  | { decision: "visible-item"; targetId: string }
+  | { decision: "not-linkable" }
+  | { decision: "target-missing" };
+
+export function resolveAgendaEntryFocusDecision(
+  entry: AgendaProgressEntryPayload,
+  treeNodeIds: ReadonlySet<string>,
+): AgendaEntryFocusDecision {
+  if (entry.linkState === "not-linkable") {
+    return { decision: "not-linkable" };
+  }
+  const materializedTopicId = entry.materializedTopicId ?? entry.materializedTopicIds?.[0];
+  if (
+    entry.linkState === "materialized-topic" &&
+    materializedTopicId &&
+    treeNodeIds.has(materializedTopicId)
+  ) {
+    return { decision: "materialized-topic", targetId: materializedTopicId };
+  }
+  const visibleTarget = entry.focusNodeIds.find((id) => treeNodeIds.has(id));
+  if (visibleTarget) {
+    return { decision: "visible-item", targetId: visibleTarget };
+  }
+  return { decision: "target-missing" };
+}
 
 // AIによる「現在地の可視化」。警告・推奨・severity表示は行わない
 // (アジェンダ進捗契約 §0 絶対制約)。
@@ -50,25 +80,19 @@ export function AgendaProgressSection({
   const [localPatch, setLocalPatch] = useState<AgendaProgressPayload | null>(null);
   const [pending, setPending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [noticeEntryId, setNoticeEntryId] = useState<string | null>(null);
   const errorTimerRef = useRef<number | null>(null);
-  const noticeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     // セッションが変わったら、前のセッションのoverlay/通知を持ち越さない。
     setLocalPatch(null);
     setPending(false);
     setErrorMessage(null);
-    setNoticeEntryId(null);
   }, [sessionId]);
 
   useEffect(
     () => () => {
       if (errorTimerRef.current !== null) {
         window.clearTimeout(errorTimerRef.current);
-      }
-      if (noticeTimerRef.current !== null) {
-        window.clearTimeout(noticeTimerRef.current);
       }
     },
     [],
@@ -90,22 +114,53 @@ export function AgendaProgressSection({
     [displayProgress],
   );
   const canOperate = canManage && Boolean(workspaceId) && Boolean(sessionId);
+  const linkLogSignatureRef = useRef("");
+
+  useEffect(() => {
+    const records = dynamicEntries.map((entry) => {
+      const focus = resolveAgendaEntryFocusDecision(entry, treeNodeIds);
+      return {
+        candidateId: entry.candidateId ?? null,
+        materializedTopicId: entry.materializedTopicId ?? null,
+        focusNodeIds: entry.focusNodeIds,
+        linkState: entry.linkState,
+        focusDecision: focus.decision,
+        focusTargetId: "targetId" in focus ? focus.targetId : null,
+      };
+    });
+    const signature = JSON.stringify(records);
+    if (linkLogSignatureRef.current === signature) {
+      return;
+    }
+    linkLogSignatureRef.current = signature;
+    for (const record of records) {
+      meetingStartDebug("meeting-page", "Agenda progress link state", {
+        sessionId: sessionId || null,
+        ...record,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }, [dynamicEntries, sessionId, treeNodeIds]);
 
   const handleEntryClick = useCallback(
     (entry: AgendaProgressEntryPayload) => {
-      if (entry.primaryNodeId && treeNodeIds.has(entry.primaryNodeId)) {
-        onFocusTreeItem?.(entry.primaryNodeId);
+      const focus = resolveAgendaEntryFocusDecision(entry, treeNodeIds);
+      meetingStartDebug("meeting-page", "Agenda progress focus decision", {
+        sessionId: sessionId || null,
+        candidateId: entry.candidateId ?? null,
+        materializedTopicId: entry.materializedTopicId ?? null,
+        focusNodeIds: entry.focusNodeIds,
+        linkState: entry.linkState,
+        focusDecision: focus.decision,
+        focusTargetId: "targetId" in focus ? focus.targetId : null,
+        timestamp: new Date().toISOString(),
+      });
+      if ("targetId" in focus) {
+        onFocusTreeItem?.(focus.targetId);
         return;
       }
-      if (noticeTimerRef.current !== null) {
-        window.clearTimeout(noticeTimerRef.current);
-      }
-      setNoticeEntryId(entry.id);
-      noticeTimerRef.current = window.setTimeout(() => {
-        setNoticeEntryId((current) => (current === entry.id ? null : current));
-      }, focusNoticeDurationMs);
     },
-    [onFocusTreeItem, treeNodeIds],
+    [onFocusTreeItem, sessionId, treeNodeIds],
   );
 
   const handleOverride = useCallback(
@@ -142,19 +197,27 @@ export function AgendaProgressSection({
 
   const hasFixedSection = fixedEntries.length > 0;
   const hasDynamicSection = dynamicEntries.length > 0;
+  // 更新状態は専用の帯を持たず、見出し行の右端へ置く(「カードの更新」と同じ配置)。
+  // 最初に描画される見出し(固定アジェンダ → 会議中の論点)へ添え、見出しが1つも
+  // 無いときだけ単独で表示する。
+  const statusLine = <AgendaStatusLine meta={meta} connectionStatus={connectionStatus} />;
 
   return (
-    <section aria-label="アジェンダ進捗" className="space-y-2">
-      <AgendaStatusLine meta={meta} connectionStatus={connectionStatus} />
+    <section aria-label="アジェンダ進捗" className="space-y-6">
+      {!hasFixedSection && !hasDynamicSection && statusLine}
       {hasFixedSection && (
-        <div
-          className="rounded-(--ds-radius-control) border p-3"
-          style={{ background: "var(--ds-surface-muted)", borderColor: "var(--ds-border)" }}
-        >
-          <h2 className="mb-2 text-[11px] font-bold" style={{ color: "var(--text-main)" }}>
-            話し合う項目
-          </h2>
-          <ul className="space-y-1.5">
+        <div data-testid="fixed-agenda-section">
+          <div className="mb-3 flex items-center gap-2 px-0.5">
+            <span className="h-5 w-1 rounded-full" style={{ background: "var(--brand)" }} />
+            <h2
+              className="text-[16px] font-extrabold leading-5 tracking-[0.01em]"
+              style={{ color: "var(--text-main)" }}
+            >
+              話し合う項目
+            </h2>
+            <div className="ml-auto min-w-0 shrink">{statusLine}</div>
+          </div>
+          <ul className="space-y-2">
             {fixedEntries.map((entry) => (
               <AgendaEntryRow
                 key={entry.id}
@@ -163,7 +226,7 @@ export function AgendaProgressSection({
                 hasManualCurrent={displayProgress?.manualCurrentTopicId === entry.id}
                 canManage={canOperate}
                 pending={pending}
-                noticeVisible={noticeEntryId === entry.id}
+                focusDecision={resolveAgendaEntryFocusDecision(entry, treeNodeIds)}
                 onEntryClick={handleEntryClick}
                 onOverride={handleOverride}
               />
@@ -172,14 +235,18 @@ export function AgendaProgressSection({
         </div>
       )}
       {hasDynamicSection && (
-        <div
-          className="rounded-(--ds-radius-control) border p-3"
-          style={{ background: "var(--ds-surface-muted)", borderColor: "var(--ds-border)" }}
-        >
-          <h2 className="mb-2 text-[11px] font-bold" style={{ color: "var(--text-main)" }}>
-            会議中に追加された論点
-          </h2>
-          <ul className="space-y-1.5">
+        <div data-testid="dynamic-agenda-section">
+          <div className="mb-3 flex items-center gap-2 px-0.5">
+            <span className="h-5 w-1 rounded-full" style={{ background: "var(--brand)" }} />
+            <h2
+              className="text-[16px] font-extrabold leading-5 tracking-[0.01em]"
+              style={{ color: "var(--text-main)" }}
+            >
+              会議中に追加された論点
+            </h2>
+            {!hasFixedSection && <div className="ml-auto min-w-0 shrink">{statusLine}</div>}
+          </div>
+          <ul className="space-y-2">
             {dynamicEntries.map((entry) => (
               <AgendaEntryRow
                 key={entry.id}
@@ -189,7 +256,7 @@ export function AgendaProgressSection({
                 hasManualCurrent={displayProgress?.manualCurrentTopicId === entry.id}
                 canManage={canOperate}
                 pending={pending}
-                noticeVisible={noticeEntryId === entry.id}
+                focusDecision={resolveAgendaEntryFocusDecision(entry, treeNodeIds)}
                 onEntryClick={handleEntryClick}
                 onOverride={handleOverride}
               />
@@ -198,7 +265,7 @@ export function AgendaProgressSection({
         </div>
       )}
       {errorMessage && (
-        <p className="text-[10px]" style={{ color: "var(--text-sub)" }}>
+        <p className="text-[11px]" style={{ color: "var(--text-sub)" }}>
           {errorMessage}
         </p>
       )}
@@ -246,7 +313,7 @@ function AgendaEntryRow({
   hasManualCurrent,
   canManage,
   pending,
-  noticeVisible,
+  focusDecision,
   onEntryClick,
   onOverride,
 }: {
@@ -256,7 +323,7 @@ function AgendaEntryRow({
   hasManualCurrent: boolean;
   canManage: boolean;
   pending: boolean;
-  noticeVisible: boolean;
+  focusDecision: AgendaEntryFocusDecision;
   onEntryClick: (entry: AgendaProgressEntryPayload) => void;
   onOverride: (input: AgendaProgressOverrideInput) => void;
 }) {
@@ -265,21 +332,23 @@ function AgendaEntryRow({
     : statusIconStyle(entry.effectiveStatus);
   const countsLabel = relatedItemCountsLabel(entry.relatedItemCounts);
   const statusLabel = agendaStatusLabel(entry);
+  const linkable = "targetId" in focusDecision;
 
   return (
     <li>
       <div
-        role="button"
-        tabIndex={0}
+        {...(linkable ? { role: "button", tabIndex: 0 } : {})}
         data-agenda-entry-id={entry.id}
-        onClick={() => onEntryClick(entry)}
+        data-link-state={entry.linkState}
+        data-focus-decision={focusDecision.decision}
+        onClick={linkable ? () => onEntryClick(entry) : undefined}
         onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
+          if (linkable && (event.key === "Enter" || event.key === " ")) {
             event.preventDefault();
             onEntryClick(entry);
           }
         }}
-        className="cursor-pointer rounded-(--ds-radius-control) border px-2.5 py-2"
+        className={`${linkable ? "cursor-pointer" : "cursor-default"} rounded-(--ds-radius-control) border px-3 py-2.5`}
         style={{
           background: isCurrent
             ? "color-mix(in srgb, var(--brand) 8%, var(--ds-surface))"
@@ -292,19 +361,19 @@ function AgendaEntryRow({
           <div className="flex min-w-0 items-start gap-1.5">
             <span
               aria-hidden="true"
-              className="mt-0.5 shrink-0 text-[11px] leading-4"
+              className="mt-0.5 shrink-0 text-[12px] leading-5"
               style={{ color: icon.color }}
             >
               {icon.symbol}
             </span>
             <div className="min-w-0">
               {isCurrent && (
-                <p className="text-[10px] font-bold leading-4" style={{ color: "var(--brand)" }}>
+                <p className="text-[11px] font-bold leading-4" style={{ color: "var(--brand)" }}>
                   ▶ 現在の議題
                 </p>
               )}
               <p
-                className="line-clamp-2 text-[12px] font-semibold leading-4.5"
+                className="line-clamp-2 text-[13px] font-semibold leading-5"
                 title={entry.title}
                 style={{ color: "var(--text-main)" }}
               >
@@ -338,27 +407,23 @@ function AgendaEntryRow({
           </div>
         )}
         <div
-          className="mt-1 flex items-center gap-1.5 text-[10px]"
-          style={{ color: "var(--text-muted)" }}
+          className="mt-1.5 flex items-center gap-1.5 text-[12px] leading-4"
+          style={{ color: "var(--text-sub)" }}
         >
           <span className="truncate">
             {statusLabel}
             {countsLabel ? `・${countsLabel}` : ""}
+            {dynamic && !linkable ? "・ツリー整理待ち" : ""}
           </span>
           {entry.manualStatus && (
             <span
-              className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
+              className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
               style={{ background: "var(--ds-surface-muted)", color: "var(--text-sub)" }}
             >
               手動
             </span>
           )}
         </div>
-        {noticeVisible && (
-          <p className="mt-1 text-[10px]" style={{ color: "var(--text-muted)" }}>
-            関連する議論はまだありません
-          </p>
-        )}
       </div>
     </li>
   );
@@ -494,7 +559,7 @@ function AgendaEntryMenu({
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-20 mt-1 w-40 overflow-hidden rounded-(--ds-radius-control) border py-1 text-[11px] shadow-sm"
+          className="absolute right-0 top-full z-20 mt-1 w-40 overflow-hidden rounded-(--ds-radius-control) border py-1 text-[12px] shadow-sm"
           style={{ background: "var(--ds-surface-raised)", borderColor: "var(--ds-border)" }}
           onClick={(event) => event.stopPropagation()}
         >
@@ -554,9 +619,35 @@ function AgendaStatusLine({
     return () => window.clearInterval(timer);
   }, [needsTicker]);
 
+  // meta が渡らないのは会議終了後のレビュー画面(ライブ分析メタ情報がそもそも
+  // 存在しない)。「次の分析を待っています」等のライブ前提の文言が出てしまう
+  // ため、この行自体を表示しない。
+  if (!meta) {
+    return null;
+  }
+
+  // 分析中は議論ツリー列の更新チップ(AiUpdateStatusChip)と同じ回転矢印を添える。
+  // 再接続中の表示が分析中より優先されるのは agendaStatusLineText と同じ順序。
+  const reconnecting = Boolean(
+    connectionStatus && reconnectingConnectionStatuses.has(connectionStatus),
+  );
+  const generating = !reconnecting && effectiveMeta.generating;
+
   return (
-    <p className="text-[10px] leading-4" style={{ color: "var(--text-muted)" }}>
-      {agendaStatusLineText(effectiveMeta, connectionStatus, nowMs)}
+    <p
+      className="flex min-w-0 items-center justify-end gap-1 text-right text-[11px] leading-4"
+      style={{ color: "var(--text-sub)" }}
+    >
+      {generating && (
+        <HiArrowPath
+          aria-hidden="true"
+          className="h-3 w-3 shrink-0 animate-spin"
+          style={{ color: "var(--brand)" }}
+        />
+      )}
+      <span className="min-w-0 truncate">
+        {agendaStatusLineText(effectiveMeta, connectionStatus, nowMs)}
+      </span>
     </p>
   );
 }
@@ -607,11 +698,7 @@ function agendaStatusLineText(
     if (elapsedMs < 60_000) {
       return `最終更新：${Math.max(1, Math.floor(elapsedMs / 1000))}秒前`;
     }
-    return `最終更新：${formatAgendaStatusClockTime(meta.lastCompletedAtMs)}`;
+    return `最終更新：${formatRelativeElapsedLabel(elapsedMs)}`;
   }
   return meta.hasNewSpeech ? "新しい発話を蓄積中…" : "次の分析を待っています";
-}
-
-function formatAgendaStatusClockTime(timestampMs: number) {
-  return new Date(timestampMs).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
 }

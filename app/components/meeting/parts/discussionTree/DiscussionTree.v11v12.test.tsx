@@ -7,6 +7,12 @@ import type {
   TreeEdgePayload,
   TreeNodePayload,
 } from "~/api/meetings/meetingRuntimeTypes";
+import { normalizeAIAnalysis, type LiveAnalysisPayload } from "~/api/aiAnalysis/aiAnalysisApi";
+import {
+  initialMeetingAnalysisState,
+  meetingAnalysisReducer,
+  selectedAnalysisTree,
+} from "~/hooks/meetingAnalysisState";
 
 const flow = vi.hoisted(() => ({
   fitView: vi.fn(() => Promise.resolve(true)),
@@ -37,11 +43,22 @@ vi.mock("@xyflow/react", () => ({
     </div>
   ),
   useReactFlow: () => flow,
-  useStore: (selector: (state: { width: number; height: number }) => unknown) =>
-    selector({ width: 900, height: 600 }),
+  useNodesInitialized: () => true,
+  useStore: (
+    selector: (state: {
+      width: number;
+      height: number;
+      nodeLookup: Map<string, unknown>;
+      edgeLookup: Map<string, unknown>;
+    }) => unknown,
+  ) => selector({ width: 900, height: 600, nodeLookup: new Map(), edgeLookup: new Map() }),
 }));
 
 import { DiscussionTree } from "./DiscussionTree";
+import {
+  rawSession1fdcLiveAnalysis,
+  session1fdcSnapshots,
+} from "./__fixtures__/session1fdcTreeSnapshots";
 
 // session_497ed2b0aedf9dc6 の v11→v12 相当fixture。
 const v11Nodes: TreeNodePayload[] = [
@@ -178,5 +195,71 @@ describe("DiscussionTree v11→v12 (session_497ed2b0aedf9dc6 regression)", () =>
     expect(screen.getByTestId("flow-node-question-auto-990f08d9c259")).toBeTruthy();
     // v11で表示されていたノード数 + 3(新topic + 植物2ノード)が描画されている。
     expect(screen.getAllByTestId(/flow-node-/)).toHaveLength(renderedAtV11.length + 3);
+  });
+});
+
+describe("DiscussionTree node-count rendering boundaries", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false })),
+    });
+  });
+
+  it("renders the actual session_1fdc v13 21-node tree", () => {
+    const snapshot = session1fdcSnapshots[13];
+    render(
+      <DiscussionTree
+        sessionId="session_1fdc26b44086f0b8"
+        nodes={snapshot.nodes}
+        edges={snapshot.edges}
+        treeVersion={13}
+        treeChanges={snapshot.treeChanges}
+      />,
+    );
+    expect(screen.getAllByTestId(/flow-node-/)).toHaveLength(21);
+    expect(screen.getByTestId("flow-node-root")).toBeTruthy();
+  });
+
+  it("keeps 21 nodes through normalize, store, selector, props, layout, and render", () => {
+    const normalized = normalizeAIAnalysis(rawSession1fdcLiveAnalysis(13));
+    expect(normalized).not.toBeNull();
+    const state = meetingAnalysisReducer(initialMeetingAnalysisState("session_1fdc26b44086f0b8"), {
+      type: "analysis_event",
+      analysis: normalized!,
+    });
+    const selected = selectedAnalysisTree(state);
+    const payload = normalized?.payload as LiveAnalysisPayload;
+    expect(payload.tree?.nodes).toHaveLength(21);
+    expect(selected.tree?.nodes).toHaveLength(21);
+
+    render(
+      <DiscussionTree
+        sessionId="session_1fdc26b44086f0b8"
+        nodes={selected.tree?.nodes ?? []}
+        edges={selected.tree?.edges ?? []}
+        treeVersion={selected.treeVersion}
+      />,
+    );
+    expect(screen.getAllByTestId(/flow-node-/)).toHaveLength(21);
+  });
+
+  it.each([19, 20, 21, 22, 23, 24, 25, 30, 40])("does not blank at %i nodes", (count) => {
+    const targetNodes: TreeNodePayload[] = [
+      { id: "root", kind: "topic", label: "会議" },
+      { id: "topic", kind: "topic", parentId: "root", label: "論点" },
+    ];
+    for (let index = targetNodes.length; index < count; index += 1) {
+      targetNodes.push({
+        id: `node-${index}`,
+        kind: "issue",
+        parentId: "topic",
+        label: `論点 ${index}`,
+      });
+    }
+    render(<DiscussionTree nodes={targetNodes} edges={edgesFromParents(targetNodes)} />);
+    expect(screen.getAllByTestId(/flow-node-/)).toHaveLength(count);
+    expect(screen.getByTestId("flow-node-root")).toBeTruthy();
   });
 });

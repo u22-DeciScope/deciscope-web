@@ -9,10 +9,6 @@ const summary: MeetingSummaryViewModel = {
   statusLabel: "終了",
   dateRange: "7月10日 10:00 - 7月10日 11:00",
   duration: "60分",
-  aiSummary: "最終分析から作られた短縮要約",
-  decisions: [],
-  actions: [],
-  participants: [],
 };
 
 describe("SessionSummaryHeader", () => {
@@ -23,6 +19,5 @@ describe("SessionSummaryHeader", () => {
     expect(screen.getByText("終了")).toBeTruthy();
     expect(screen.getByText("60分")).toBeTruthy();
     expect(screen.queryByText("AI サマリー")).toBeNull();
-    expect(screen.queryByText(summary.aiSummary)).toBeNull();
   });
 });

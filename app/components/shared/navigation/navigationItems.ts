@@ -1,7 +1,7 @@
-import { HiCalendarDays, HiHome, HiPlusCircle, HiUsers } from "react-icons/hi2";
+import { HiHome, HiPlusCircle, HiUsers } from "react-icons/hi2";
 import type { IconType } from "react-icons";
 
-export type AppNavigationItemId = "home" | "new" | "upcoming" | "workspace";
+export type AppNavigationItemId = "home" | "new" | "workspace";
 
 export type AppNavigationItem = {
   id: AppNavigationItemId;
@@ -20,13 +20,6 @@ export const appNavigationItems: AppNavigationItem[] = [
     label: "会議作成",
     icon: HiPlusCircle,
     path: "/meetings/new",
-    requiresManagement: true,
-  },
-  {
-    id: "upcoming",
-    label: "予定会議",
-    icon: HiCalendarDays,
-    path: "/meetings/upcoming",
     requiresManagement: true,
   },
   {

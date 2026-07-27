@@ -232,6 +232,7 @@ describe("meetingAnalysisReducer v11→v12 (session_497ed2b0aedf9dc6 regression)
         live: v12Completed,
         final: null,
         treeSnapshot: null,
+        liveHistory: [],
       },
     });
     expect(analysisTreeNodeCount(state)).toBe(v12Nodes.length);
