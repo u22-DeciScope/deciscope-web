@@ -3,7 +3,6 @@ import { useLocation, useNavigate, useParams, useSearchParams } from "react-rout
 
 import { DsButton } from "~/components/DsButton";
 import { BotStatusToasts } from "~/components/meeting/parts/BotStatusToasts";
-import { DiagnosticsDownloadButton } from "~/components/meeting/parts/DiagnosticsDownloadButton";
 import { MeetingDiagnosticsBoundary } from "~/components/meeting/parts/MeetingDiagnosticsBoundary";
 import { LiveStatusBadge } from "~/components/meeting/parts/LiveStatusBadge";
 import { MeetingEndedModal } from "~/components/meeting/parts/MeetingEndedModal";
@@ -25,10 +24,7 @@ import { clearPendingMeetingNavigation } from "~/api/meetingSessions/pendingMeet
 import { workspaceMeetingSummaryPath, workspacePath } from "~/routing/workspacePaths";
 import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
 import { meetingStartDebug } from "~/utils/meetingStartDebug";
-import {
-  isDiagnosticsDownloadEnabled,
-  recordDiagnosticEvent,
-} from "~/utils/clientDiagnostics/clientDiagnostics";
+import { recordDiagnosticEvent } from "~/utils/clientDiagnostics/clientDiagnostics";
 import { mergeDisplaySegments } from "~/utils/meetingSegments";
 import {
   formatStatus,
@@ -277,35 +273,6 @@ export default function Meeting() {
       : null;
   const pageNotice = runtime.error ?? sessionEndError ?? endedNotice ?? transcriptNotice;
   const connectionRecoveryRequired = runtime.recoveryRequired || transcriptSession.recoveryRequired;
-  // 開発用ダウンロードに載せる議論ツリー概要。ノード本文は含めない。
-  // 本番ビルドではダウンロード機能自体を出さないため、組み立ても行わない。
-  const discussionTreeSummary = useMemo(
-    () =>
-      isDiagnosticsDownloadEnabled()
-        ? {
-            nodeCount: treeNodes.length,
-            edgeCount: treeEdges.length,
-            treeVersion: transcriptSession.discussionTree.treeVersion,
-            analysisVersion: transcriptSession.analysisRuntimeStatus.liveVersion,
-            source: transcriptSession.discussionTree.source,
-            selectionReason: transcriptSession.discussionTree.selectionReason,
-            nodes: treeNodes.map((node) => ({
-              id: node.id,
-              kind: node.kind ?? null,
-              parentId: node.parentId ?? null,
-              status: node.status ?? null,
-            })),
-          }
-        : {},
-    [
-      transcriptSession.analysisRuntimeStatus.liveVersion,
-      transcriptSession.discussionTree.selectionReason,
-      transcriptSession.discussionTree.source,
-      transcriptSession.discussionTree.treeVersion,
-      treeEdges.length,
-      treeNodes,
-    ],
-  );
 
   const retryConnections = useCallback(() => {
     if (runtime.recoveryRequired) {
@@ -388,17 +355,6 @@ export default function Meeting() {
               再接続
             </DsButton>
           )}
-        </div>
-      )}
-
-      {isDiagnosticsDownloadEnabled() && (
-        <div className="flex shrink-0 justify-end">
-          <DiagnosticsDownloadButton
-            sessionId={sessionId}
-            sessionStatus={meetingSessionStatus ?? null}
-            websocketStatus={transcriptSession.connectionStatus}
-            discussionTree={discussionTreeSummary}
-          />
         </div>
       )}
 

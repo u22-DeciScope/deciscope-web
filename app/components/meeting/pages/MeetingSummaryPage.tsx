@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router";
-import { HiArrowDownTray } from "react-icons/hi2";
 
 import {
   getWorkspaceMeetingSessionAIAnalyses,
@@ -13,26 +12,19 @@ import {
   type MeetingSessionDto,
 } from "~/api/meetingSessions/meetingSessionsApi";
 import { listMeetingEvents } from "~/api/meetings/meetingEventsApi";
-import { getMeetingReport, getMeetingReportMarkdown } from "~/api/meetings/meetingReportsApi";
-import { getMeeting, type MeetingDto } from "~/api/meetings/meetingsApi";
 import {
   initialMeetingRuntimeState,
   meetingRuntimeReducer,
 } from "~/api/meetings/meetingRuntimeReducer";
 import type { AnalysisItem, TreeUpdatePayload } from "~/api/meetings/meetingRuntimeTypes";
-import type { MeetingReportDto } from "~/api/meetings/meetingReportsApi";
 import {
   fetchWorkspaceMeetingSessionTranscriptSegmentHistory,
   type TranscriptSegment,
 } from "~/api/transcripts/transcriptSegmentsApi";
-import { DsButton } from "~/components/DsButton";
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/routing/workspacePaths";
 import { AiFinalSummaryPanel } from "~/components/meeting/summary/AiFinalSummaryPanel";
-import { MeetingSummaryMain } from "~/components/meeting/summary/MeetingSummaryMain";
-import { MeetingReportShareAction } from "~/components/meeting/summary/MeetingReportShareAction";
-import { MarkdownReportPanel } from "~/components/meeting/summary/MarkdownReportPanel";
 import { PreMeetingContextPanel } from "~/components/meeting/summary/PreMeetingContextPanel";
 import { SessionReviewWorkspace } from "~/components/meeting/summary/SessionReviewWorkspace";
 import { SessionSummaryHeader } from "~/components/meeting/summary/SessionSummaryHeader";
@@ -40,8 +32,6 @@ import { StatusPanel } from "~/components/meeting/summary/StatusPanel";
 import {
   hasPreMeetingContext,
   summaryFromMeetingSession,
-  summaryFromReport,
-  transcriptMarkdown,
 } from "~/components/meeting/summary/meetingSummaryViewModel";
 import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
 import { meetingStartDebug } from "~/utils/meetingStartDebug";
@@ -57,12 +47,8 @@ export default function MeetingSummary() {
   const { id } = useParams();
   const { workspaceId } = useAuthenticatedLayout();
   const meetingsPath = workspacePath(workspaceId, "/meetings");
-  const [meeting, setMeeting] = useState<MeetingDto | null>(null);
   const [session, setSession] = useState<MeetingSessionDto | null>(null);
   const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([]);
-  const [report, setReport] = useState<MeetingReportDto | null>(null);
-  const [markdown, setMarkdown] = useState("");
-  const [shareToken, setShareToken] = useState("");
   const [tree, setTree] = useState<TreeUpdatePayload | null>(null);
   const [treeSnapshot, setTreeSnapshot] = useState<TreeSnapshotPayload | null>(null);
   const [analysisItems, setAnalysisItems] = useState<AnalysisItem[]>([]);
@@ -79,10 +65,7 @@ export default function MeetingSummary() {
     }
     let active = true;
     setError(null);
-    setMeeting(null);
     setSession(null);
-    setReport(null);
-    setMarkdown("");
     setTranscriptSegments([]);
     setTree(null);
     setTreeSnapshot(null);
@@ -92,46 +75,31 @@ export default function MeetingSummary() {
     setLiveAnalysis(null);
     setLiveHistory([]);
     setFinalAnalysisError(null);
-    if (id.startsWith("session_")) {
-      getWorkspaceMeetingSession(workspaceId, id)
-        .then(async (sessionResult) => {
-          if (!active) {
-            return;
-          }
-          setSession(sessionResult);
-          const [transcriptResult, analysis] = await Promise.all([
-            fetchWorkspaceMeetingSessionTranscriptSegmentHistory(workspaceId, id, 300),
-            loadMeetingAnalysis(sessionResult.meetingId),
-          ]);
-          if (!active) {
-            return;
-          }
-          setTranscriptSegments(transcriptResult.segments);
-          setTree(analysis.tree);
-          setAnalysisItems(analysis.analysisItems);
-        })
-        .catch((cause: unknown) => {
-          if (active) {
-            setError(cause instanceof Error ? cause.message : "会議記録を取得できませんでした。");
-          }
-        });
-      return () => {
-        active = false;
-      };
+    if (!id.startsWith("session_")) {
+      // この画面は会議セッション(session_...)の記録だけを表示する。
+      setError("会議記録が見つかりませんでした。");
+      return;
     }
-
-    Promise.all([getMeeting(id), getMeetingReport(id), getMeetingReportMarkdown(id)])
-      .then(([meetingResult, reportResult, markdownResult]) => {
+    getWorkspaceMeetingSession(workspaceId, id)
+      .then(async (sessionResult) => {
         if (!active) {
           return;
         }
-        setMeeting(meetingResult);
-        setReport(reportResult);
-        setMarkdown(markdownResult);
+        setSession(sessionResult);
+        const [transcriptResult, analysis] = await Promise.all([
+          fetchWorkspaceMeetingSessionTranscriptSegmentHistory(workspaceId, id, 300),
+          loadMeetingAnalysis(sessionResult.meetingId),
+        ]);
+        if (!active) {
+          return;
+        }
+        setTranscriptSegments(transcriptResult.segments);
+        setTree(analysis.tree);
+        setAnalysisItems(analysis.analysisItems);
       })
       .catch((cause: unknown) => {
         if (active) {
-          setError(cause instanceof Error ? cause.message : "レポートを取得できませんでした。");
+          setError(cause instanceof Error ? cause.message : "会議記録を取得できませんでした。");
         }
       });
     return () => {
@@ -206,12 +174,7 @@ export default function MeetingSummary() {
     };
   }, [id, workspaceId]);
 
-  const summary = useMemo(() => {
-    if (session) {
-      return summaryFromMeetingSession(session, transcriptSegments);
-    }
-    return summaryFromReport(meeting, report);
-  }, [meeting, report, session, transcriptSegments]);
+  const summary = useMemo(() => (session ? summaryFromMeetingSession(session) : null), [session]);
 
   // 議論ツリーは、会議終了時に保存されたdurableスナップショットを最優先し、
   // 無ければ durable イベント(旧経路)、最後にライブ分析payloadのtreeで補う。
@@ -226,48 +189,23 @@ export default function MeetingSummary() {
     analysisItems.length > 0
       ? analysisItems
       : (livePayload?.items ?? []).filter((item) => item.status !== "dismissed");
-  async function exportMarkdown() {
-    const content = session
-      ? transcriptMarkdown(session, transcriptSegments)
-      : markdown || report?.content || "";
-    if (!content) {
-      return;
-    }
-    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${session?.title ?? meeting?.title ?? "meeting-report"}.md`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-  }
-
   const chrome = useMemo(
     () => ({
       header: {
         title: session
           ? getMeetingDisplayTitle(session, { component: "meeting-session-summary-header" })
-          : (meeting?.title ?? "会議サマリー"),
+          : "会議サマリー",
         breadcrumbs: [
           { label: "ホーム", to: meetingsPath },
           {
             label: session
               ? getMeetingDisplayTitle(session, { component: "meeting-session-summary-crumb" })
-              : (meeting?.title ?? "会議サマリー"),
+              : "会議サマリー",
           },
         ],
-        actions: (
-          <>
-            {!session && <MeetingReportShareAction meetingId={id} onToken={setShareToken} />}
-            <DsButton variant="secondary" onClick={exportMarkdown}>
-              <HiArrowDownTray className="h-3.5 w-3.5" />
-              エクスポート
-            </DsButton>
-          </>
-        ),
       },
     }),
-    [id, meeting?.title, meetingsPath, session],
+    [meetingsPath, session],
   );
   useWorkspaceChrome(chrome);
 
@@ -275,67 +213,50 @@ export default function MeetingSummary() {
     return <StatusPanel message={error} />;
   }
 
-  if (!session && !report) {
-    return <StatusPanel message="レポートを読み込んでいます..." />;
+  if (!session || !summary) {
+    return <StatusPanel message="会議記録を読み込んでいます..." />;
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto pr-1">
-      {shareToken && (
-        <div
-          className="rounded-(--ds-radius-control) border px-3 py-2 text-[11px]"
-          style={{ borderColor: "var(--ds-border)", color: "var(--text-sub)" }}
-        >
-          共有トークン: <span className="font-mono">{shareToken}</span>
-        </div>
-      )}
       {finalAnalysisError && (
         <p className="rounded-(--ds-radius-control) border px-3 py-2 text-[11px] text-red-600">
           {finalAnalysisError}
         </p>
       )}
-      {session ? (
-        <>
-          {/* 1. ヘッダーエリア */}
-          <div className="shrink-0">
-            <SessionSummaryHeader summary={summary} />
-          </div>
+      {/* 1. ヘッダーエリア */}
+      <div className="shrink-0">
+        <SessionSummaryHeader summary={summary} />
+      </div>
 
-          {/* 2. 議事録サマリーの2カラムレイアウトエリア */}
-          <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-3 shrink-0 mb-4">
-            {/* 左側メインカラム（幅 2/3）: AI要約と、すべての決定事項・アクション等の結果リスト */}
-            <div className="flex flex-col gap-4 xl:col-span-2">
-              <AiFinalSummaryPanel
-                final={finalAnalysis}
-                currentTitle={summary.title}
-                pending={finalAnalysisPending}
-              />
-            </div>
-
-            {/* 右側サブカラム（幅 1/3）: 会議前の前提条件・背景・アジェンダ */}
-            <div className="flex flex-col gap-4 xl:col-span-1">
-              {hasPreMeetingContext(session) && <PreMeetingContextPanel session={session} />}
-            </div>
-          </div>
-
-          {/* 3. 操作を行わない領域: 現状のまま完全に維持 */}
-          <SessionReviewWorkspace
-            session={session}
-            segments={transcriptSegments}
-            tree={effectiveTree}
-            analysisItems={effectiveAnalysisItems}
-            liveAnalysis={liveAnalysis}
-            liveHistory={liveHistory}
-            workspaceId={workspaceId}
-            sessionId={id}
+      {/* 2. 議事録サマリーの2カラムレイアウトエリア */}
+      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-3 shrink-0 mb-4">
+        {/* 左側メインカラム（幅 2/3）: AI要約と、すべての決定事項・アクション等の結果リスト */}
+        <div className="flex flex-col gap-4 xl:col-span-2">
+          <AiFinalSummaryPanel
+            final={finalAnalysis}
+            currentTitle={summary.title}
+            pending={finalAnalysisPending}
           />
-        </>
-      ) : (
-        <>
-          <MeetingSummaryMain meetingsPath={meetingsPath} summary={summary} />
-          <MarkdownReportPanel content={markdown || report?.content || ""} />
-        </>
-      )}
+        </div>
+
+        {/* 右側サブカラム（幅 1/3）: 会議前の前提条件・背景・アジェンダ */}
+        <div className="flex flex-col gap-4 xl:col-span-1">
+          {hasPreMeetingContext(session) && <PreMeetingContextPanel session={session} />}
+        </div>
+      </div>
+
+      {/* 3. 操作を行わない領域: 現状のまま完全に維持 */}
+      <SessionReviewWorkspace
+        session={session}
+        segments={transcriptSegments}
+        tree={effectiveTree}
+        analysisItems={effectiveAnalysisItems}
+        liveAnalysis={liveAnalysis}
+        liveHistory={liveHistory}
+        workspaceId={workspaceId}
+        sessionId={id}
+      />
     </div>
   );
 }

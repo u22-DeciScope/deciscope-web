@@ -174,6 +174,38 @@ describe("AgendaProgressSection", () => {
     expect(screen.queryByRole("heading", { name: "会議中に追加された論点" })).toBeNull();
   });
 
+  it("places the update status beside the first section heading instead of a band above it", () => {
+    const meta: LiveAnalysisMeta = { ...idleMeta, lastCompletedAtMs: Date.now() };
+    const { rerender } = renderSection({
+      progress: { entries: [entry({ id: "agenda-1", title: "予算計画" })] },
+      meta,
+    });
+
+    const fixedRow = screen.getByRole("heading", { name: "話し合う項目" })
+      .parentElement as HTMLElement;
+    expect(within(fixedRow).getByText("たった今更新")).not.toBeNull();
+    // 背景付きの独立した帯ではなくなっている。
+    expect(screen.getByText("たった今更新").closest("p")?.style.background).toBe("");
+
+    // 固定アジェンダが無い会議では、最初に出る見出し(会議中に追加された論点)へ添える。
+    rerender(
+      <AgendaProgressSection
+        progress={{
+          entries: [entry({ id: "topic-1", title: "急遽出た話題", sourceType: "dynamic_topic" })],
+        }}
+        meta={meta}
+        connectionStatus="connected"
+        canManage={false}
+        workspaceId="workspace-1"
+        sessionId="session-1"
+        treeNodes={[]}
+      />,
+    );
+    const dynamicRow = screen.getByRole("heading", { name: "会議中に追加された論点" })
+      .parentElement as HTMLElement;
+    expect(within(dynamicRow).getByText("たった今更新")).not.toBeNull();
+  });
+
   it("does not crash on a legacy payload without agendaProgress and shows the status line only", () => {
     renderSection({ progress: undefined });
     expect(screen.queryByRole("heading", { name: "話し合う項目" })).toBeNull();

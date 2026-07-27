@@ -235,7 +235,7 @@ export function useMeetingRuntime(meetingId: string | undefined) {
 
   const finishMeeting = useCallback(async () => {
     if (!meetingId) {
-      return null;
+      return;
     }
     setIsEnding(true);
     try {
@@ -243,7 +243,6 @@ export function useMeetingRuntime(meetingId: string | undefined) {
       for (const event of result.events) {
         dispatch({ type: "event", event });
       }
-      return result.report;
     } finally {
       setIsEnding(false);
     }

@@ -22,16 +22,6 @@ export async function requestJson<T>(path: string, options: ApiRequestOptions = 
   return payload as T;
 }
 
-export async function requestText(path: string, options: ApiRequestOptions = {}): Promise<string> {
-  const response = await requestRaw(path, options);
-  const text = await response.text();
-  if (!response.ok) {
-    handleUnauthorized(response);
-    throw new ApiError(responseErrorMessage(response, text, parseJson(text)), response.status);
-  }
-  return text;
-}
-
 function handleUnauthorized(response: Response) {
   if (response.status === 401 && typeof window !== "undefined") {
     window.dispatchEvent(new Event("deciscope:unauthorized"));

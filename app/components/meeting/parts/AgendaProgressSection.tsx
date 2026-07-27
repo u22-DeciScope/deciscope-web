@@ -197,10 +197,14 @@ export function AgendaProgressSection({
 
   const hasFixedSection = fixedEntries.length > 0;
   const hasDynamicSection = dynamicEntries.length > 0;
+  // 更新状態は専用の帯を持たず、見出し行の右端へ置く(「カードの更新」と同じ配置)。
+  // 最初に描画される見出し(固定アジェンダ → 会議中の論点)へ添え、見出しが1つも
+  // 無いときだけ単独で表示する。
+  const statusLine = <AgendaStatusLine meta={meta} connectionStatus={connectionStatus} />;
 
   return (
     <section aria-label="アジェンダ進捗" className="space-y-6">
-      <AgendaStatusLine meta={meta} connectionStatus={connectionStatus} />
+      {!hasFixedSection && !hasDynamicSection && statusLine}
       {hasFixedSection && (
         <div data-testid="fixed-agenda-section">
           <div className="mb-3 flex items-center gap-2 px-0.5">
@@ -211,6 +215,7 @@ export function AgendaProgressSection({
             >
               話し合う項目
             </h2>
+            <div className="ml-auto min-w-0 shrink">{statusLine}</div>
           </div>
           <ul className="space-y-2">
             {fixedEntries.map((entry) => (
@@ -239,6 +244,7 @@ export function AgendaProgressSection({
             >
               会議中に追加された論点
             </h2>
+            {!hasFixedSection && <div className="ml-auto min-w-0 shrink">{statusLine}</div>}
           </div>
           <ul className="space-y-2">
             {dynamicEntries.map((entry) => (
@@ -629,17 +635,17 @@ function AgendaStatusLine({
 
   return (
     <p
-      className="flex items-center gap-1.5 rounded-(--ds-radius-control) px-2.5 py-1.5 text-[12px] font-medium leading-4"
-      style={{ background: "var(--ds-surface-muted)", color: "var(--text-sub)" }}
+      className="flex min-w-0 items-center justify-end gap-1 text-right text-[11px] leading-4"
+      style={{ color: "var(--text-sub)" }}
     >
       {generating && (
         <HiArrowPath
           aria-hidden="true"
-          className="h-3.5 w-3.5 shrink-0 animate-spin"
+          className="h-3 w-3 shrink-0 animate-spin"
           style={{ color: "var(--brand)" }}
         />
       )}
-      <span className="min-w-0">
+      <span className="min-w-0 truncate">
         {agendaStatusLineText(effectiveMeta, connectionStatus, nowMs)}
       </span>
     </p>

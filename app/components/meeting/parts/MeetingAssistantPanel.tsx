@@ -403,6 +403,7 @@ export function MeetingAssistantPanel({
             <LiveAnalysisOverview
               liveAnalysis={liveAnalysis}
               updateHistory={showLiveUpdates ? liveUpdateHistory : reconstructedLiveUpdateHistory}
+              showUpdatedStatus={showLiveUpdates}
               agendaLabels={agendaLabels}
               momentIndex={momentIndex}
               expanded={liveUpdateHistoryExpanded}
@@ -1072,7 +1073,7 @@ function LiveCardChangeCard({
 }
 
 function updateActionLabel(action: LiveCardChange["action"]) {
-  return action === "added" ? "追加" : action === "removed" ? "分析対象外" : "更新";
+  return action === "added" ? "追加" : action === "removed" ? "除外" : "更新";
 }
 
 function updateActionStyle(action: LiveCardChange["action"]): React.CSSProperties {
@@ -1089,6 +1090,7 @@ function updateActionStyle(action: LiveCardChange["action"]): React.CSSPropertie
 function LiveAnalysisOverview({
   liveAnalysis,
   updateHistory,
+  showUpdatedStatus,
   agendaLabels,
   momentIndex,
   expanded,
@@ -1098,6 +1100,9 @@ function LiveAnalysisOverview({
 }: {
   liveAnalysis: MeetingAIAnalysis;
   updateHistory: LiveUpdateBatch[];
+  // ライブ分析の最終更新時刻を見出し右に出すか。会議終了後のレビュー画面では
+  // 「〇秒前 更新」が過去の会議の時刻を指すだけで意味が無いため false にする。
+  showUpdatedStatus: boolean;
   agendaLabels: Map<string, string>;
   momentIndex: MeetingMomentIndex;
   expanded: boolean;
@@ -1119,13 +1124,15 @@ function LiveAnalysisOverview({
               カードの更新
             </h2>
             <p className="mt-0.5 text-[11px] leading-4" style={{ color: "var(--text-sub)" }}>
-              最近の追加・変更・分析対象外を新しい順で表示
+              最近の追加・変更・除外を新しい順で表示
             </p>
           </div>
         </div>
-        <div className="min-w-0 shrink">
-          <LiveAnalysisStatus liveAnalysis={liveAnalysis} />
-        </div>
+        {showUpdatedStatus && (
+          <div className="min-w-0 shrink">
+            <LiveAnalysisStatus liveAnalysis={liveAnalysis} />
+          </div>
+        )}
       </div>
       <LiveCardUpdateHistory
         batches={updateHistory}

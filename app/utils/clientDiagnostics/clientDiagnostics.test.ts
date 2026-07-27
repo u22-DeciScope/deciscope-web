@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  buildDiagnosticsDownload,
   configureClientDiagnosticsForTest,
   diagnosticsTabId,
   flushDiagnostics,
@@ -128,7 +127,7 @@ describe("client diagnostics sending", () => {
     await flushDiagnostics();
 
     expect(sent).toHaveLength(0);
-    // 送れなくてもブラウザ内バッファ(ダウンロード用)には残る。
+    // 送れなくてもブラウザ内バッファには残る。
     expect(recentDiagnosticEvents(10)).toHaveLength(1);
   });
 
@@ -148,29 +147,6 @@ describe("client diagnostics sending", () => {
     recordDiagnosticEvent("ws_connected", scope(1));
     await expect(flushDiagnostics()).resolves.toBeUndefined();
     expect(pendingDiagnosticEventsForTest()).toHaveLength(1);
-  });
-});
-
-describe("diagnostics download", () => {
-  beforeEach(() => resetClientDiagnosticsForTest());
-
-  it("includes tab events, tree summary, session and websocket state", () => {
-    recordDiagnosticEvent("tree_state_changed", scope(3));
-    const payload = buildDiagnosticsDownload({
-      sessionId: "session_abc",
-      sessionStatus: "recording",
-      websocketStatus: "connected",
-      discussionTree: { nodeCount: 3, treeVersion: 3 },
-    });
-
-    expect(payload.sessionId).toBe("session_abc");
-    expect(payload.tabId).toBe(diagnosticsTabId());
-    expect(payload.sessionStatus).toBe("recording");
-    expect(payload.websocketStatus).toBe("connected");
-    expect(payload.discussionTree).toEqual({ nodeCount: 3, treeVersion: 3 });
-    expect(payload.frontendBuildVersion).toBeTruthy();
-    expect(Date.parse(payload.generatedAt)).not.toBeNaN();
-    expect(payload.events).toHaveLength(1);
   });
 });
 

@@ -284,7 +284,7 @@ describe("MeetingAssistantPanel item filters", () => {
     expect(within(updateCard).queryByText("ツリーで表示")).toBeNull();
   });
 
-  it("labels cards that left the latest analysis as excluded from analysis", async () => {
+  it("labels cards that left the latest analysis as excluded", async () => {
     const removedItem = item("issue-removed", "issue", "open");
     const analysis = (version: number, items: AnalysisItem[]): MeetingAIAnalysis => ({
       analysisType: "live",
@@ -305,7 +305,7 @@ describe("MeetingAssistantPanel item filters", () => {
       <MeetingAssistantPanel insights={[]} speakerSummaries={[]} liveAnalysis={analysis(2, [])} />,
     );
 
-    expect(await screen.findByText("分析対象外")).not.toBeNull();
+    expect(await screen.findByText("除外")).not.toBeNull();
     expect(screen.queryByText("非表示")).toBeNull();
   });
 
@@ -573,5 +573,32 @@ describe("MeetingAssistantPanel item filters", () => {
     expect(screen.getByRole("heading", { name: "カードの更新" })).not.toBeNull();
     expect(screen.getByText("todo-1")).not.toBeNull();
     expect(screen.getByText("追加")).not.toBeNull();
+  });
+
+  it("shows the live update time beside the card-update heading during a meeting and hides it on the review screen", () => {
+    const liveAnalysis: MeetingAIAnalysis = {
+      analysisType: "live",
+      status: "completed",
+      version: 1,
+      updatedAtUtc: new Date().toISOString(),
+      payload: { items: [item("todo-1", "todo", "open")], tree: { nodes: [], edges: [] } },
+    };
+
+    const view = render(
+      <MeetingAssistantPanel insights={[]} speakerSummaries={[]} liveAnalysis={liveAnalysis} />,
+    );
+    expect(screen.getByText("たった今 更新")).not.toBeNull();
+
+    view.rerender(
+      <MeetingAssistantPanel
+        insights={[]}
+        speakerSummaries={[]}
+        liveAnalysis={liveAnalysis}
+        liveHistory={[liveAnalysis]}
+        showLiveUpdates={false}
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "カードの更新" })).not.toBeNull();
+    expect(screen.queryByText("たった今 更新")).toBeNull();
   });
 });

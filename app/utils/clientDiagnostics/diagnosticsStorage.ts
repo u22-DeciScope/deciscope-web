@@ -102,7 +102,8 @@ export function persistDiagnosticRecord(record: StoredDiagnosticRecord): void {
   });
 }
 
-// markDiagnosticRecordsSent は送信済みフラグを立てる。ダウンロード用に本体は残す。
+// markDiagnosticRecordsSent は送信済みフラグを立てる。レコード本体は
+// リングバッファから溢れるまで残す。
 export function markDiagnosticRecordsSent(recordKeys: string[]): void {
   if (recordKeys.length === 0) {
     return;
@@ -133,7 +134,7 @@ export function dropDiagnosticRecords(recordKeys: string[]): void {
 }
 
 // loadPersistedDiagnosticRecords は前回タブ/リロード前の記録を読み出す。
-// 起動時に未送信イベントを拾い直し、ダウンロードにも使う。
+// 起動時に未送信イベントを拾い直すために使う。
 export async function loadPersistedDiagnosticRecords(): Promise<StoredDiagnosticRecord[]> {
   try {
     const database = await openDatabase();
