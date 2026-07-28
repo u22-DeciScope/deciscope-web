@@ -30,6 +30,7 @@ import { SessionReviewWorkspace } from "~/components/meeting/summary/SessionRevi
 import { SessionSummaryHeader } from "~/components/meeting/summary/SessionSummaryHeader";
 import { StatusPanel } from "~/components/meeting/summary/StatusPanel";
 import {
+  hasPreMeetingContext,
   summaryFromMeetingSession,
 } from "~/components/meeting/summary/meetingSummaryViewModel";
 import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
@@ -203,6 +204,8 @@ export default function MeetingSummary() {
           },
         ],
       },
+      // /meetings と同じく、mainの白パネルを外して各カードを青背景の上に置く。
+      fullBleedMain: true,
     }),
     [meetingsPath, session],
   );
@@ -217,9 +220,15 @@ export default function MeetingSummary() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto pr-1">
+    <div
+      className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto rounded-(--ds-radius-panel) p-3 sm:p-4"
+      style={{ background: "var(--ds-bg)" }}
+    >
       {finalAnalysisError && (
-        <p className="rounded-(--ds-radius-control) border px-3 py-2 text-[11px] text-red-600">
+        <p
+          className="ds-surface shrink-0 rounded-(--ds-radius-control) border px-3 py-2 text-[11px]"
+          style={{ borderColor: "var(--danger)", color: "var(--danger)" }}
+        >
           {finalAnalysisError}
         </p>
       )}
@@ -228,16 +237,18 @@ export default function MeetingSummary() {
         <SessionSummaryHeader summary={summary} />
       </div>
 
-          {/* 2. 議事録サマリーの2カラムレイアウトエリア */}
-          <div className="shrink-0 mb-4">
-            <div className="flex flex-col gap-4">
-              <AiFinalSummaryPanel
-                final={finalAnalysis}
-                currentTitle={summary.title}
-                pending={finalAnalysisPending}
-              />
-            </div>
-          </div>
+      {/* 2. AI最終要約(会議前コンテキストの折りたたみを含む)とサマリーカード */}
+      <div className="shrink-0">
+        <AiFinalSummaryPanel
+          final={finalAnalysis}
+          pending={finalAnalysisPending}
+          contextPanel={
+            hasPreMeetingContext(session) ? (
+              <PreMeetingContextPanel session={session} />
+            ) : undefined
+          }
+        />
+      </div>
 
       {/* 3. 操作を行わない領域: 現状のまま完全に維持 */}
       <SessionReviewWorkspace
