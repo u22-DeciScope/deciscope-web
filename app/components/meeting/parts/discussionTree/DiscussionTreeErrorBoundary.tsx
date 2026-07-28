@@ -2,7 +2,6 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 
 import type { TreeNodePayload } from "~/api/meetings/meetingRuntimeTypes";
 import { recordDiagnosticEvent, truncateStack } from "~/utils/clientDiagnostics/clientDiagnostics";
-import { isMeetingStartDebugEnabled, meetingStartDebug } from "~/utils/meetingStartDebug";
 
 type DiscussionTreeErrorBoundaryProps = {
   children: ReactNode;
@@ -42,14 +41,6 @@ export class DiscussionTreeErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    meetingStartDebug("meeting-page", "Discussion tree render error", {
-      sessionId: this.props.sessionId || null,
-      treeVersion: this.props.treeVersion,
-      propNodeCount: this.props.nodes.length,
-      error: error.message,
-      componentStack: info.componentStack ?? null,
-      timestamp: new Date().toISOString(),
-    });
     recordDiagnosticEvent("react_error_captured", {
       sessionId: this.props.sessionId,
       workspaceId: this.props.workspaceId ?? "",
@@ -69,7 +60,6 @@ export class DiscussionTreeErrorBoundary extends Component<
     if (!this.state.error) {
       return this.props.children;
     }
-    const debug = isMeetingStartDebugEnabled();
     const fallbackNodes = Array.from(
       new Map(this.props.nodes.map((node) => [node.id, node])).values(),
     );
@@ -91,12 +81,6 @@ export class DiscussionTreeErrorBoundary extends Component<
             議論ツリーを簡易表示しています
           </p>
           <p className="mt-1">配置処理を完了できなかったため、論点を一覧で保持しています。</p>
-          {debug && (
-            <p className="mt-1 font-mono text-[10px]">
-              treeVersion: {this.props.treeVersion ?? "-"} / inputNodes: {this.props.nodes.length} /
-              reason: {this.state.error.message}
-            </p>
-          )}
           <ul className="mt-3 space-y-1">
             {fallbackNodes.map((node) => (
               <li

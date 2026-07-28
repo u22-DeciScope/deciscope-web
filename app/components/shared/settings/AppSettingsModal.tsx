@@ -66,7 +66,11 @@ export function AppSettingsModal({ onClose }: AppSettingsModalProps) {
             <p className="text-xs md:hidden" style={{ color: "var(--text-muted)" }}>
               設定
             </p>
-            <h2 id="settings-title" className="text-lg font-bold" style={{ color: "var(--text-main)" }}>
+            <h2
+              id="settings-title"
+              className="text-lg font-bold"
+              style={{ color: "var(--text-main)" }}
+            >
               一般設定
             </h2>
           </div>
@@ -152,7 +156,10 @@ function SettingsRow({ children, icon: Icon, label }: SettingsRowProps) {
       className="flex flex-col gap-2 border-b px-4 py-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
       style={{ borderColor: "var(--ds-border)" }}
     >
-      <div className="flex items-center gap-2 text-sm font-medium" style={{ color: "var(--text-main)" }}>
+      <div
+        className="flex items-center gap-2 text-sm font-medium"
+        style={{ color: "var(--text-main)" }}
+      >
         {Icon && <Icon className="h-4 w-4" style={{ color: "var(--text-muted)" }} />}
         {label}
       </div>

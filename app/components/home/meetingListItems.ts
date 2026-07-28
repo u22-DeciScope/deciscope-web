@@ -2,7 +2,6 @@ import type { MeetingSessionDto } from "~/api/meetingSessions/meetingSessionsApi
 import { isTerminalMeetingSessionStatus } from "~/api/meetingSessions/meetingSessionRegistry";
 import { workspaceMeetingPath, workspaceMeetingSummaryPath } from "~/routing/workspacePaths";
 import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
-import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
 // ホーム(ダッシュボード)と会議履歴ページで共有する、会議セッションの
 // 一覧表示用変換・判定ロジック。進行中/終了の判定を両画面で一致させるため、
@@ -42,7 +41,7 @@ function sessionToListItem(session: MeetingSessionDto, workspaceId: string): Mee
   const updatedAt = session.updatedAt ?? session.lastBotStatusAt ?? createdAt;
   const endedAt =
     session.endedAt ?? (isTerminalMeetingSessionStatus(session.status) ? updatedAt : undefined);
-  const displayTitle = getMeetingDisplayTitle(session, { component: "dashboard-session-card" });
+  const displayTitle = getMeetingDisplayTitle(session);
   const graphTitle = session.graphTitle?.trim();
   return {
     id: session.sessionId,
@@ -73,18 +72,7 @@ export function isActiveMeetingItem(item: MeetingListItem) {
     return true;
   }
   const activeAgeMs = Date.now() - Date.parse(item.updated_at);
-  const isFresh = activeAgeMs <= staleActiveSessionMs;
-  if (!isFresh) {
-    meetingStartDebug("dashboard", "active session excluded as stale on dashboard", {
-      sessionId: item.detailId,
-      title: item.title,
-      status: item.status,
-      updatedAt: item.updated_at,
-      activeAgeMs,
-      staleActiveSessionMs,
-    });
-  }
-  return isFresh;
+  return activeAgeMs <= staleActiveSessionMs;
 }
 
 export function isActiveMeetingStatus(status: string, isTeamsSession: boolean) {
@@ -160,22 +148,9 @@ function displaySessionStatus(session: MeetingSessionDto) {
     updatedAt &&
     Date.now() - Date.parse(updatedAt) > staleActiveSessionMs
   ) {
-    meetingStartDebug("dashboard", "session card status overridden", {
-      reason: "stale_active_session",
-      sessionId: session.sessionId,
-      title: session.title,
-      titleSource: session.titleSource ?? null,
-      originalStatus: session.status,
-      updatedAt,
-    });
     return "stale";
   }
-  meetingStartDebug("dashboard", "session card title source", {
-    sessionId: session.sessionId,
-    title: session.title,
-    titleSource: session.titleSource ?? null,
-    status: session.status,
-  });
+
   return session.status;
 }
 

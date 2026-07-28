@@ -34,7 +34,7 @@ import {
   summaryFromMeetingSession,
 } from "~/components/meeting/summary/meetingSummaryViewModel";
 import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
-import { meetingStartDebug } from "~/utils/meetingStartDebug";
+
 import { boundedRetryDelay } from "~/utils/boundedRetry";
 
 const finalAnalysisPollIntervalMs = 10_000;
@@ -157,10 +157,6 @@ export default function MeetingSummary() {
             "AI分析を取得できませんでした。時間をおいてページを再読み込みしてください。",
           );
         }
-        meetingStartDebug("meeting-summary-page", "ai final analysis load failed", {
-          sessionId: id,
-          message: cause instanceof Error ? cause.message : "unknown error",
-        });
       }
     }
 
@@ -192,15 +188,11 @@ export default function MeetingSummary() {
   const chrome = useMemo(
     () => ({
       header: {
-        title: session
-          ? getMeetingDisplayTitle(session, { component: "meeting-session-summary-header" })
-          : "会議サマリー",
+        title: session ? getMeetingDisplayTitle(session) : "会議サマリー",
         breadcrumbs: [
           { label: "ホーム", to: meetingsPath },
           {
-            label: session
-              ? getMeetingDisplayTitle(session, { component: "meeting-session-summary-crumb" })
-              : "会議サマリー",
+            label: session ? getMeetingDisplayTitle(session) : "会議サマリー",
           },
         ],
       },
@@ -243,9 +235,7 @@ export default function MeetingSummary() {
           final={finalAnalysis}
           pending={finalAnalysisPending}
           contextPanel={
-            hasPreMeetingContext(session) ? (
-              <PreMeetingContextPanel session={session} />
-            ) : undefined
+            hasPreMeetingContext(session) ? <PreMeetingContextPanel session={session} /> : undefined
           }
         />
       </div>

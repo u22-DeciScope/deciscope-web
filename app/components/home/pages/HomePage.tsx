@@ -16,7 +16,6 @@ import {
   formatShortDate,
   formatSource,
   isActiveMeetingItem,
-  isActiveMeetingStatus,
   sortByCreatedAtDesc,
   type MeetingListItem,
 } from "~/components/home/meetingListItems";
@@ -24,7 +23,7 @@ import { MeetingTitleLine } from "~/components/home/parts/MeetingTitleLine";
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/routing/workspacePaths";
-import { meetingStartDebug } from "~/utils/meetingStartDebug";
+
 import { formatStatus } from "~/utils/meetingStatusLabels";
 
 export default function Home() {
@@ -47,11 +46,7 @@ export default function Home() {
           return;
         }
         setMeetingSessions(sessions);
-        meetingStartDebug("dashboard", "dashboard fetched sessions", {
-          sessionCount: sessions.length,
-          activeSessions: sessions.filter((session) => isActiveMeetingStatus(session.status, true))
-            .length,
-        });
+
         setError(null);
       })
       .catch((cause: unknown) => {
@@ -94,11 +89,7 @@ export default function Home() {
   );
   const allActiveMeetings = useMemo(() => {
     const active = meetingItems.filter(isActiveMeetingItem);
-    meetingStartDebug("dashboard", "activeSessions filtering result", {
-      total: meetingItems.length,
-      active: active.length,
-      inactive: meetingItems.length - active.length,
-    });
+
     return sortByCreatedAtDesc(active);
   }, [meetingItems]);
   const activeMeetings = useMemo(() => allActiveMeetings.slice(0, 3), [allActiveMeetings]);

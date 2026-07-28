@@ -56,7 +56,9 @@ describe("AiFinalSummaryPanel", () => {
     expect(both.container.querySelector(".md\\:grid-cols-2")).not.toBeNull();
     both.unmount();
 
-    const actionsOnly = render(<AiFinalSummaryPanel final={finalWith({ nextMeetingTopics: [] })} />);
+    const actionsOnly = render(
+      <AiFinalSummaryPanel final={finalWith({ nextMeetingTopics: [] })} />,
+    );
     expect(actionsOnly.container.querySelector(".md\\:grid-cols-2")).toBeNull();
     expect(screen.getByText("アクションアイテム")).toBeTruthy();
   });

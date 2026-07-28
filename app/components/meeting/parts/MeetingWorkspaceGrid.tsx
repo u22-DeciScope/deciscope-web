@@ -21,7 +21,6 @@ import type {
   LiveAnalysisMeta,
   TranscriptSessionConnectionStatus,
 } from "~/hooks/useMeetingTranscriptSession";
-import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
 // タイムライン(左カラム)の開閉状態を会議中(タブを閉じるまで)維持するためのキー。
 const TIMELINE_COLLAPSED_STORAGE_KEY = "deciscope.meeting.timelineCollapsed";
@@ -92,32 +91,6 @@ export function MeetingWorkspaceGrid({
   );
   const highlightTimerRef = useRef<number | null>(null);
   const livePayload = (liveAnalysis?.payload as LiveAnalysisPayload | null) ?? null;
-  const lifecycleSnapshotRef = useRef({
-    sessionId: sessionId || null,
-    pathname: typeof window === "undefined" ? null : window.location.pathname,
-    treeVersion,
-    nodeCount: treeNodes.length,
-    analysisVersion,
-  });
-  lifecycleSnapshotRef.current = {
-    sessionId: sessionId || null,
-    pathname: typeof window === "undefined" ? null : window.location.pathname,
-    treeVersion,
-    nodeCount: treeNodes.length,
-    analysisVersion,
-  };
-  useEffect(() => {
-    meetingStartDebug("meeting-page", "MeetingWorkspaceGrid mounted", {
-      ...lifecycleSnapshotRef.current,
-      timestamp: new Date().toISOString(),
-    });
-    return () => {
-      meetingStartDebug("meeting-page", "MeetingWorkspaceGrid unmounted", {
-        ...lifecycleSnapshotRef.current,
-        timestamp: new Date().toISOString(),
-      });
-    };
-  }, []);
   const liveItems = useMemo(
     () => (livePayload?.items ?? []).filter((item) => item.status !== "dismissed"),
     [livePayload],

@@ -13,7 +13,7 @@ import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "~/api/core/apiClient";
 import { fetchMe, logoutSession, type BackendSession } from "~/api/auth/authApi";
 import { signOutOfFirebase } from "~/api/firebase/firebaseAuthClient";
-import { meetingStartDebug } from "~/utils/meetingStartDebug";
+
 import { performSecureLogout } from "~/utils/secureLogout";
 import { markIntentionalTreeTeardown } from "~/utils/clientDiagnostics/treeEmptiness";
 
@@ -72,20 +72,13 @@ export function AuthenticatedSessionProvider({ children }: { children: ReactNode
   useEffect(() => {
     let active = true;
     const generation = authenticationGenerationRef.current;
-    meetingStartDebug("auth-guard", "fetchMe started", {
-      route: location.pathname,
-      hadCachedSession: Boolean(cachedBackendSession),
-    });
+
     fetchMe()
       .then((value) => {
         if (active && authenticationGenerationRef.current === generation) {
           cachedBackendSession = value;
           setSession(value);
           setStatus("authenticated");
-          meetingStartDebug("auth-guard", "fetchMe succeeded", {
-            route: location.pathname,
-            workspaceCount: value.workspaces.length,
-          });
         }
       })
       .catch((cause: unknown) => {
@@ -102,11 +95,6 @@ export function AuthenticatedSessionProvider({ children }: { children: ReactNode
         } else {
           setStatus(nextStatus);
         }
-        meetingStartDebug("auth-guard", "fetchMe failed", {
-          route: location.pathname,
-          status: nextStatus,
-          message: resolved.message,
-        });
       });
     return () => {
       active = false;
@@ -117,7 +105,7 @@ export function AuthenticatedSessionProvider({ children }: { children: ReactNode
     async function handleUnauthorized() {
       clearLocalAuthentication();
       notifyAuthenticationCleared();
-      meetingStartDebug("auth-guard", "unauthorized event received", { route: location.pathname });
+
       await signOutOfFirebase().catch(() => undefined);
     }
     window.addEventListener("deciscope:unauthorized", handleUnauthorized);
@@ -146,10 +134,6 @@ export function AuthenticatedSessionProvider({ children }: { children: ReactNode
       setSession(nextSession);
       setStatus("authenticated");
       setError(null);
-      meetingStartDebug("auth-guard", "authenticated session changed", {
-        route: location.pathname,
-        workspaceCount: nextSession.workspaces.length,
-      });
     }
     window.addEventListener(authenticatedSessionChangedEvent, handleAuthenticatedSessionChanged);
     return () =>

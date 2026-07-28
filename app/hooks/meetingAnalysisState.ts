@@ -474,26 +474,6 @@ export function selectedAnalysisTree(state: MeetingAnalysisState): SelectedAnaly
   };
 }
 
-export function analysisSelectionDebugSnapshot(state: MeetingAnalysisState) {
-  const selected = selectedAnalysisTree(state);
-  const livePayload = state.liveAnalysis?.payload as LiveAnalysisPayload | null;
-  return {
-    sessionStatus: state.analysisRuntimeStatus.meetingStatus,
-    liveStatus: state.analysisRuntimeStatus.liveStatus,
-    liveAnalysisVersion: state.analysisRuntimeStatus.liveVersion,
-    liveTreeVersion: livePayload?.treeVersion ?? null,
-    liveNodeCount: livePayload?.tree?.nodes?.length ?? 0,
-    finalStatus: state.analysisRuntimeStatus.finalStatus,
-    finalAnalysisVersion: state.analysisRuntimeStatus.finalVersion,
-    finalTreeVersion: state.finalTreeSnapshot?.treeVersion ?? null,
-    finalNodeCount: state.finalTreeSnapshot?.tree?.nodes?.length ?? 0,
-    selectedAnalysisType: selected.source,
-    selectedTreeVersion: selected.treeVersion,
-    selectedNodeCount: selected.tree?.nodes?.length ?? 0,
-    selectionReason: selected.selectionReason,
-  };
-}
-
 type TreeCandidate = {
   treeVersion: number | null;
   updatedAt?: string;

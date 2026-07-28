@@ -86,18 +86,6 @@ type TranscriptHistoryResult = {
   unavailable: boolean;
 };
 
-export function maskWebSocketUrl(value: string) {
-  try {
-    const url = new URL(value);
-    if (url.searchParams.has("token")) {
-      url.searchParams.set("token", "********");
-    }
-    return url.toString();
-  } catch {
-    return value.replace(/([?&]token=)[^&]+/i, "$1********");
-  }
-}
-
 export async function fetchWorkspaceMeetingSessionTranscriptSegmentHistory(
   workspaceId: string,
   sessionId: string,
@@ -105,16 +93,6 @@ export async function fetchWorkspaceMeetingSessionTranscriptSegmentHistory(
 ): Promise<TranscriptHistoryResult> {
   const url = buildWorkspaceMeetingSessionTranscriptHistoryUrl(workspaceId, sessionId, limit);
   return fetchTranscriptHistoryUrl(url);
-}
-
-export function buildWorkspaceMeetingSessionTranscriptHistoryDebugUrl(
-  workspaceId: string,
-  sessionId: string,
-  limit = 100,
-) {
-  return maskWebSocketUrl(
-    buildWorkspaceMeetingSessionTranscriptHistoryUrl(workspaceId, sessionId, limit),
-  );
 }
 
 export function buildWorkspaceMeetingSessionTranscriptWebSocketUrl(

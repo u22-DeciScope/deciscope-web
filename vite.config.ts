@@ -5,7 +5,7 @@ import tsconfigPaths from "vite-tsconfig-paths";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, ".", "");
-  const apiProxyTarget = env.API_PROXY_TARGET || "http://100.70.221.61:9090";
+  const apiProxyTarget = env.API_PROXY_TARGET || "http://127.0.0.1:9090";
   const wsProxyTarget = env.WS_PROXY_TARGET || apiProxyTarget.replace(/^http/, "ws");
 
   return {

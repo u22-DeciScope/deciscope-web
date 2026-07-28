@@ -33,11 +33,7 @@ type AiFinalSummaryPanelProps = {
   contextPanel?: React.ReactNode;
 };
 
-export function AiFinalSummaryPanel({
-  final,
-  pending,
-  contextPanel,
-}: AiFinalSummaryPanelProps) {
+export function AiFinalSummaryPanel({ final, pending, contextPanel }: AiFinalSummaryPanelProps) {
   // 会議前コンテキストは入力量によって縦に長く伸びるため、既定では閉じておく。
   // フックは早期returnより手前で呼ぶ必要があるのでここに置く。
   const [contextOpen, setContextOpen] = useState(false);
@@ -148,12 +144,22 @@ export function AiFinalSummaryPanel({
 
         {hasOverview && (
           <ul className="flex flex-col gap-4">
-            {payload.overview?.split('\n').filter(Boolean).map((line, i) => (
-              <li key={i} className="flex items-start gap-3 text-[14px] leading-relaxed" style={{ color: "var(--text-main)" }}>
-                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-60" style={{ color: "var(--brand)" }} />
-                <span>{line}</span>
-              </li>
-            ))}
+            {payload.overview
+              ?.split("\n")
+              .filter(Boolean)
+              .map((line, i) => (
+                <li
+                  key={i}
+                  className="flex items-start gap-3 text-[14px] leading-relaxed"
+                  style={{ color: "var(--text-main)" }}
+                >
+                  <span
+                    className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-60"
+                    style={{ color: "var(--brand)" }}
+                  />
+                  <span>{line}</span>
+                </li>
+              ))}
           </ul>
         )}
 
@@ -184,7 +190,11 @@ export function AiFinalSummaryPanel({
 
           {/* 2. 次回トピック: 下段に対応するタブが無い。 */}
           {hasNextMeetingTopics && (
-            <FinalTextListSection title="次回トピック" items={payload.nextMeetingTopics} icon={HiOutlineQueueList} />
+            <FinalTextListSection
+              title="次回トピック"
+              items={payload.nextMeetingTopics}
+              icon={HiOutlineQueueList}
+            />
           )}
         </div>
       )}
@@ -205,14 +215,23 @@ function FinalSummarySection({
 }) {
   return (
     // 横並びにしたとき2枚のカードの高さが揃うよう、グリッドの行いっぱいに広げる。
-    <div className="ds-surface flex h-full flex-col overflow-hidden rounded-(--ds-radius-panel) border p-8" style={{ borderColor: "var(--ds-border)", boxShadow: "var(--ds-shadow)" }}>
+    <div
+      className="ds-surface flex h-full flex-col overflow-hidden rounded-(--ds-radius-panel) border p-8"
+      style={{ borderColor: "var(--ds-border)", boxShadow: "var(--ds-shadow)" }}
+    >
       <div className="mb-6 flex shrink-0 items-center">
         {Icon ? (
           <Icon className="mr-3 h-5 w-5" style={{ color: "var(--text-muted)" }} />
         ) : (
-          <span className="mr-3 h-2.5 w-2.5 rounded-full" style={{ background: "var(--text-muted)" }} />
+          <span
+            className="mr-3 h-2.5 w-2.5 rounded-full"
+            style={{ background: "var(--text-muted)" }}
+          />
         )}
-        <span className="text-[13px] font-semibold tracking-wide uppercase" style={{ color: "var(--text-muted)" }}>
+        <span
+          className="text-[13px] font-semibold tracking-wide uppercase"
+          style={{ color: "var(--text-muted)" }}
+        >
           {title}
         </span>
         <span
@@ -231,15 +250,19 @@ function FinalSummarySection({
 
 function FinalActionList({ actions }: { actions: FinalSummaryActionItem[] }) {
   return (
-    <FinalSummarySection title="アクションアイテム" count={actions.length} icon={HiClipboardDocumentCheck}>
+    <FinalSummarySection
+      title="アクションアイテム"
+      count={actions.length}
+      icon={HiClipboardDocumentCheck}
+    >
       <ul className="flex flex-col gap-6">
         {actions.map((action, index) => (
           <li key={`${index}:${action.text}`} className="flex flex-col gap-3">
             <span className="font-medium leading-relaxed">{action.text}</span>
             <div className="flex flex-wrap items-center gap-3">
               {action.owner && (
-                <div 
-                  className="flex items-center gap-1.5 rounded-full border px-3 py-1" 
+                <div
+                  className="flex items-center gap-1.5 rounded-full border px-3 py-1"
                   style={{ borderColor: "var(--brand)", color: "var(--brand)" }}
                 >
                   <HiOutlineUser className="h-4 w-4" />
@@ -247,7 +270,10 @@ function FinalActionList({ actions }: { actions: FinalSummaryActionItem[] }) {
                 </div>
               )}
               {action.due && (
-                <span className="rounded-full bg-(--ds-surface-subtle) px-3 py-1 text-[12px] font-semibold" style={{ color: "var(--text-sub)" }}>
+                <span
+                  className="rounded-full bg-(--ds-surface-subtle) px-3 py-1 text-[12px] font-semibold"
+                  style={{ color: "var(--text-sub)" }}
+                >
                   期限: {action.due}
                 </span>
               )}
@@ -264,7 +290,15 @@ function FinalActionList({ actions }: { actions: FinalSummaryActionItem[] }) {
   );
 }
 
-function FinalTextListSection({ title, items, icon }: { title: string; items: string[]; icon?: React.ElementType }) {
+function FinalTextListSection({
+  title,
+  items,
+  icon,
+}: {
+  title: string;
+  items: string[];
+  icon?: React.ElementType;
+}) {
   return (
     <FinalSummarySection title={title} count={items.length} icon={icon}>
       <ul className="flex flex-col gap-4">
