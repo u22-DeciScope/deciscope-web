@@ -112,6 +112,10 @@ function normalizeNumber(value: number | null | undefined): number | null {
 }
 
 function throttleSignature(event: DiagnosticEvent) {
+  const renderPhase =
+    event.event.startsWith("tree_render_") && event.details
+      ? `${String(event.details.phase ?? "")}:${String(event.details.reason ?? "")}`
+      : "";
   return [
     event.event,
     event.sessionId,
@@ -122,6 +126,7 @@ function throttleSignature(event: DiagnosticEvent) {
     event.treeVersion ?? "-",
     event.analysisVersion ?? "-",
     event.nodeCount ?? "-",
+    renderPhase,
   ].join("\0");
 }
 
@@ -316,6 +321,10 @@ export async function flushDiagnostics(): Promise<void> {
   }
   flushInFlight = true;
   const drained = pending.splice(0, pending.length);
+  const highestDrainedSequence = drained.reduce(
+    (highest, event) => Math.max(highest, event.sequence),
+    0,
+  );
   try {
     const batches = groupPendingBatches(drained);
     const sentSequences: number[] = [];
@@ -348,7 +357,21 @@ export async function flushDiagnostics(): Promise<void> {
   } finally {
     flushInFlight = false;
     if (pending.length > 0) {
-      scheduleFlush();
+      // A critical event can arrive while another batch is awaiting its
+      // transport. Send only those newly-arrived events immediately. Failed
+      // events from this batch have an older sequence and stay on the bounded
+      // retry timer, preventing a tight retry loop during an outage.
+      const criticalEventArrivedDuringFlush = pending.some(
+        (event) =>
+          event.sequence > highestDrainedSequence && CRITICAL_DIAGNOSTIC_EVENTS.has(event.event),
+      );
+      if (criticalEventArrivedDuringFlush) {
+        queueMicrotask(() => {
+          void flushDiagnostics();
+        });
+      } else {
+        scheduleFlush();
+      }
     }
   }
 }

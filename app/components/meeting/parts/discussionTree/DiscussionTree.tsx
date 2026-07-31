@@ -189,6 +189,7 @@ export function DiscussionTree({
   }, []);
   return (
     <div
+      data-discussion-tree-panel
       className="flex min-h-80 min-w-0 flex-col overflow-hidden rounded-(--ds-radius-panel) border lg:min-h-0"
       style={{ background: "var(--ds-surface)", borderColor: "var(--ds-border)" }}
     >
@@ -217,7 +218,7 @@ export function DiscussionTree({
       </div>
 
       <div ref={canvasRef} className="relative min-h-0 flex-1" data-testid="discussion-tree-canvas">
-        {displayedNodeCount === 0 ? (
+        {nodes.length === 0 ? (
           <div className="p-4">
             <div
               className="rounded-(--ds-radius-control) border px-4 py-5 text-[12px]"
@@ -246,6 +247,7 @@ export function DiscussionTree({
             >
               <DiscussionFlow
                 sessionId={sessionId}
+                workspaceId={workspaceId}
                 nodes={nodes}
                 edges={edges}
                 analysisItems={analysisItems}
@@ -254,6 +256,7 @@ export function DiscussionTree({
                 layoutSignal={layoutSignal}
                 focusItemRequest={focusItemRequest}
                 treeChanges={treeChanges}
+                analysisVersion={analysisVersion}
                 treeVersion={treeVersion}
                 treeHash={treeHash}
                 observedCanvasSize={observedCanvasSize}
@@ -274,6 +277,16 @@ function discussionTreeRootNodeId(nodes: TreeNodePayload[]) {
   const ids = new Set(nodes.map((node) => node.id));
   const root = nodes.find((node) => !node.parentId || !ids.has(node.parentId));
   return root?.id ?? nodes[0].id;
+}
+
+function diagnosticViewportIsSafe(viewport: { x: number; y: number; zoom: number }) {
+  return (
+    isFiniteViewport(viewport) &&
+    viewport.zoom >= 0.05 &&
+    viewport.zoom <= 4 &&
+    Math.abs(viewport.x) <= 10_000_000 &&
+    Math.abs(viewport.y) <= 10_000_000
+  );
 }
 
 function useDiscussionTreeCanvasSize(ref: React.RefObject<HTMLDivElement | null>) {
@@ -310,6 +323,7 @@ function useDiscussionTreeCanvasSize(ref: React.RefObject<HTMLDivElement | null>
 
 function DiscussionFlow({
   sessionId = "",
+  workspaceId = "",
   nodes,
   edges,
   analysisItems,
@@ -318,6 +332,7 @@ function DiscussionFlow({
   layoutSignal,
   focusItemRequest,
   treeChanges,
+  analysisVersion = null,
   treeVersion = null,
   treeHash,
   observedCanvasSize,
@@ -349,6 +364,9 @@ function DiscussionFlow({
   const reactFlowPaneHeight = useStore((state) => state.height);
   const reactFlowInternalNodeCount = useStore((state) => state.nodeLookup.size);
   const reactFlowInternalEdgeCount = useStore((state) => state.edgeLookup.size);
+  const reactFlowInternalNodeIdSignature = useStore((state) =>
+    [...state.nodeLookup.keys()].sort().join("\0"),
+  );
   const reactFlowNodesInitialized = useNodesInitialized({ includeHiddenNodes: true });
   // React Flow v12は実DOMが0x0でも内部storeへ500x500をfallback設定する。
   // 外側canvasのResizeObserver値を正本にし、未対応環境だけ内部storeへfallbackする。
@@ -561,10 +579,30 @@ function DiscussionFlow({
     if (propDuplicateNodeIds.length > 0) reasons.push("duplicate_node");
     if (layoutResult.outputNodeCount !== flowNodes.length) reasons.push("node_count_mismatch");
     if (layoutResult.bounds === null) reasons.push("invalid_bounds");
+    const rootNodeId = discussionTreeRootNodeId(nodes);
+    if (nodes.length > 0 && !displayNodes.some((node) => node.id === rootNodeId)) {
+      reasons.push("root_filtered_out");
+    }
+    if (orderedVisibleNodes.length > 0 && layoutResult.outputNodeCount === 0) {
+      reasons.push("layout_output_empty");
+    }
     return reasons;
-  }, [flowNodes.length, layoutResult, propDuplicateNodeIds.length]);
+  }, [
+    displayNodes,
+    flowNodes.length,
+    layoutResult,
+    nodes,
+    orderedVisibleNodes.length,
+    propDuplicateNodeIds.length,
+  ]);
   const lastGoodRenderFrameRef = useRef<DiscussionRenderFrame | null>(null);
   const lastGoodRenderFrameSessionRef = useRef(sessionId);
+  const previousCandidateFrameRef = useRef<{
+    frame: DiscussionRenderFrame;
+    nodeIdSignature: string;
+    usable: boolean;
+    sessionId: string;
+  } | null>(null);
   const [syncRejectedSignature, setSyncRejectedSignature] = useState<string | null>(null);
   const flowRootRef = useRef<HTMLDivElement>(null);
   const [renderedDomNodeCount, setRenderedDomNodeCount] = useState(0);
@@ -580,8 +618,63 @@ function DiscussionFlow({
     nodesInitialized: reactFlowNodesInitialized,
     renderedDomNodeCount,
   };
-
+  const missingEdgeEndpointCount = useMemo(() => {
+    const ids = new Set(nodes.map((node) => node.id));
+    return edges.filter((edge) => !ids.has(edge.source) || !ids.has(edge.target)).length;
+  }, [edges, nodes]);
+  const lastHealthyTreeVersionRef = useRef<number | null>(null);
+  const lastHealthyRenderRef = useRef<{
+    canonicalNodeCount: number;
+    reactFlowNodeCount: number;
+    renderedDomNodeCount: number;
+    containerWidth: number;
+    containerHeight: number;
+  } | null>(null);
+  const healthyDiagnosticSignatureRef = useRef("");
+  const anomalyDiagnosticSignatureRef = useRef("");
+  const zeroSizeObservedRef = useRef(false);
   const canvasUnavailable = paneWidth <= 0 || paneHeight <= 0;
+  const candidateNodeIdSignature = candidateFrame.nodes
+    .map((node) => node.id)
+    .sort()
+    .join("\0");
+  const committedDOMNodeIdSignature = [
+    ...(flowRootRef.current?.querySelectorAll<HTMLElement>(".react-flow__node[data-id]") ?? []),
+  ]
+    .map((element) => element.dataset.id ?? "")
+    .sort()
+    .join("\0");
+  const previousCandidate = previousCandidateFrameRef.current;
+  if (
+    previousCandidate?.usable &&
+    previousCandidate.sessionId === sessionId &&
+    previousCandidate.nodeIdSignature === reactFlowInternalNodeIdSignature &&
+    previousCandidate.nodeIdSignature === committedDOMNodeIdSignature
+  ) {
+    let viewport = previousCandidate.frame.viewport;
+    try {
+      const currentViewport = getViewport();
+      if (diagnosticViewportIsSafe(currentViewport)) {
+        viewport = currentViewport;
+      }
+    } catch {
+      // A fallback ref update must never make the render path fail.
+    }
+    lastGoodRenderFrameSessionRef.current = sessionId;
+    lastGoodRenderFrameRef.current = {
+      ...previousCandidate.frame,
+      viewport,
+    };
+  }
+  previousCandidateFrameRef.current = {
+    frame: candidateFrame,
+    nodeIdSignature: candidateNodeIdSignature,
+    usable:
+      !canvasUnavailable &&
+      candidateFrameInvalidReasons.length === 0 &&
+      candidateFrame.nodes.length > 0,
+    sessionId,
+  };
   const frameRejected =
     candidateFrameInvalidReasons.length > 0 ||
     canvasUnavailable ||
@@ -594,6 +687,99 @@ function DiscussionFlow({
   const renderedFlowNodes = renderedFrame.nodes;
   const renderedFlowEdges = renderedFrame.edges;
   const renderedBounds = renderedFrame.bounds;
+  const renderDiagnosticDetails = useCallback(
+    (
+      reason: string,
+      observation = syncObservationRef.current,
+      viewport = getViewport(),
+      renderCommitted = false,
+    ) => {
+      const root = flowRootRef.current;
+      const canvasRect = root?.getBoundingClientRect();
+      const panel = root?.closest<HTMLElement>("[data-discussion-tree-panel]") ?? null;
+      let cssDisplay = "";
+      let cssVisibility = "";
+      let cssOpacity = "";
+      try {
+        const style =
+          panel && typeof window !== "undefined" ? window.getComputedStyle(panel) : null;
+        cssDisplay = style?.display ?? "";
+        cssVisibility = style?.visibility ?? "";
+        cssOpacity = style?.opacity ?? "";
+      } catch {
+        // CSS inspection is diagnostic-only and must never affect rendering.
+      }
+      const lastHealthy = lastHealthyRenderRef.current;
+      const safeViewport = diagnosticViewportIsSafe(viewport);
+      return {
+        component: "tree_render_diagnostics",
+        reason,
+        canonicalNodeCount: nodes.length,
+        storeNodeCount: nodes.length,
+        activeNodeCount: nodes.length,
+        filteredNodeCount: displayNodes.length,
+        layoutInputNodeCount: orderedVisibleNodes.length,
+        layoutOutputNodeCount: layoutResult.outputNodeCount,
+        reactFlowNodeCount: renderedFlowNodes.length,
+        reactFlowEdgeCount: renderedFlowEdges.length,
+        reactFlowInternalNodeCount: observation.internalNodeCount,
+        reactFlowInternalEdgeCount: observation.internalEdgeCount,
+        renderedDomNodeCount: observation.renderedDomNodeCount,
+        rootNodeId: discussionTreeRootNodeId(nodes),
+        rootPresentInDisplay:
+          nodes.length === 0 ||
+          displayNodes.some((node) => node.id === discussionTreeRootNodeId(nodes)),
+        missingParentCount: layoutResult.missingParentNodeIds.length,
+        missingEdgeEndpointCount,
+        containerWidth: paneWidth,
+        containerHeight: paneHeight,
+        canvasWidth: canvasRect?.width ?? observedCanvasSize?.width ?? paneWidth,
+        canvasHeight: canvasRect?.height ?? observedCanvasSize?.height ?? paneHeight,
+        resizeObserverWidth: observedCanvasSize?.width ?? null,
+        resizeObserverHeight: observedCanvasSize?.height ?? null,
+        viewportX: safeViewport ? viewport.x : null,
+        viewportY: safeViewport ? viewport.y : null,
+        zoom: safeViewport ? viewport.zoom : null,
+        viewportValid: safeViewport,
+        layoutStarted: true,
+        layoutCompleted: !layoutResult.layoutError,
+        layoutError: layoutResult.layoutError ? "layout_exception" : "",
+        usedLayoutFallback: layoutResult.usedFallback,
+        renderCommitted,
+        nodesInitialized: observation.nodesInitialized,
+        componentKey: flowInstanceIdRef.current,
+        panelVisible:
+          cssDisplay !== "none" &&
+          cssVisibility !== "hidden" &&
+          cssOpacity !== "0" &&
+          paneWidth > 0 &&
+          paneHeight > 0,
+        selectedTab: "discussion_tree",
+        cssDisplay,
+        cssVisibility,
+        cssOpacity,
+        usingLastKnownGoodFrame: usingLastGoodFrame,
+        lastHealthyTreeVersion: lastHealthyTreeVersionRef.current,
+        currentTreeVersion: treeVersion,
+        previousHealthy: lastHealthy,
+      };
+    },
+    [
+      displayNodes,
+      getViewport,
+      layoutResult,
+      missingEdgeEndpointCount,
+      nodes,
+      observedCanvasSize,
+      orderedVisibleNodes.length,
+      paneHeight,
+      paneWidth,
+      renderedFlowEdges.length,
+      renderedFlowNodes.length,
+      treeVersion,
+      usingLastGoodFrame,
+    ],
+  );
 
   useEffect(() => {
     if (lastGoodRenderFrameSessionRef.current === sessionId) {
@@ -619,6 +805,55 @@ function DiscussionFlow({
     observer.observe(root, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, []);
+
+  // Capture a frame as soon as the exact candidate ID set is committed both to
+  // React Flow's store and to the DOM. The deeper synchronization check below
+  // remains the source for healthy-state diagnostics, but waiting its settle
+  // window before recording the visual LKG leaves a gap when a valid frame is
+  // immediately followed by a 0x0 resize and a new snapshot. Comparing IDs,
+  // not just counts, also protects same-sized reparent transitions.
+  useEffect(() => {
+    if (
+      canvasUnavailable ||
+      candidateFrameInvalidReasons.length > 0 ||
+      candidateFrame.nodes.length === 0
+    ) {
+      return;
+    }
+    const candidateNodeIdSignature = candidateFrame.nodes
+      .map((node) => node.id)
+      .sort()
+      .join("\0");
+    const renderedNodeIdSignature = [
+      ...(flowRootRef.current?.querySelectorAll<HTMLElement>(".react-flow__node[data-id]") ?? []),
+    ]
+      .map((element) => element.dataset.id ?? "")
+      .sort()
+      .join("\0");
+    if (
+      reactFlowInternalNodeIdSignature !== candidateNodeIdSignature ||
+      renderedNodeIdSignature !== candidateNodeIdSignature
+    ) {
+      return;
+    }
+    const viewport = getViewport();
+    if (!diagnosticViewportIsSafe(viewport)) {
+      return;
+    }
+    lastGoodRenderFrameSessionRef.current = sessionId;
+    lastGoodRenderFrameRef.current = {
+      ...candidateFrame,
+      viewport,
+    };
+  }, [
+    candidateFrame,
+    candidateFrameInvalidReasons.length,
+    canvasUnavailable,
+    getViewport,
+    reactFlowInternalNodeIdSignature,
+    renderedDomNodeCount,
+    sessionId,
+  ]);
 
   // Promote a candidate frame to LKG only after the real React Flow store and
   // DOM have converged. A candidate that still has an internal-count mismatch,
@@ -657,8 +892,53 @@ function DiscussionFlow({
         setSyncRejectedSignature((current) =>
           current === candidateFrame.signature ? null : current,
         );
+        lastHealthyTreeVersionRef.current = treeVersion;
+        lastHealthyRenderRef.current = {
+          canonicalNodeCount: nodes.length,
+          reactFlowNodeCount: candidateFrame.nodes.length,
+          renderedDomNodeCount: observation.renderedDomNodeCount,
+          containerWidth: paneWidth,
+          containerHeight: paneHeight,
+        };
+        if (healthyDiagnosticSignatureRef.current !== candidateFrame.signature) {
+          healthyDiagnosticSignatureRef.current = candidateFrame.signature;
+          recordDiagnosticEvent("tree_render_state", {
+            sessionId,
+            workspaceId,
+            treeVersion,
+            analysisVersion,
+            nodeCount: nodes.length,
+            rootNodeId: discussionTreeRootNodeId(nodes),
+            details: renderDiagnosticDetails("render_commit_healthy", observation, viewport, true),
+          });
+        }
 
         return;
+      }
+      if (nodes.length > 0) {
+        const reason =
+          candidateFrame.nodes.length === 0
+            ? "react_flow_props_empty"
+            : observation.internalNodeCount === 0
+              ? "react_flow_store_empty"
+              : observation.renderedDomNodeCount === 0
+                ? "rendered_dom_empty"
+                : !diagnosticViewportIsSafe(viewport)
+                  ? "invalid_viewport"
+                  : "render_commit_timeout";
+        const signature = `${candidateFrame.signature}:${reason}`;
+        if (anomalyDiagnosticSignatureRef.current !== signature) {
+          anomalyDiagnosticSignatureRef.current = signature;
+          recordDiagnosticEvent("tree_render_anomaly", {
+            sessionId,
+            workspaceId,
+            treeVersion,
+            analysisVersion,
+            nodeCount: nodes.length,
+            rootNodeId: discussionTreeRootNodeId(nodes),
+            details: renderDiagnosticDetails(reason, observation, viewport, false),
+          });
+        }
       }
       if (lastGoodRenderFrameRef.current) {
         setSyncRejectedSignature(candidateFrame.signature);
@@ -670,10 +950,108 @@ function DiscussionFlow({
     candidateFrameInvalidReasons.length,
     canvasUnavailable,
     getViewport,
+    analysisVersion,
+    nodes,
+    paneHeight,
+    paneWidth,
+    renderDiagnosticDetails,
     sessionId,
     syncRejectedSignature,
     treeVersion,
     treeHash,
+    workspaceId,
+  ]);
+
+  useEffect(() => {
+    if (nodes.length === 0) {
+      zeroSizeObservedRef.current = false;
+      return;
+    }
+    if (canvasUnavailable) {
+      zeroSizeObservedRef.current = true;
+      const signature = `${candidateFrame.signature}:container_zero_size`;
+      if (anomalyDiagnosticSignatureRef.current !== signature) {
+        anomalyDiagnosticSignatureRef.current = signature;
+        recordDiagnosticEvent("tree_render_anomaly", {
+          sessionId,
+          workspaceId,
+          treeVersion,
+          analysisVersion,
+          nodeCount: nodes.length,
+          rootNodeId: discussionTreeRootNodeId(nodes),
+          details: renderDiagnosticDetails(
+            paneWidth <= 0 && paneHeight <= 0
+              ? "container_zero_width_and_height"
+              : paneWidth <= 0
+                ? "container_zero_width"
+                : "container_zero_height",
+          ),
+        });
+      }
+      return;
+    }
+    if (zeroSizeObservedRef.current) {
+      zeroSizeObservedRef.current = false;
+      recordDiagnosticEvent("tree_render_recovery", {
+        sessionId,
+        workspaceId,
+        treeVersion,
+        analysisVersion,
+        nodeCount: nodes.length,
+        rootNodeId: discussionTreeRootNodeId(nodes),
+        details: {
+          ...renderDiagnosticDetails("container_size_recovered"),
+          recoveryAttempted: true,
+          recoveryResult: "fit_view_requeued",
+        },
+      });
+    }
+  }, [
+    analysisVersion,
+    candidateFrame.signature,
+    canvasUnavailable,
+    nodes,
+    paneHeight,
+    paneWidth,
+    renderDiagnosticDetails,
+    sessionId,
+    treeVersion,
+    workspaceId,
+  ]);
+
+  useEffect(() => {
+    if (nodes.length === 0 || candidateFrameInvalidReasons.length === 0) {
+      return;
+    }
+    const reason =
+      layoutResult.inputNodeCount > 0 && layoutResult.outputNodeCount === 0
+        ? "layout_output_empty"
+        : candidateFrameInvalidReasons[0];
+    const signature = `${candidateFrame.signature}:${reason}`;
+    if (anomalyDiagnosticSignatureRef.current === signature) {
+      return;
+    }
+    anomalyDiagnosticSignatureRef.current = signature;
+    recordDiagnosticEvent("tree_render_anomaly", {
+      sessionId,
+      workspaceId,
+      treeVersion,
+      analysisVersion,
+      nodeCount: nodes.length,
+      rootNodeId: discussionTreeRootNodeId(nodes),
+      details: renderDiagnosticDetails(reason),
+    });
+  }, [
+    analysisVersion,
+    candidateFrame.signature,
+    candidateFrameInvalidReasons,
+    layoutResult.inputNodeCount,
+    layoutResult.outputNodeCount,
+    nodes,
+    renderDiagnosticDetails,
+    sessionId,
+    treeVersion,
+    workspaceId,
   ]);
 
   const restoredLkgSignatureRef = useRef("");
@@ -692,15 +1070,32 @@ function DiscussionFlow({
     if (isFiniteViewport(lastGoodRenderFrame.viewport)) {
       void setViewport(lastGoodRenderFrame.viewport, { duration: 0 });
     }
+    recordDiagnosticEvent("tree_render_recovery", {
+      sessionId,
+      workspaceId,
+      treeVersion,
+      analysisVersion,
+      nodeCount: nodes.length,
+      rootNodeId: discussionTreeRootNodeId(nodes),
+      details: {
+        ...renderDiagnosticDetails(reason),
+        recoveryAttempted: true,
+        recoveryResult: "last_known_good_frame_restored",
+      },
+    });
   }, [
+    analysisVersion,
     candidateFrame.signature,
     candidateFrameInvalidReasons,
     canvasUnavailable,
     lastGoodRenderFrame,
+    nodes,
+    renderDiagnosticDetails,
     sessionId,
     setViewport,
     treeVersion,
     usingLastGoodFrame,
+    workspaceId,
   ]);
 
   // 初回(ノードが空→非空になった最初)だけ自動フィットする。0x0のcontainerで
@@ -721,14 +1116,57 @@ function DiscussionFlow({
       }
       deferredFitRequestRef.current = null;
       fitViewPendingRef.current = true;
+      recordDiagnosticEvent("tree_render_state", {
+        sessionId,
+        workspaceId,
+        treeVersion,
+        analysisVersion,
+        nodeCount: nodes.length,
+        rootNodeId: discussionTreeRootNodeId(nodes),
+        details: {
+          ...renderDiagnosticDetails(reason),
+          phase: "fit_view_started",
+          fitViewReason: reason,
+        },
+      });
 
       void fitView({ padding: 0.2, duration })
         .then((applied) => {
           if (applied && reason === "initial") {
             didInitialFitRef.current = true;
           }
+          recordDiagnosticEvent(applied ? "tree_render_recovery" : "tree_render_anomaly", {
+            sessionId,
+            workspaceId,
+            treeVersion,
+            analysisVersion,
+            nodeCount: nodes.length,
+            rootNodeId: discussionTreeRootNodeId(nodes),
+            details: {
+              ...renderDiagnosticDetails(reason),
+              phase: "fit_view_completed",
+              fitViewReason: reason,
+              recoveryAttempted: true,
+              recoveryResult: applied ? "success" : "not_applied",
+            },
+          });
         })
         .catch(() => {
+          recordDiagnosticEvent("tree_render_anomaly", {
+            sessionId,
+            workspaceId,
+            treeVersion,
+            analysisVersion,
+            nodeCount: nodes.length,
+            rootNodeId: discussionTreeRootNodeId(nodes),
+            details: {
+              ...renderDiagnosticDetails(reason),
+              phase: "fit_view_failed",
+              fitViewReason: reason,
+              recoveryAttempted: true,
+              recoveryResult: "failed",
+            },
+          });
           if (
             lastGoodRenderFrameRef.current &&
             lastGoodRenderFrameRef.current.signature !== candidateFrame.signature
@@ -744,7 +1182,19 @@ function DiscussionFlow({
         });
       return true;
     },
-    [fitView, candidateFrame.signature, paneHeight, paneWidth, renderedFlowNodes.length],
+    [
+      analysisVersion,
+      candidateFrame.signature,
+      fitView,
+      nodes,
+      paneHeight,
+      paneWidth,
+      renderDiagnosticDetails,
+      renderedFlowNodes.length,
+      sessionId,
+      treeVersion,
+      workspaceId,
+    ],
   );
   useEffect(() => {
     const deferred = deferredFitRequestRef.current;
@@ -764,7 +1214,7 @@ function DiscussionFlow({
       return;
     }
     const viewport = getViewport();
-    const invalidViewport = !isFiniteViewport(viewport) || renderedBounds === null;
+    const invalidViewport = !diagnosticViewportIsSafe(viewport) || renderedBounds === null;
     const allNodesOutside = !anyTargetVisible(
       renderedFlowNodes.map((node) => node.position),
       viewport,
@@ -786,15 +1236,29 @@ function DiscussionFlow({
       return;
     }
     viewportRecoverySignatureRef.current = signature;
+    recordDiagnosticEvent("tree_render_anomaly", {
+      sessionId,
+      workspaceId,
+      treeVersion,
+      analysisVersion,
+      nodeCount: nodes.length,
+      rootNodeId: discussionTreeRootNodeId(nodes),
+      details: renderDiagnosticDetails(reason, syncObservationRef.current, viewport),
+    });
     requestFitView(reason, 200);
   }, [
+    analysisVersion,
     renderedFlowNodes,
     getViewport,
     renderedBounds,
     paneHeight,
     paneWidth,
+    nodes,
+    renderDiagnosticDetails,
     requestFitView,
+    sessionId,
     treeVersion,
+    workspaceId,
   ]);
 
   // layoutSignal(タイムライン列の開閉など、このパネル自身のライブ更新とは

@@ -7,6 +7,13 @@ import type {
   TreeEdgePayload,
   TreeNodePayload,
 } from "~/api/meetings/meetingRuntimeTypes";
+import {
+  configureClientDiagnosticsForTest,
+  pendingDiagnosticEventsForTest,
+  recentDiagnosticEvents,
+  resetClientDiagnosticsForTest,
+} from "~/utils/clientDiagnostics/clientDiagnostics";
+import type { DiagnosticBatch } from "~/utils/clientDiagnostics/diagnosticsTypes";
 
 const flow = vi.hoisted(() => ({
   fitView: vi.fn(() => Promise.resolve(true)),
@@ -93,6 +100,7 @@ const updatedEdges: TreeEdgePayload[] = [
 describe("DiscussionTree structural viewport focus", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetClientDiagnosticsForTest();
     flow.getViewport.mockReturnValue({ x: -2_000, y: 0, zoom: 1 });
     flow.pane.width = 900;
     flow.pane.height = 600;
@@ -259,11 +267,133 @@ describe("DiscussionTree structural viewport focus", () => {
 
     expect(screen.getAllByTestId(/flow-node-/)).toHaveLength(initialNodes.length);
     expect(flow.fitView).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(
+        recentDiagnosticEvents(100).some(
+          (event) =>
+            event.event === "tree_render_anomaly" &&
+            String(event.details?.reason).startsWith("container_zero_"),
+        ),
+      ).toBe(true),
+    );
 
     flow.pane.width = 900;
     flow.pane.height = 600;
     view.rerender(<DiscussionTree nodes={initialNodes} edges={initialEdges} />);
     await waitFor(() => expect(flow.fitView).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(
+        recentDiagnosticEvents(100).some(
+          (event) =>
+            event.event === "tree_render_recovery" &&
+            event.details?.reason === "container_size_recovered",
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("sends an API diagnostic when canonical store nodes are filtered to zero", async () => {
+    const sent: DiagnosticBatch[] = [];
+    configureClientDiagnosticsForTest({
+      networkEnabled: true,
+      transport: {
+        send: async (batch) => {
+          sent.push(batch);
+          return true;
+        },
+        sendSync: () => true,
+      },
+    });
+    const canonicalNodes: TreeNodePayload[] = Array.from({ length: 10 }, (_, index) => ({
+      id: index === 0 ? "root" : `node-${index}`,
+      kind: index === 0 ? "topic" : "todo",
+      parentId: index === 0 ? undefined : "root",
+      label: `node ${index}`,
+    }));
+    const canonicalEdges: TreeEdgePayload[] = canonicalNodes.slice(1).map((node) => ({
+      id: `root-${node.id}`,
+      source: "root",
+      target: node.id,
+    }));
+    const tentativeItems: AnalysisItem[] = canonicalNodes.map((node) => ({
+      id: node.id,
+      kind: "todo",
+      severity: "medium",
+      title: node.label ?? node.id,
+      body: "",
+      status: "open",
+      classificationStatus: "tentative",
+    }));
+
+    render(
+      <DiscussionTree
+        sessionId="session_render_empty"
+        workspaceId="workspace_render"
+        nodes={canonicalNodes}
+        edges={canonicalEdges}
+        analysisItems={tentativeItems}
+        treeVersion={10}
+      />,
+    );
+
+    await waitFor(() => {
+      const anomaly = recentDiagnosticEvents(100).find(
+        (event) => event.event === "tree_render_anomaly",
+      );
+      expect(anomaly?.details).toMatchObject({
+        storeNodeCount: 10,
+        reactFlowNodeCount: 0,
+        renderedDomNodeCount: 0,
+        currentTreeVersion: 10,
+        renderCommitted: false,
+      });
+    });
+    await waitFor(() =>
+      expect(
+        sent
+          .flatMap((batch) => batch.events)
+          .some((event) => event.event === "tree_render_anomaly"),
+        JSON.stringify({
+          sent: sent.flatMap((batch) => batch.events).map((event) => event.event),
+          pending: pendingDiagnosticEventsForTest().map((event) => ({
+            event: event.event,
+            sessionId: event.sessionId,
+            workspaceId: event.workspaceId,
+          })),
+        }),
+      ).toBe(true),
+    );
+  });
+
+  it("keeps rendering when the diagnostics transport fails", async () => {
+    configureClientDiagnosticsForTest({
+      networkEnabled: true,
+      transport: {
+        send: async () => {
+          throw new Error("diagnostics unavailable");
+        },
+        sendSync: () => {
+          throw new Error("diagnostics beacon unavailable");
+        },
+      },
+    });
+
+    render(
+      <DiscussionTree
+        sessionId="session_render_transport_failure"
+        workspaceId="workspace_render"
+        nodes={initialNodes}
+        edges={initialEdges}
+      />,
+    );
+
+    expect(screen.getAllByTestId(/flow-node-/)).toHaveLength(initialNodes.length);
+    await waitFor(() =>
+      expect(
+        recentDiagnosticEvents(100).some((event) => event.event.startsWith("tree_render_")),
+      ).toBe(true),
+    );
+    expect(screen.getAllByTestId(/flow-node-/)).toHaveLength(initialNodes.length);
   });
 
   it("retries a layout fit requested while another fitView is still pending", async () => {
@@ -317,6 +447,12 @@ describe("DiscussionTree structural viewport focus", () => {
     await waitFor(() => expect(flow.fitView).toHaveBeenCalled());
     expect(flow.setCenter).not.toHaveBeenCalled();
     expect(screen.getAllByTestId(/flow-node-/)).toHaveLength(updatedNodes.length);
+    expect(
+      recentDiagnosticEvents(100).some(
+        (event) =>
+          event.event === "tree_render_anomaly" && event.details?.reason === "invalid_viewport",
+      ),
+    ).toBe(true);
   });
 
   it("shows a non-empty fallback when React Flow rendering throws", () => {

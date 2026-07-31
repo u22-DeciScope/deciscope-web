@@ -18,6 +18,9 @@ export const DIAGNOSTIC_EVENT_NAMES = [
   "snapshot_rejected",
   "tree_state_changed",
   "tree_became_empty",
+  "tree_render_state",
+  "tree_render_anomaly",
+  "tree_render_recovery",
   "store_reset_requested",
   "store_reset_executed",
   "route_changed",
@@ -29,6 +32,8 @@ export type DiagnosticEventName = (typeof DIAGNOSTIC_EVENT_NAMES)[number];
 // 検出した異常。記録後ただちに送信する。
 export const CRITICAL_DIAGNOSTIC_EVENTS: ReadonlySet<DiagnosticEventName> = new Set([
   "tree_became_empty",
+  "tree_render_anomaly",
+  "tree_render_recovery",
   "react_error_captured",
 ]);
 

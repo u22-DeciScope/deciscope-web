@@ -29,11 +29,13 @@ import { PreMeetingContextPanel } from "~/components/meeting/summary/PreMeetingC
 import { SessionReviewWorkspace } from "~/components/meeting/summary/SessionReviewWorkspace";
 import { SessionSummaryHeader } from "~/components/meeting/summary/SessionSummaryHeader";
 import { StatusPanel } from "~/components/meeting/summary/StatusPanel";
+import { summaryAnalysisLastKnownGood } from "~/components/meeting/summary/summaryAnalysisLkg";
 import {
   hasPreMeetingContext,
   summaryFromMeetingSession,
 } from "~/components/meeting/summary/meetingSummaryViewModel";
 import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
+import { recordDiagnosticEvent } from "~/utils/clientDiagnostics/clientDiagnostics";
 
 import { boundedRetryDelay } from "~/utils/boundedRetry";
 
@@ -47,14 +49,26 @@ export default function MeetingSummary() {
   const { id } = useParams();
   const { workspaceId } = useAuthenticatedLayout();
   const meetingsPath = workspacePath(workspaceId, "/meetings");
+  const cachedAnalysis = useMemo(
+    () => (id ? summaryAnalysisLastKnownGood(id, workspaceId) : null),
+    [id, workspaceId],
+  );
   const [session, setSession] = useState<MeetingSessionDto | null>(null);
   const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([]);
-  const [tree, setTree] = useState<TreeUpdatePayload | null>(null);
-  const [treeSnapshot, setTreeSnapshot] = useState<TreeSnapshotPayload | null>(null);
-  const [analysisItems, setAnalysisItems] = useState<AnalysisItem[]>([]);
-  const [finalAnalysis, setFinalAnalysis] = useState<MeetingAIAnalysis | null>(null);
+  const [tree, setTree] = useState<TreeUpdatePayload | null>(() => cachedAnalysis?.tree ?? null);
+  const [treeSnapshot, setTreeSnapshot] = useState<TreeSnapshotPayload | null>(
+    () => cachedAnalysis?.treeSnapshot ?? null,
+  );
+  const [analysisItems, setAnalysisItems] = useState<AnalysisItem[]>(
+    () => cachedAnalysis?.analysisItems ?? [],
+  );
+  const [finalAnalysis, setFinalAnalysis] = useState<MeetingAIAnalysis | null>(
+    () => cachedAnalysis?.finalAnalysis ?? null,
+  );
   const [finalAnalysisPending, setFinalAnalysisPending] = useState(false);
-  const [liveAnalysis, setLiveAnalysis] = useState<MeetingAIAnalysis | null>(null);
+  const [liveAnalysis, setLiveAnalysis] = useState<MeetingAIAnalysis | null>(
+    () => cachedAnalysis?.liveAnalysis ?? null,
+  );
   const [liveHistory, setLiveHistory] = useState<MeetingAIAnalysis[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [finalAnalysisError, setFinalAnalysisError] = useState<string | null>(null);
@@ -64,21 +78,37 @@ export default function MeetingSummary() {
       return;
     }
     let active = true;
+    const cached = summaryAnalysisLastKnownGood(id, workspaceId);
     setError(null);
     setSession(null);
     setTranscriptSegments([]);
-    setTree(null);
-    setTreeSnapshot(null);
-    setAnalysisItems([]);
-    setFinalAnalysis(null);
+    setTree(cached.tree);
+    setTreeSnapshot(cached.treeSnapshot);
+    setAnalysisItems(cached.analysisItems);
+    setFinalAnalysis(cached.finalAnalysis);
     setFinalAnalysisPending(false);
-    setLiveAnalysis(null);
+    setLiveAnalysis(cached.liveAnalysis);
     setLiveHistory([]);
     setFinalAnalysisError(null);
     if (!id.startsWith("session_")) {
       // この画面は会議セッション(session_...)の記録だけを表示する。
       setError("会議記録が見つかりませんでした。");
       return;
+    }
+    if ((cached.tree?.nodes?.length ?? 0) > 0) {
+      recordDiagnosticEvent("tree_render_recovery", {
+        sessionId: id,
+        workspaceId,
+        treeVersion: cached.treeVersion,
+        nodeCount: cached.tree?.nodes?.length ?? 0,
+        rootNodeId: cached.tree?.nodes?.find((node) => !node.parentId)?.id ?? "",
+        details: {
+          reason: "summary_route_last_known_good_seed",
+          recoveryAttempted: true,
+          recoveryResult: "success",
+          snapshotSource: cached.source,
+        },
+      });
     }
     getWorkspaceMeetingSession(workspaceId, id)
       .then(async (sessionResult) => {
