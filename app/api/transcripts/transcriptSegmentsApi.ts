@@ -71,6 +71,23 @@ export type MeetingSessionTranscriptHealthChange = {
   secondsSinceLastTranscript: number | null;
 };
 
+export type MeetingSessionMediaHealthState = "ok" | "audio_receive_stalled";
+export type MeetingSessionMediaHealthEvent = "started" | "recovered" | "snapshot";
+
+export type MeetingSessionMediaHealth = {
+  sessionId: string;
+  eventId?: string;
+  botCallId?: string;
+  state: MeetingSessionMediaHealthState;
+  event: MeetingSessionMediaHealthEvent;
+  source?: string;
+  occurredAtUtc: string;
+  startedAtUtc?: string;
+  lastAudioFrameAtUtc?: string;
+  durationMs?: number;
+  updatedAtUtc?: string;
+};
+
 export type ParsedTranscriptWebSocketEvent = {
   type: string;
   sentAtUtc?: string;
@@ -79,6 +96,7 @@ export type ParsedTranscriptWebSocketEvent = {
   aiAnalysis: MeetingAIAnalysis | null;
   botHealth: MeetingSessionBotHealthChange | null;
   transcriptHealth: MeetingSessionTranscriptHealthChange | null;
+  mediaHealth: MeetingSessionMediaHealth | null;
 };
 
 type TranscriptHistoryResult = {
@@ -93,6 +111,31 @@ export async function fetchWorkspaceMeetingSessionTranscriptSegmentHistory(
 ): Promise<TranscriptHistoryResult> {
   const url = buildWorkspaceMeetingSessionTranscriptHistoryUrl(workspaceId, sessionId, limit);
   return fetchTranscriptHistoryUrl(url);
+}
+
+export async function fetchWorkspaceMeetingSessionMediaHealth(
+  workspaceId: string,
+  sessionId: string,
+): Promise<MeetingSessionMediaHealth> {
+  const url = coreApiUrl(
+    workspaceMeetingSessionTranscriptPath(workspaceId, sessionId, "media-health"),
+  );
+  const response = await fetch(url, {
+    headers: { Accept: "application/json" },
+    credentials: "include",
+  });
+  if (!response.ok) {
+    if (response.status === 401 && typeof window !== "undefined") {
+      window.dispatchEvent(new Event("deciscope:unauthorized"));
+    }
+    const message = (await response.text()).trim() || `${response.status} ${response.statusText}`;
+    throw new Error(message);
+  }
+  const health = normalizeMeetingSessionMediaHealth(await response.json());
+  if (!health) {
+    throw new Error("Invalid media health response");
+  }
+  return health;
 }
 
 export function buildWorkspaceMeetingSessionTranscriptWebSocketUrl(
@@ -142,6 +185,7 @@ export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebS
       aiAnalysis: null,
       botHealth: null,
       transcriptHealth: null,
+      mediaHealth: null,
     };
   }
 
@@ -154,6 +198,7 @@ export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebS
       aiAnalysis: null,
       botHealth: null,
       transcriptHealth: null,
+      mediaHealth: null,
     };
   }
 
@@ -166,6 +211,7 @@ export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebS
       aiAnalysis: normalizeAIAnalysis(payload.data),
       botHealth: null,
       transcriptHealth: null,
+      mediaHealth: null,
     };
   }
 
@@ -178,6 +224,7 @@ export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebS
       aiAnalysis: null,
       botHealth: normalizeMeetingSessionBotHealthChange(payload.data),
       transcriptHealth: null,
+      mediaHealth: null,
     };
   }
 
@@ -190,6 +237,20 @@ export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebS
       aiAnalysis: null,
       botHealth: null,
       transcriptHealth: normalizeMeetingSessionTranscriptHealthChange(payload.data),
+      mediaHealth: null,
+    };
+  }
+
+  if (type === "meeting_session.media_health_changed") {
+    return {
+      type,
+      sentAtUtc: payload.sentAtUtc,
+      segment: null,
+      sessionStatus: null,
+      aiAnalysis: null,
+      botHealth: null,
+      transcriptHealth: null,
+      mediaHealth: normalizeMeetingSessionMediaHealth(payload.data),
     };
   }
 
@@ -201,6 +262,7 @@ export function parseTranscriptWebSocketEvent(raw: string): ParsedTranscriptWebS
     aiAnalysis: null,
     botHealth: null,
     transcriptHealth: null,
+    mediaHealth: null,
   };
 }
 
@@ -232,7 +294,7 @@ function buildWorkspaceMeetingSessionTranscriptHistoryUrl(
 function workspaceMeetingSessionTranscriptPath(
   workspaceId: string,
   sessionId: string,
-  suffix: "transcript-segments" | "transcript-stream",
+  suffix: "transcript-segments" | "transcript-stream" | "media-health",
 ) {
   return `/v1/workspaces/${encodeURIComponent(workspaceId.trim())}/meeting-sessions/${encodeURIComponent(
     sessionId.trim(),
@@ -432,6 +494,47 @@ function isMeetingSessionTranscriptHealth(value: unknown): value is MeetingSessi
     value === "audio_stalled" ||
     value === "speech_stalled"
   );
+}
+
+function normalizeMeetingSessionMediaHealth(value: unknown): MeetingSessionMediaHealth | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const source = value as Record<string, unknown>;
+  const sessionId = optionalString(source.sessionId) ?? optionalString(source.session_id);
+  const state = optionalString(source.state);
+  const event = optionalString(source.event);
+  const occurredAtUtc =
+    optionalString(source.occurredAtUtc) ?? optionalString(source.occurred_at_utc);
+  if (
+    !sessionId ||
+    (state !== "ok" && state !== "audio_receive_stalled") ||
+    (event !== "started" && event !== "recovered" && event !== "snapshot") ||
+    !occurredAtUtc
+  ) {
+    return null;
+  }
+  const eventId = optionalString(source.eventId) ?? optionalString(source.event_id);
+  const botCallId = optionalString(source.botCallId) ?? optionalString(source.bot_call_id);
+  const healthSource = optionalString(source.source);
+  const startedAtUtc = optionalString(source.startedAtUtc) ?? optionalString(source.started_at_utc);
+  const lastAudioFrameAtUtc =
+    optionalString(source.lastAudioFrameAtUtc) ?? optionalString(source.last_audio_frame_at_utc);
+  const durationMs = optionalNumber(source.durationMs) ?? optionalNumber(source.duration_ms);
+  const updatedAtUtc = optionalString(source.updatedAtUtc) ?? optionalString(source.updated_at_utc);
+  return {
+    sessionId,
+    ...(eventId ? { eventId } : {}),
+    ...(botCallId ? { botCallId } : {}),
+    state,
+    event,
+    ...(healthSource ? { source: healthSource } : {}),
+    occurredAtUtc,
+    ...(startedAtUtc ? { startedAtUtc } : {}),
+    ...(lastAudioFrameAtUtc ? { lastAudioFrameAtUtc } : {}),
+    ...(durationMs !== undefined ? { durationMs } : {}),
+    ...(updatedAtUtc ? { updatedAtUtc } : {}),
+  };
 }
 
 function resolveBrowserUrl(value: string) {

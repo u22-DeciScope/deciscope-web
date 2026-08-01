@@ -13,10 +13,12 @@ import type { MeetingSegmentDto } from "~/api/meetings/meetingEventsApi";
 import type { RuntimePartial } from "~/api/meetings/meetingRuntimeTypes";
 import {
   buildWorkspaceMeetingSessionTranscriptWebSocketUrl,
+  fetchWorkspaceMeetingSessionMediaHealth,
   fetchWorkspaceMeetingSessionTranscriptSegmentHistory,
   parseTranscriptWebSocketEvent,
   transcriptSegmentKey,
   type MeetingSessionTranscriptHealth,
+  type MeetingSessionMediaHealth,
   type TranscriptSegment,
 } from "~/api/transcripts/transcriptSegmentsApi";
 
@@ -108,6 +110,7 @@ export function useMeetingTranscriptSession(
   const [transcriptHealth, setTranscriptHealth] = useState<MeetingSessionTranscriptHealth | null>(
     null,
   );
+  const [mediaHealth, setMediaHealth] = useState<MeetingSessionMediaHealth | null>(null);
   const { state: analysisState, dispatch: dispatchAnalysis } = useMeetingAnalysisSessionStore(
     normalizedSessionId,
     workspaceId,
@@ -257,6 +260,7 @@ export function useMeetingTranscriptSession(
       setSessionEndReason("");
       setBotConnectionLost(false);
       setTranscriptHealth(null);
+      setMediaHealth(null);
       setLiveAnalysisMeta(initialLiveAnalysisMeta);
       setConnectionStatus("idle");
       setError(null);
@@ -280,6 +284,7 @@ export function useMeetingTranscriptSession(
     setSessionEndedAt("");
     setBotConnectionLost(false);
     setTranscriptHealth(null);
+    setMediaHealth(null);
     setLiveAnalysisMeta(initialLiveAnalysisMeta);
     setConnectionStatus("loading");
     setError(null);
@@ -374,6 +379,21 @@ export function useMeetingTranscriptSession(
             void loadTranscriptHistory(attempt + 1);
           }, delay);
         }
+      }
+    }
+
+    async function loadMediaHealth() {
+      try {
+        const health = await fetchWorkspaceMeetingSessionMediaHealth(
+          workspaceId,
+          normalizedSessionId,
+        );
+        if (!active || health.sessionId !== activeSessionRef.current) {
+          return;
+        }
+        setMediaHealth((current) => latestMediaHealth(current, health));
+      } catch {
+        // This transient diagnostic must not prevent transcript/session recovery.
       }
     }
 
@@ -532,6 +552,7 @@ export function useMeetingTranscriptSession(
             });
           void loadTranscriptHistory();
           void loadAIAnalyses("reconnect");
+          void loadMediaHealth();
         }
       });
 
@@ -566,6 +587,7 @@ export function useMeetingTranscriptSession(
             if (isTerminalMeetingSessionStatus(parsed.sessionStatus.status)) {
               setBotConnectionLost(false);
               setTranscriptHealth(null);
+              setMediaHealth(null);
               void loadAIAnalyses("meeting_ended");
             }
 
@@ -595,6 +617,14 @@ export function useMeetingTranscriptSession(
             }
             setTranscriptHealth(parsed.transcriptHealth.transcriptHealth);
 
+            return;
+          }
+
+          if (parsed.mediaHealth) {
+            if (parsed.mediaHealth.sessionId !== activeSessionRef.current) {
+              return;
+            }
+            setMediaHealth((current) => latestMediaHealth(current, parsed.mediaHealth!));
             return;
           }
 
@@ -776,6 +806,7 @@ export function useMeetingTranscriptSession(
       });
       void loadTranscriptHistory();
       void loadAIAnalyses("manual_retry");
+      void loadMediaHealth();
       connect(true);
     };
 
@@ -805,6 +836,7 @@ export function useMeetingTranscriptSession(
       });
     void loadTranscriptHistory();
     void loadAIAnalyses("initial");
+    void loadMediaHealth();
 
     return () => {
       active = false;
@@ -875,6 +907,7 @@ export function useMeetingTranscriptSession(
       sessionStatus,
       botConnectionLost,
       transcriptHealth,
+      mediaHealth,
       liveAnalysis,
       finalAnalysis,
       finalTreeSnapshot: analysisState.finalTreeSnapshot,
@@ -916,8 +949,24 @@ export function useMeetingTranscriptSession(
       sessionTitle,
       sessionTitleSource,
       transcriptHealth,
+      mediaHealth,
     ],
   );
+}
+
+function latestMediaHealth(
+  current: MeetingSessionMediaHealth | null,
+  incoming: MeetingSessionMediaHealth,
+): MeetingSessionMediaHealth {
+  if (!current || current.eventId === incoming.eventId) {
+    return current ?? incoming;
+  }
+  const currentAt = Date.parse(current.occurredAtUtc);
+  const incomingAt = Date.parse(incoming.occurredAtUtc);
+  if (!Number.isNaN(currentAt) && !Number.isNaN(incomingAt) && incomingAt < currentAt) {
+    return current;
+  }
+  return incoming;
 }
 
 function transcriptSegmentToMeetingSegment(

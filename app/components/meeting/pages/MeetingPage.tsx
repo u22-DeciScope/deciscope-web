@@ -86,6 +86,7 @@ export default function Meeting() {
       isLocalEnd,
       botConnectionLost: transcriptSession.botConnectionLost,
       transcriptHealth: transcriptSession.transcriptHealth,
+      mediaHealth: transcriptSession.mediaHealth,
     },
   );
   const meetingsPath = workspacePath(workspaceId, "/meetings");
