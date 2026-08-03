@@ -10,6 +10,7 @@ type DiscussionTreeErrorBoundaryProps = {
   workspaceId?: string;
   treeVersion: number | null;
   resetKey: string;
+  onError?: (error: Error) => void;
 };
 
 type DiscussionTreeErrorBoundaryState = {
@@ -41,6 +42,7 @@ export class DiscussionTreeErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
+    this.props.onError?.(error);
     recordDiagnosticEvent("react_error_captured", {
       sessionId: this.props.sessionId,
       workspaceId: this.props.workspaceId ?? "",

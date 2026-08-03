@@ -3,8 +3,15 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, loadEnv } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 
-export default defineConfig(({ mode }) => {
+import { validateProductionBuildFingerprint } from "./app/utils/buildFingerprintValidation";
+
+export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, ".", "");
+  const isArtifactBuild =
+    command === "build" && process.argv.some((argument) => argument === "build");
+  if (isArtifactBuild) {
+    validateProductionBuildFingerprint(mode, env);
+  }
   const apiProxyTarget = env.API_PROXY_TARGET || "http://127.0.0.1:9090";
   const wsProxyTarget = env.WS_PROXY_TARGET || apiProxyTarget.replace(/^http/, "ws");
 

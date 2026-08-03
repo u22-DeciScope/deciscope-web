@@ -69,6 +69,27 @@ export function frontendBuildVersion() {
   return trimmed || (import.meta.env.DEV ? "dev" : "unknown");
 }
 
+export function frontendBuildFingerprint() {
+  return {
+    repositoryName: "deciscope-web",
+    frontendBuildVersion: frontendBuildVersion(),
+    gitCommitSha: String(import.meta.env.VITE_COMMIT_SHA ?? "").trim() || "unknown",
+    buildTimestamp: String(import.meta.env.VITE_BUILD_TIMESTAMP ?? "").trim() || "unknown",
+    dirtyBuild: String(import.meta.env.VITE_DIRTY_BUILD ?? "").trim() || "unknown",
+    runtimeEnvironment: import.meta.env.MODE || "unknown",
+  } as const;
+}
+
+let buildFingerprintLogged = false;
+
+export function logFrontendBuildFingerprint() {
+  if (buildFingerprintLogged || import.meta.env.MODE === "test") {
+    return;
+  }
+  buildFingerprintLogged = true;
+  console.info("DeciScope frontend build fingerprint", frontendBuildFingerprint());
+}
+
 // diagnosticsTabId はブラウザタブ単位のID。sessionStorage はタブ単位かつ
 // リロードをまたいで保持されるため、同一タブ内で一貫したIDになる。
 export function diagnosticsTabId() {
@@ -116,6 +137,16 @@ function throttleSignature(event: DiagnosticEvent) {
     event.event.startsWith("tree_render_") && event.details
       ? `${String(event.details.phase ?? "")}:${String(event.details.reason ?? "")}`
       : "";
+  const lifecycleIdentity = event.details
+    ? [
+        event.details.layoutRevision,
+        event.details.pendingGeneration ?? event.details.generation,
+        event.details.manualResetRequestId,
+        event.details.diagnosticSignature,
+      ]
+        .map((value) => String(value ?? ""))
+        .join(":")
+    : "";
   return [
     event.event,
     event.sessionId,
@@ -127,6 +158,7 @@ function throttleSignature(event: DiagnosticEvent) {
     event.analysisVersion ?? "-",
     event.nodeCount ?? "-",
     renderPhase,
+    lifecycleIdentity,
   ].join("\0");
 }
 
