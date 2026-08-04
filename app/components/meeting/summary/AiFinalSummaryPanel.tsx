@@ -14,6 +14,10 @@ import type {
   MeetingAIAnalysis,
   MeetingAIAnalysisImportance,
 } from "~/api/aiAnalysis/aiAnalysisApi";
+import {
+  finalizationStageLabel,
+  type FinalSummaryViewState,
+} from "~/components/meeting/summary/finalSummaryState";
 
 const importanceDot: Record<MeetingAIAnalysisImportance, string> = {
   high: "var(--priority-high)",
@@ -28,64 +32,80 @@ const importanceLabel: Record<MeetingAIAnalysisImportance, string> = {
 };
 
 type AiFinalSummaryPanelProps = {
-  final: MeetingAIAnalysis | null;
-  pending?: boolean;
+  state: FinalSummaryViewState;
   contextPanel?: React.ReactNode;
+  /** 再生成の実行。retryable な失敗/不完全終了のときだけ渡す。 */
+  onRetry?: () => void;
+  retryInProgress?: boolean;
+  retryError?: string | null;
 };
 
-export function AiFinalSummaryPanel({ final, pending, contextPanel }: AiFinalSummaryPanelProps) {
+export function AiFinalSummaryPanel({
+  state,
+  contextPanel,
+  onRetry,
+  retryInProgress,
+  retryError,
+}: AiFinalSummaryPanelProps) {
   // 会議前コンテキストは入力量によって縦に長く伸びるため、既定では閉じておく。
   // フックは早期returnより手前で呼ぶ必要があるのでここに置く。
   const [contextOpen, setContextOpen] = useState(false);
 
-  if (!final) {
-    if (!pending) {
-      return null;
-    }
+  if (state.kind === "hidden") {
+    return null;
+  }
+
+  if (state.kind === "generating") {
+    const stage = finalizationStageLabel(state.stage);
     return (
-      <section
-        className="ds-surface shrink-0 rounded-(--ds-radius-panel) border px-8 py-7"
-        style={{ borderColor: "var(--ds-border)", boxShadow: "var(--ds-shadow)" }}
-      >
+      <FinalSummaryNoticePanel>
         <p className="flex items-center gap-2 text-[14px]" style={{ color: "var(--text-sub)" }}>
           <HiArrowPath className="h-4 w-4 animate-spin" style={{ color: "var(--brand)" }} />
           AI最終要約を生成しています…
         </p>
-      </section>
+        {stage && (
+          <p className="mt-2 text-[12px]" style={{ color: "var(--text-muted)" }}>
+            {stage}
+          </p>
+        )}
+      </FinalSummaryNoticePanel>
     );
   }
 
-  if (final.status === "running") {
+  if (state.kind === "failed" || state.kind === "incomplete") {
+    const heading =
+      state.kind === "failed"
+        ? "AI最終要約の生成に失敗しました。"
+        : "会議の最終処理が完了しませんでした。";
     return (
-      <section
-        className="ds-surface shrink-0 rounded-(--ds-radius-panel) border px-8 py-7"
-        style={{ borderColor: "var(--ds-border)", boxShadow: "var(--ds-shadow)" }}
-      >
-        <p className="flex items-center gap-2 text-[14px]" style={{ color: "var(--text-sub)" }}>
-          <span
-            className="h-2 w-2 shrink-0 animate-pulse rounded-full"
-            style={{ background: "var(--brand)" }}
-          />
-          AI最終要約を生成中です…
-        </p>
-      </section>
-    );
-  }
-
-  if (final.status === "failed") {
-    return (
-      <section
-        className="ds-surface shrink-0 rounded-(--ds-radius-panel) border px-8 py-7"
-        style={{ borderColor: "var(--ds-border)", boxShadow: "var(--ds-shadow)" }}
-      >
+      <FinalSummaryNoticePanel>
         <p className="text-[14px]" style={{ color: "var(--text-muted)" }}>
-          AI最終要約の生成に失敗しました。
+          {heading}
         </p>
-      </section>
+        {state.retryable && onRetry && (
+          <div className="mt-4 flex flex-col gap-2">
+            <button
+              type="button"
+              className="flex w-fit items-center gap-2 rounded-(--ds-radius-control) border px-4 py-2 text-[13px] font-semibold disabled:opacity-60"
+              style={{ borderColor: "var(--brand)", color: "var(--brand)" }}
+              onClick={onRetry}
+              disabled={retryInProgress}
+            >
+              {retryInProgress && <HiArrowPath className="h-4 w-4 animate-spin" />}
+              {retryInProgress ? "再生成しています…" : "最終要約を再生成"}
+            </button>
+            {retryError && (
+              <p className="text-[12px]" style={{ color: "var(--danger)" }}>
+                {retryError}
+              </p>
+            )}
+          </div>
+        )}
+      </FinalSummaryNoticePanel>
     );
   }
 
-  const payload = final.payload as FinalSummaryPayload | null;
+  const payload = state.final.payload as FinalSummaryPayload | null;
   if (!payload) {
     return null;
   }
@@ -199,6 +219,18 @@ export function AiFinalSummaryPanel({ final, pending, contextPanel }: AiFinalSum
         </div>
       )}
     </div>
+  );
+}
+
+// 生成中/失敗/不完全終了はいずれも1枚の告知カードで表す。
+function FinalSummaryNoticePanel({ children }: { children: React.ReactNode }) {
+  return (
+    <section
+      className="ds-surface shrink-0 rounded-(--ds-radius-panel) border px-8 py-7"
+      style={{ borderColor: "var(--ds-border)", boxShadow: "var(--ds-shadow)" }}
+    >
+      {children}
+    </section>
   );
 }
 

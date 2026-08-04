@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router";
 
 import {
   getWorkspaceMeetingSessionAIAnalyses,
+  retryWorkspaceMeetingSessionFinalization,
   type LiveAnalysisPayload,
   type MeetingAIAnalysis,
+  type MeetingFinalizationAnalysis,
   type TreeSnapshotPayload,
 } from "~/api/aiAnalysis/aiAnalysisApi";
 import {
@@ -25,6 +27,10 @@ import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeCo
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/routing/workspacePaths";
 import { AiFinalSummaryPanel } from "~/components/meeting/summary/AiFinalSummaryPanel";
+import {
+  deriveFinalSummaryState,
+  mergeFinalizationAnalysis,
+} from "~/components/meeting/summary/finalSummaryState";
 import { PreMeetingContextPanel } from "~/components/meeting/summary/PreMeetingContextPanel";
 import { SessionReviewWorkspace } from "~/components/meeting/summary/SessionReviewWorkspace";
 import { SessionSummaryHeader } from "~/components/meeting/summary/SessionSummaryHeader";
@@ -40,10 +46,26 @@ import { recordDiagnosticEvent } from "~/utils/clientDiagnostics/clientDiagnosti
 import { boundedRetryDelay } from "~/utils/boundedRetry";
 
 const finalAnalysisPollIntervalMs = 10_000;
-// final レコードがまだ作成されていない(final: null)場合の最大ポーリング回数。
-// running になった後は打ち切らず、null が続く場合のみこの回数で諦める(約5分)。
-const finalAnalysisMaxPendingAttempts = 30;
 const finalAnalysisErrorRetryDelaysMs = [2000, 5000, 10000];
+// 再生成要求から新しい finalization 行が現れるまでの短い確認窓。
+const finalizationRetryConfirmIntervalMs = 1_000;
+const finalizationRetryConfirmMaxAttempts = 10;
+
+// バックエンドの finalization 状態が terminal になったらポーリングを止める。
+// 「要約が無いから生成中」という推測は行わない(永久スピナーの原因になる)。
+function finalizationInProgress(
+  finalization: MeetingFinalizationAnalysis | null,
+  final: MeetingAIAnalysis | null,
+): boolean {
+  if (finalization) {
+    const status = finalization.payload.finalizationStatus;
+    if (status === "completed" || status === "failed" || status === "incomplete") {
+      return false;
+    }
+    return finalization.status === "running";
+  }
+  return final?.status === "running";
+}
 
 export default function MeetingSummary() {
   const { id } = useParams();
@@ -65,7 +87,13 @@ export default function MeetingSummary() {
   const [finalAnalysis, setFinalAnalysis] = useState<MeetingAIAnalysis | null>(
     () => cachedAnalysis?.finalAnalysis ?? null,
   );
-  const [finalAnalysisPending, setFinalAnalysisPending] = useState(false);
+  const [finalAnalysisPending, setFinalAnalysisPending] = useState(true);
+  const [finalization, setFinalization] = useState<MeetingFinalizationAnalysis | null>(null);
+  const [retryInProgress, setRetryInProgress] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const [retryGeneration, setRetryGeneration] = useState(0);
+  // 再生成要求時点の finalization version。新しい試行の行が現れたかの判定に使う。
+  const retryBaselineVersionRef = useRef<number | null>(null);
   const [liveAnalysis, setLiveAnalysis] = useState<MeetingAIAnalysis | null>(
     () => cachedAnalysis?.liveAnalysis ?? null,
   );
@@ -86,7 +114,10 @@ export default function MeetingSummary() {
     setTreeSnapshot(cached.treeSnapshot);
     setAnalysisItems(cached.analysisItems);
     setFinalAnalysis(cached.finalAnalysis);
-    setFinalAnalysisPending(false);
+    setFinalAnalysisPending(true);
+    setFinalization(null);
+    setRetryInProgress(false);
+    setRetryError(null);
     setLiveAnalysis(cached.liveAnalysis);
     setLiveHistory([]);
     setFinalAnalysisError(null);
@@ -137,21 +168,21 @@ export default function MeetingSummary() {
     };
   }, [id, workspaceId]);
 
-  // 会議終了直後にこの画面へ遷移した場合、final分析はバックエンドでまだ running のことがある。
-  // completed/failed になるまで10秒間隔でポーリングし、アンマウント/セッション切替で停止する。
+  // 会議終了直後にこの画面へ遷移した場合、終了処理はまだ進行中のことがある。
+  // バックエンドの finalization 状態が terminal になるまで10秒間隔でポーリングし、
+  // アンマウント/セッション切替/再生成要求で作り直す。
   useEffect(() => {
     if (!id || !id.startsWith("session_")) {
       return;
     }
     let active = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let attempt = 0;
     let consecutiveErrors = 0;
+    let retryConfirmAttempts = 0;
     setFinalAnalysisPending(true);
     setFinalAnalysisError(null);
 
     async function poll() {
-      attempt += 1;
       try {
         const analyses = await getWorkspaceMeetingSessionAIAnalyses(workspaceId, id as string);
         if (!active) {
@@ -160,17 +191,30 @@ export default function MeetingSummary() {
         consecutiveErrors = 0;
         setFinalAnalysisError(null);
         setFinalAnalysis(analyses.final);
+        setFinalization((current) =>
+          mergeFinalizationAnalysis(current, analyses.finalization ?? null),
+        );
         setLiveAnalysis(analyses.live);
         setLiveHistory(analyses.liveHistory);
         setTreeSnapshot(analyses.treeSnapshot);
-        if (analyses.final?.status === "running") {
-          // running の間は打ち切らず、完了/失敗になるまでポーリングし続ける。
-          timer = setTimeout(() => void poll(), finalAnalysisPollIntervalMs);
-        } else if (analyses.final === null && attempt < finalAnalysisMaxPendingAttempts) {
-          // final レコードがまだ作成されていない。最大試行回数まではポーリングを継続する。
+        setFinalAnalysisPending(false);
+        // 再生成を要求した直後は、新しい試行の行がまだ書かれていないことがある。
+        // 古い terminal 状態を見てポーリングを止めると、実行中なのに失敗表示へ
+        // 戻ってしまうため、versionが進むまで短間隔で確認する。
+        const awaitingRetry =
+          retryBaselineVersionRef.current !== null &&
+          (analyses.finalization?.version ?? 0) <= retryBaselineVersionRef.current &&
+          retryConfirmAttempts < finalizationRetryConfirmMaxAttempts;
+        if (awaitingRetry) {
+          retryConfirmAttempts += 1;
+          timer = setTimeout(() => void poll(), finalizationRetryConfirmIntervalMs);
+          return;
+        }
+        retryBaselineVersionRef.current = null;
+        if (finalizationInProgress(analyses.finalization ?? null, analyses.final)) {
           timer = setTimeout(() => void poll(), finalAnalysisPollIntervalMs);
         } else {
-          setFinalAnalysisPending(false);
+          setRetryInProgress(false);
         }
       } catch (cause) {
         if (!active) {
@@ -198,9 +242,43 @@ export default function MeetingSummary() {
         clearTimeout(timer);
       }
     };
-  }, [id, workspaceId]);
+  }, [id, workspaceId, retryGeneration]);
 
   const summary = useMemo(() => (session ? summaryFromMeetingSession(session) : null), [session]);
+
+  const finalSummaryState = useMemo(
+    () =>
+      deriveFinalSummaryState({
+        ...(session ? { sessionStatus: session.status } : {}),
+        finalization,
+        final: finalAnalysis,
+        loading: finalAnalysisPending,
+      }),
+    [session, finalization, finalAnalysis, finalAnalysisPending],
+  );
+
+  const retryFinalization = useCallback(async () => {
+    if (!id) {
+      return;
+    }
+    setRetryInProgress(true);
+    setRetryError(null);
+    retryBaselineVersionRef.current = finalization?.version ?? 0;
+    try {
+      const analyses = await retryWorkspaceMeetingSessionFinalization(workspaceId, id);
+      setFinalization((current) =>
+        mergeFinalizationAnalysis(current, analyses.finalization ?? null),
+      );
+      // ポーリングを作り直し、再生成の進行と結果をバックエンド状態から観測する。
+      setRetryGeneration((generation) => generation + 1);
+    } catch (cause) {
+      retryBaselineVersionRef.current = null;
+      setRetryInProgress(false);
+      setRetryError(
+        cause instanceof Error ? cause.message : "最終要約の再生成を開始できませんでした。",
+      );
+    }
+  }, [id, workspaceId, finalization]);
 
   // 議論ツリーは、会議終了時に保存されたdurableスナップショットを最優先し、
   // 無ければ durable イベント(旧経路)、最後にライブ分析payloadのtreeで補う。
@@ -262,8 +340,10 @@ export default function MeetingSummary() {
       {/* 2. AI最終要約(会議前コンテキストの折りたたみを含む)とサマリーカード */}
       <div className="shrink-0">
         <AiFinalSummaryPanel
-          final={finalAnalysis}
-          pending={finalAnalysisPending}
+          state={finalSummaryState}
+          onRetry={() => void retryFinalization()}
+          retryInProgress={retryInProgress}
+          retryError={retryError}
           contextPanel={
             hasPreMeetingContext(session) ? <PreMeetingContextPanel session={session} /> : undefined
           }
