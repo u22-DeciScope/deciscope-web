@@ -69,10 +69,7 @@ vi.mock("@xyflow/react", async () => {
       () => ({
         providerId: providerIdRef.current,
         nodeLookup: new Map(
-          graph.nodes.map((node) => [
-            node.id,
-            { ...node, measured: { width: 260, height: 90 }, internals: { userNode: node } },
-          ]),
+          graph.nodes.map((node) => [node.id, { ...node, internals: { userNode: node } }]),
         ),
         edgeLookup: new Map(graph.edges.map((edge) => [edge.id, edge])),
         updateGraph,
@@ -219,9 +216,22 @@ vi.mock("@xyflow/react", async () => {
       }) => unknown,
     ) => {
       const providerStore = useProviderStore();
+      // React Flow は adoptUserNodes(= nodes プロップの取り込み)まで measured を
+      // 持たない。「まだ計測されていない準備中buffer」を集約フラグだけでなく
+      // measured 未設定としても再現する。
+      const defaultMeasured =
+        (flow.providerNodesInitialized.get(providerStore.providerId) ?? flow.nodesInitialized)
+          ? { width: 260, height: 90 }
+          : { width: undefined, height: undefined };
+      const nodeLookup = new Map(
+        [...providerStore.nodeLookup].map(([id, node]) => [
+          id,
+          { ...(node as object), measured: defaultMeasured },
+        ]),
+      );
       return selector({
         ...flow.pane,
-        nodeLookup: providerStore.nodeLookup,
+        nodeLookup,
         edgeLookup: providerStore.edgeLookup,
       });
     },

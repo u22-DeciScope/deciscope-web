@@ -93,12 +93,19 @@ const MANUAL_RESET_DUPLICATE_WINDOW_MS = 300;
 // 猶予。想定アニメーション時間へ上乗せする。d3のtransitionは duration からせいぜい
 // 数フレーム遅れて終わるだけなので、これ以上待っても取りこぼしを回復できない。
 const VIEWPORT_OPERATION_SETTLE_MARGIN_MS = 300;
+// 初回hydrateがreadyにならないまま放置される上限。超えたらエラー表示と再取得
+// 導線へ倒す(空のReact Flow canvasを出し続けない)。通常updateの待ち時間を
+// 延ばすものではなく、表示できる旧treeが存在しない初回hydrate専用の失敗判定。
+const INITIAL_HYDRATION_BUDGET_MS = 8000;
 let discussionFlowInstanceSequence = 0;
 let discussionProviderInstanceSequence = 0;
 let discussionViewportOperationSequence = 0;
+let discussionFocusRequestSequence = 0;
+let discussionHydrationSequence = 0;
 
 // 進行中のprogrammatic viewport操作1件。非同期の完了が「いま有効か」を
-// generationと対象tree/layoutで判定するために必要な情報だけを持つ。
+// generationと対象tree/layout、focus対象nodeと選択世代で判定するために必要な
+// 情報だけを持つ。
 type ViewportOperation = {
   operationId: number;
   generation: number;
@@ -106,6 +113,11 @@ type ViewportOperation = {
   treeVersion: number | null;
   layoutRevision: string;
   startedAt: number;
+  bufferSlot: DiscussionTreeBufferSlot;
+  // focus由来の操作だけが持つ対象node。nullはfitViewなどnodeを狙わない操作。
+  focusRequestId: number | null;
+  focusTargetNodeId: string | null;
+  selectionRevision: number;
 };
 
 type DiscussionRenderFrame = {
@@ -180,7 +192,13 @@ type DiscussionTreeRuntimeReadiness = {
   domMeasuredNodeIdSignature: string;
   measuredNodeCount: number;
   measuredNodeIdSignature: string;
+  expectedDisplayedNodeIdSignature: string;
+  expectedDisplayedNodeCount: number;
+  measurementComplete: boolean;
+  measurementBlockingReason: string;
   nodesInitialized: boolean;
+  nodesInitializedStale: boolean;
+  hydrationKind: DiscussionTreeHydrationKind;
   paintReady: boolean;
   paintBlockingReason: string;
   visibleNodeCount: number;
@@ -195,6 +213,68 @@ type DiscussionTreeFailureReadiness = Pick<
 type DiscussionTreeSwapPhase = "committed" | "preparing" | "ready" | "failed";
 type DiscussionTreeBufferSlot = "a" | "b";
 type DiscussionTreeSnapshotRole = "committed" | "pending" | "standby";
+// 表示中のtreeが存在しない初回hydrateと、旧treeを表示したまま行う通常updateは
+// 満たすべき前提が違う。通常updateのpending条件をそのまま初回へ流用すると、
+// 「表示できる旧treeが無いのに準備が終わらない」= 全面空白のまま停止する。
+type DiscussionTreeHydrationKind = "initial" | "update";
+type DiscussionTreeHydrationPhase =
+  | "uninitialized"
+  | "hydrating_initial_snapshot"
+  | "initial_snapshot_ready"
+  | "displaying_committed"
+  | "preparing_update"
+  | "swapping_update"
+  | "failed_initial_hydration";
+
+// React Flow v12 の store.nodesInitialized は adoptUserNodes(= nodes プロップの
+// 更新)でしか再計算されない。実測値を書き込む updateNodeInternals はこのフラグを
+// 更新しないため、propsが落ち着いた画面(/summary の確定済み最終ツリー)では
+// 「全nodeがmeasured済みなのに nodesInitialized=false のまま固定」になる。
+// したがってreadinessの正本は「React Flowへ実際に渡した表示対象node ID集合が
+// 内部store・DOMの双方で計測済みか」であり、集約フラグは観測値として記録する。
+type DiscussionTreeMeasurementReadiness = {
+  complete: boolean;
+  blockingReason: string;
+  nodesInitializedStale: boolean;
+};
+
+export function discussionTreeMeasurementReadiness(input: {
+  expectedNodeCount: number;
+  expectedNodeIdSignature: string;
+  expectedEdgeCount: number;
+  internalNodeCount: number;
+  internalNodeIdSignature: string;
+  internalEdgeCount: number;
+  measuredNodeCount: number;
+  measuredNodeIdSignature: string;
+  domNodeCount: number;
+  domNodeIdSignature: string;
+  domMeasuredNodeIdSignature: string;
+  nodesInitialized: boolean;
+}): DiscussionTreeMeasurementReadiness {
+  const blockingReason =
+    input.expectedNodeCount === 0
+      ? "no_displayed_nodes"
+      : input.internalNodeCount !== input.expectedNodeCount ||
+          input.internalNodeIdSignature !== input.expectedNodeIdSignature
+        ? "internal_node_set_mismatch"
+        : input.internalEdgeCount !== input.expectedEdgeCount
+          ? "internal_edge_count_mismatch"
+          : input.measuredNodeCount !== input.expectedNodeCount ||
+              input.measuredNodeIdSignature !== input.expectedNodeIdSignature
+            ? "internal_measurement_incomplete"
+            : input.domNodeCount !== input.expectedNodeCount ||
+                input.domNodeIdSignature !== input.expectedNodeIdSignature
+              ? "dom_node_set_mismatch"
+              : input.domMeasuredNodeIdSignature !== input.expectedNodeIdSignature
+                ? "dom_measurement_incomplete"
+                : "";
+  return {
+    complete: blockingReason === "",
+    blockingReason,
+    nodesInitializedStale: blockingReason === "" && !input.nodesInitialized,
+  };
+}
 
 export function DiscussionTree(props: DiscussionTreeProps) {
   // A meeting boundary is a hard ownership boundary. Keying only by session
@@ -290,10 +370,70 @@ function DiscussionTreeSession({
     [],
   );
   const [manualResetActive, setManualResetActive] = useState(false);
+  // selection(詳細パネルで選択中) / focus(viewportが実際に寄せたnode) /
+  // pending focus(いま移動中の対象) を分離する。単一のidで兼ねると、選択だけが
+  // 変わったあとも過去のfocus操作が「現在の対象」として扱われ、viewportが前の
+  // ノードへ戻ってしまう。
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectionRevision, setSelectionRevision] = useState(0);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [pendingFocusTargetId, setPendingFocusTargetId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [autoFollow, setAutoFollow] = useState(true);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const selectedIdRef = useRef(selectedId);
+  const selectionRevisionRef = useRef(selectionRevision);
+  selectedIdRef.current = selectedId;
+  selectionRevisionRef.current = selectionRevision;
+  const selectionDiagnosticFieldsRef = useRef({
+    sessionId,
+    workspaceId,
+    treeVersion,
+    analysisVersion,
+  });
+  selectionDiagnosticFieldsRef.current = { sessionId, workspaceId, treeVersion, analysisVersion };
+  // 選択の変更は必ずここを通す。revisionを進めることで、進行中のfocus操作は
+  // 「別の選択に対する操作」になり、遅れて届く完了が現在の状態を書き換えない。
+  const selectNode = useCallback(
+    (nodeId: string | null, options: { focus: boolean; source: string }) => {
+      const previousNodeId = selectedIdRef.current;
+      const nextRevision = selectionRevisionRef.current + 1;
+      selectedIdRef.current = nodeId;
+      selectionRevisionRef.current = nextRevision;
+      setSelectedId(nodeId);
+      setSelectionRevision(nextRevision);
+      setPendingFocusTargetId(nodeId !== null && options.focus ? nodeId : null);
+      if (nodeId === null) {
+        setFocusedId(null);
+      }
+      const fields = selectionDiagnosticFieldsRef.current;
+      recordDiagnosticEvent("tree_render_state", {
+        sessionId: fields.sessionId,
+        workspaceId: fields.workspaceId,
+        treeVersion: fields.treeVersion,
+        analysisVersion: fields.analysisVersion,
+        details: {
+          phase: nodeId === null ? "selection_cleared" : "selection_changed",
+          previousNodeId,
+          targetNodeId: nodeId,
+          selectionRevision: nextRevision,
+          focusRequested: nodeId !== null && options.focus,
+          source: options.source,
+        },
+      });
+    },
+    [],
+  );
+  // focus操作が「いまも現在の選択に対する操作」として完了したときだけ呼ばれる。
+  const handleFocusSettled = useCallback((nodeId: string, revision: number) => {
+    if (selectedIdRef.current !== nodeId || selectionRevisionRef.current !== revision) {
+      return;
+    }
+    setFocusedId(nodeId);
+  }, []);
+  const handlePendingFocusTargetConsumed = useCallback((nodeId: string) => {
+    setPendingFocusTargetId((current) => (current === nodeId ? null : current));
+  }, []);
   const providerInstanceIdsRef = useRef<Record<DiscussionTreeBufferSlot, string> | null>(null);
   if (!providerInstanceIdsRef.current) {
     discussionProviderInstanceSequence += 1;
@@ -321,6 +461,50 @@ function DiscussionTreeSession({
   pendingTreeRef.current = pendingTree;
   committedSlotRef.current = committedSlot;
   pendingSlotRef.current = pendingSlot;
+  // 初回hydrateは通常updateと別のphaseで管理する。旧treeが無い状態は
+  // 「準備が終わるまで待つ」だけでは全面空白のまま停止しうるため、明示的な
+  // loading・failed・retryを持たせる。
+  const [hydrationPhase, setHydrationPhase] = useState<DiscussionTreeHydrationPhase>(() =>
+    initialBufferedSnapshotRef.current ? "displaying_committed" : "uninitialized",
+  );
+  const [hydrationFailureReason, setHydrationFailureReason] = useState("");
+  const [initialHydrationRetryEpoch, setInitialHydrationRetryEpoch] = useState(0);
+  const hydrationIdRef = useRef("");
+  const hydrationGenerationRef = useRef(0);
+  if (!hydrationIdRef.current) {
+    discussionHydrationSequence += 1;
+    hydrationIdRef.current = `${sessionId || "anonymous"}:hydration:${discussionHydrationSequence}`;
+  }
+  const recordHydrationPhase = useCallback(
+    (
+      phase: string,
+      snapshot: BufferedDiscussionTreeSnapshot | null,
+      extra: Record<string, unknown> = {},
+    ) => {
+      recordDiagnosticEvent("tree_render_state", {
+        sessionId,
+        workspaceId,
+        treeVersion: snapshot?.treeVersion ?? treeVersion,
+        analysisVersion: snapshot?.analysisVersion ?? analysisVersion,
+        nodeCount: snapshot?.nodes.length ?? 0,
+        rootNodeId: discussionTreeRootNodeId(snapshot?.nodes ?? []),
+        details: {
+          phase,
+          hydrationId: hydrationIdRef.current,
+          hydrationGeneration: hydrationGenerationRef.current,
+          source: "persisted_snapshot_props",
+          snapshotKind: "tree_snapshot",
+          treeVersion: snapshot?.treeVersion ?? null,
+          analysisVersion: snapshot?.analysisVersion ?? null,
+          canonicalNodeCount: snapshot?.nodes.length ?? 0,
+          generation: snapshot?.generation ?? null,
+          layoutRevision: snapshot?.layoutRevision ?? "",
+          ...extra,
+        },
+      });
+    },
+    [analysisVersion, sessionId, treeVersion, workspaceId],
+  );
 
   // 準備中のpendingが対象でなくなったときに破棄する。ここで破棄しないと
   // pendingは preparing のまま滞留し、readinessの照合対象(最新のincoming)と
@@ -496,6 +680,19 @@ function DiscussionTreeSession({
     setPendingSlot(nextPendingSlot);
     setSlotSnapshots((current) => ({ ...current, [nextPendingSlot]: nextPending }));
     setSwapPhase("preparing");
+    if (currentCommitted) {
+      setHydrationPhase("preparing_update");
+    } else {
+      hydrationGenerationRef.current += 1;
+      setHydrationFailureReason("");
+      setHydrationPhase("hydrating_initial_snapshot");
+      recordHydrationPhase("initial_hydration_snapshot_selected", nextPending, {
+        bufferSlot: nextPendingSlot,
+      });
+      recordHydrationPhase("initial_hydration_started", nextPending, {
+        bufferSlot: nextPendingSlot,
+      });
+    }
     recordDiagnosticEvent("tree_swap_started", {
       sessionId,
       workspaceId,
@@ -506,9 +703,59 @@ function DiscussionTreeSession({
       details: discussionTreeSwapDiagnosticDetails(currentCommitted, nextPending, {
         pendingGeneration: nextPending.generation,
         pendingPhase: "preparing",
+        hydrationKind: currentCommitted ? "update" : "initial",
+        hydrationId: hydrationIdRef.current,
+        hydrationGeneration: hydrationGenerationRef.current,
       }),
     });
-  }, [analysisVersion, cancelPendingTree, incomingSnapshot, sessionId, treeVersion, workspaceId]);
+  }, [
+    analysisVersion,
+    cancelPendingTree,
+    incomingSnapshot,
+    initialHydrationRetryEpoch,
+    recordHydrationPhase,
+    sessionId,
+    treeVersion,
+    workspaceId,
+  ]);
+
+  // 初回hydrateだけの失敗判定。表示できる旧treeが無い状態で準備が終わらない
+  // ままになったら、空のcanvasを出し続けずエラー表示と再取得導線へ倒す。
+  useEffect(() => {
+    if (committedTree || !pendingTree || hydrationPhase !== "hydrating_initial_snapshot") {
+      return;
+    }
+    const failing = pendingTree;
+    const timer = setTimeout(() => {
+      if (committedTreeRef.current || pendingTreeRef.current !== failing) {
+        return;
+      }
+      setHydrationFailureReason("initial_hydration_timeout");
+      setHydrationPhase("failed_initial_hydration");
+      recordHydrationPhase("initial_hydration_failed", failing, {
+        failureReason: "initial_hydration_timeout",
+        budgetMs: INITIAL_HYDRATION_BUDGET_MS,
+        bufferSlot: pendingSlotRef.current,
+      });
+    }, INITIAL_HYDRATION_BUDGET_MS);
+    return () => clearTimeout(timer);
+  }, [committedTree, hydrationPhase, pendingTree, recordHydrationPhase]);
+
+  const retryInitialHydration = useCallback(() => {
+    rejectedIncomingRevisionRef.current = "";
+    pendingTreeRef.current = null;
+    pendingSlotRef.current = null;
+    setPendingTree(null);
+    setPendingSlot(null);
+    setSlotSnapshots({ a: null, b: null });
+    setSwapPhase("committed");
+    setHydrationFailureReason("");
+    setHydrationPhase("uninitialized");
+    recordHydrationPhase("initial_hydration_retry_requested", null, {
+      retryEpoch: initialHydrationRetryEpoch + 1,
+    });
+    setInitialHydrationRetryEpoch((current) => current + 1);
+  }, [initialHydrationRetryEpoch, recordHydrationPhase]);
 
   const handlePendingReady = useCallback(
     (readiness: DiscussionTreeRuntimeReadiness) => {
@@ -550,6 +797,21 @@ function DiscussionTreeSession({
       const previous = committedTreeRef.current;
       const swapDurationMs = Math.max(0, Date.now() - next.receivedAt);
       setSwapPhase("ready");
+      if (previous) {
+        setHydrationPhase("swapping_update");
+      } else {
+        setHydrationPhase("initial_snapshot_ready");
+        recordHydrationPhase("initial_hydration_ready", next, {
+          bufferSlot: readiness.bufferSlot,
+          displayedNodeCount: readiness.expectedDisplayedNodeCount,
+          expectedNodeIdsCount: readiness.expectedDisplayedNodeCount,
+          measuredNodeIdsCount: readiness.measuredNodeCount,
+          domNodeCount: readiness.domNodeCount,
+          nodesInitialized: readiness.nodesInitialized,
+          nodesInitializedStale: readiness.nodesInitializedStale,
+          visibleNodeCount: readiness.visibleNodeCount,
+        });
+      }
       recordDiagnosticEvent("tree_pending_ready", {
         sessionId,
         workspaceId,
@@ -581,6 +843,19 @@ function DiscussionTreeSession({
       setSlotSnapshots({ a: next, b: next });
       setCommittedViewport(readiness.viewport);
       setSwapPhase("committed");
+      setHydrationFailureReason("");
+      setHydrationPhase("displaying_committed");
+      if (!previous) {
+        recordHydrationPhase("initial_hydration_committed", next, {
+          bufferSlot: readiness.bufferSlot,
+          displayedNodeCount: readiness.expectedDisplayedNodeCount,
+          domNodeCount: readiness.domNodeCount,
+          nodesInitialized: readiness.nodesInitialized,
+          nodesInitializedStale: readiness.nodesInitializedStale,
+          visibleNodeCount: readiness.visibleNodeCount,
+          swapDurationMs,
+        });
+      }
       recordDiagnosticEvent("tree_swap_committed", {
         sessionId,
         workspaceId,
@@ -598,7 +873,7 @@ function DiscussionTreeSession({
       });
       return true;
     },
-    [committedViewport, sessionId, workspaceId],
+    [committedViewport, recordHydrationPhase, sessionId, workspaceId],
   );
 
   const handlePendingFailed = useCallback(
@@ -651,6 +926,18 @@ function DiscussionTreeSession({
         setSlotSnapshots((current) => ({ ...current, [failedSlot]: previous }));
       }
       setSwapPhase("failed");
+      if (!previous) {
+        // 表示できる旧treeが無い失敗は「更新の見送り」ではなく初回hydrateの失敗。
+        // 空のcanvasを正常扱いせず、エラー表示と再取得導線へ倒す。
+        setHydrationFailureReason(reason);
+        setHydrationPhase("failed_initial_hydration");
+        recordHydrationPhase("initial_hydration_failed", failed, {
+          failureReason: reason,
+          bufferSlot: readiness.bufferSlot,
+          nodesInitialized: readiness.nodesInitialized ?? null,
+          measurementBlockingReason: readiness.measurementBlockingReason ?? "",
+        });
+      }
       recordDiagnosticEvent("tree_swap_failed", {
         sessionId,
         workspaceId,
@@ -670,8 +957,28 @@ function DiscussionTreeSession({
         details,
       });
     },
-    [committedViewport, sessionId, workspaceId],
+    [committedViewport, recordHydrationPhase, sessionId, workspaceId],
   );
+
+  // committed treeが差し替わったら、選択/フォーカス対象の整合を取り直す。
+  // 同じidが残っていれば維持し、mergeで畳まれたならcanonical nodeへ移し、
+  // 消えたなら選択とフォーカスを解除する。
+  useEffect(() => {
+    if (!committedTree || selectedId === null) {
+      return;
+    }
+    if (committedTree.nodes.some((node) => node.id === selectedId)) {
+      return;
+    }
+    const canonical = committedTree.nodes.find((node) =>
+      (node.mergedFromNodeIds ?? []).includes(selectedId),
+    );
+    if (canonical) {
+      selectNode(canonical.id, { focus: true, source: "tree_swap_merged_target" });
+      return;
+    }
+    selectNode(null, { focus: false, source: "tree_swap_target_removed" });
+  }, [committedTree, selectNode, selectedId]);
 
   const displayedNodeCount = useMemo(
     () =>
@@ -757,23 +1064,77 @@ function DiscussionTreeSession({
         </span>
       </div>
 
-      <div ref={canvasRef} className="relative min-h-0 flex-1" data-testid="discussion-tree-canvas">
+      <div
+        ref={canvasRef}
+        className="relative min-h-0 flex-1"
+        data-testid="discussion-tree-canvas"
+        data-discussion-hydration-phase={hydrationPhase}
+        data-discussion-hydration-failure-reason={hydrationFailureReason}
+      >
         {!committedTree ? (
           <div className="p-4">
             <div
               className="rounded-(--ds-radius-control) border px-4 py-5 text-[12px]"
               style={{
                 background: "var(--ds-surface-muted)",
-                borderColor: "var(--ds-border)",
+                borderColor:
+                  hydrationPhase === "failed_initial_hydration"
+                    ? "var(--danger)"
+                    : "var(--ds-border)",
                 color: "var(--text-muted)",
               }}
+              data-testid={
+                hydrationPhase === "failed_initial_hydration"
+                  ? "discussion-tree-hydration-error"
+                  : hydrationPhase === "hydrating_initial_snapshot" ||
+                      hydrationPhase === "initial_snapshot_ready"
+                    ? "discussion-tree-hydration-loading"
+                    : "discussion-tree-hydration-idle"
+              }
             >
-              <p className="font-semibold" style={{ color: "var(--text-main)" }}>
-                議論構造を待っています
-              </p>
-              <p className="mt-1 leading-5">
-                分析イベントが届くと、React Flow上に論点のつながりが表示されます。
-              </p>
+              {hydrationPhase === "failed_initial_hydration" ? (
+                <>
+                  <p className="font-semibold" style={{ color: "var(--danger)" }}>
+                    議論ツリーを読み込めませんでした
+                  </p>
+                  <p className="mt-1 leading-5">
+                    {nodes.length > 0
+                      ? "保存済みの議論ツリーは取得できましたが、表示の準備に失敗しました。"
+                      : "保存済みの議論ツリーが見つかりませんでした。"}
+                  </p>
+                  <button
+                    type="button"
+                    className="mt-3 rounded-(--ds-radius-control) border px-3 py-1.5 text-[11px] font-semibold"
+                    style={{
+                      background: "var(--ds-surface)",
+                      borderColor: "var(--ds-border)",
+                      color: "var(--text-sub)",
+                    }}
+                    onClick={retryInitialHydration}
+                  >
+                    再読み込み
+                  </button>
+                </>
+              ) : hydrationPhase === "hydrating_initial_snapshot" ||
+                hydrationPhase === "initial_snapshot_ready" ? (
+                <>
+                  <p className="font-semibold" style={{ color: "var(--text-main)" }}>
+                    議論ツリーを読み込んでいます
+                  </p>
+                  <p className="mt-1 leading-5">
+                    保存済みの議論ツリーを表示できる状態にしています。
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="font-semibold" style={{ color: "var(--text-main)" }}>
+                    議論構造を待っています
+                  </p>
+                  <p className="mt-1 leading-5">
+                    分析イベントが届くと、React Flow上に論点のつながりが表示されます。
+                  </p>
+                </>
+              )}
             </div>
           </div>
         ) : null}
@@ -803,6 +1164,11 @@ function DiscussionTreeSession({
                 programmaticViewportMoveActive ? "true" : "false"
               }
               data-discussion-manual-reset-active={manualResetActive ? "true" : "false"}
+              data-discussion-hydration-phase={hydrationPhase}
+              data-discussion-selected-node-id={selectedId ?? ""}
+              data-discussion-focused-node-id={focusedId ?? ""}
+              data-discussion-pending-focus-node-id={pendingFocusTargetId ?? ""}
+              data-discussion-selection-revision={selectionRevision}
             >
               <ReactFlowProvider>
                 {snapshot ? (
@@ -853,8 +1219,14 @@ function DiscussionTreeSession({
                       onViewportInteractionChange={setViewportInteractionActive}
                       onProgrammaticViewportMoveChange={handleProgrammaticViewportMoveChange}
                       onManualResetActiveChange={setManualResetActive}
+                      hydrationKind={committedSlot === null ? "initial" : "update"}
                       selectedId={selectedId}
-                      setSelectedId={setSelectedId}
+                      selectionRevision={selectionRevision}
+                      focusedId={focusedId}
+                      pendingFocusTargetId={pendingFocusTargetId}
+                      selectNode={selectNode}
+                      onFocusSettled={handleFocusSettled}
+                      onPendingFocusTargetConsumed={handlePendingFocusTargetConsumed}
                       hoveredId={hoveredId}
                       setHoveredId={setHoveredId}
                       autoFollow={autoFollow}
@@ -1596,7 +1968,9 @@ function treeVisibilityHealth(input: {
   panelVisible: boolean;
   layoutCompleted: boolean;
   renderCommitted: boolean;
-  nodesInitialized: boolean;
+  // 表示対象nodeが実測済みか。React Flowの集約フラグではなく表示buffer単位の
+  // 実測状況を使う(集約フラグはnodesプロップ更新でしか再計算されないため)。
+  displayedNodesMeasured: boolean;
   nodesInitializationGraceActive: boolean;
   viewport: { x: number; y: number; zoom: number };
   measurement: TreeVisibilityMeasurement;
@@ -1617,7 +1991,7 @@ function treeVisibilityHealth(input: {
     return "stale_dom_only";
   }
   if (!input.renderCommitted) return "render_not_committed";
-  if (!input.nodesInitialized) {
+  if (!input.displayedNodesMeasured) {
     return input.nodesInitializationGraceActive ? "render_not_committed" : "nodes_not_initialized";
   }
   if (
@@ -1704,8 +2078,14 @@ function DiscussionFlow({
   onViewportInteractionChange,
   onProgrammaticViewportMoveChange,
   onManualResetActiveChange,
+  hydrationKind,
   selectedId,
-  setSelectedId,
+  selectionRevision,
+  focusedId,
+  pendingFocusTargetId,
+  selectNode,
+  onFocusSettled,
+  onPendingFocusTargetConsumed,
   hoveredId,
   setHoveredId,
   autoFollow,
@@ -1740,8 +2120,14 @@ function DiscussionFlow({
   onViewportInteractionChange: (active: boolean) => void;
   onProgrammaticViewportMoveChange: (slot: DiscussionTreeBufferSlot, active: boolean) => void;
   onManualResetActiveChange: (active: boolean) => void;
+  hydrationKind: DiscussionTreeHydrationKind;
   selectedId: string | null;
-  setSelectedId: React.Dispatch<React.SetStateAction<string | null>>;
+  selectionRevision: number;
+  focusedId: string | null;
+  pendingFocusTargetId: string | null;
+  selectNode: (nodeId: string | null, options: { focus: boolean; source: string }) => void;
+  onFocusSettled: (nodeId: string, selectionRevision: number) => void;
+  onPendingFocusTargetConsumed: (nodeId: string) => void;
   hoveredId: string | null;
   setHoveredId: React.Dispatch<React.SetStateAction<string | null>>;
   autoFollow: boolean;
@@ -1789,6 +2175,10 @@ function DiscussionFlow({
   const viewportOperationMountedRef = useRef(true);
   const viewportOperationContextRef = useRef({ treeVersion, layoutRevision });
   viewportOperationContextRef.current = { treeVersion, layoutRevision };
+  // focus操作の妥当性判定は選択側の最新値を参照する。propsを直接読むと非同期
+  // 完了時点の値が古くなり、別ノードを選択したあとの完了を受理してしまう。
+  const selectionStateRef = useRef({ selectedId, selectionRevision });
+  selectionStateRef.current = { selectedId, selectionRevision };
   const viewportOperationDiagnosticsRef = useRef({
     sessionId,
     workspaceId,
@@ -1819,7 +2209,13 @@ function DiscussionFlow({
           viewportOperationLayoutRevision: operation.layoutRevision,
           viewportOperationStartedAt: new Date(operation.startedAt).toISOString(),
           viewportOperationElapsedMs: Math.max(0, Date.now() - operation.startedAt),
-          bufferSlot,
+          bufferSlot: operation.bufferSlot,
+          focusRequestId: operation.focusRequestId,
+          focusTargetNodeId: operation.focusTargetNodeId,
+          selectionRevision: operation.selectionRevision,
+          currentSelectedNodeId: selectionStateRef.current.selectedId,
+          currentSelectionRevision: selectionStateRef.current.selectionRevision,
+          source: operation.source,
           userViewportInteractionActive: userInteractionActiveRef.current,
           programmaticViewportMoveActive: liveViewportOperationRef.current !== null,
           manualResetActive: manualResetInProgressRef.current,
@@ -1847,10 +2243,13 @@ function DiscussionFlow({
     [bufferSlot, onProgrammaticViewportMoveChange, recordViewportOperationPhase],
   );
   const beginViewportOperation = useCallback(
-    (source: string, expectedDurationMs = 0) => {
+    (source: string, expectedDurationMs = 0, focusTargetNodeId: string | null = null) => {
       const superseded = liveViewportOperationRef.current;
       discussionViewportOperationSequence += 1;
       viewportOperationGenerationRef.current += 1;
+      if (focusTargetNodeId !== null) {
+        discussionFocusRequestSequence += 1;
+      }
       const operation: ViewportOperation = {
         operationId: discussionViewportOperationSequence,
         generation: viewportOperationGenerationRef.current,
@@ -1858,6 +2257,10 @@ function DiscussionFlow({
         treeVersion: viewportOperationContextRef.current.treeVersion,
         layoutRevision: viewportOperationContextRef.current.layoutRevision,
         startedAt: Date.now(),
+        bufferSlot,
+        focusRequestId: focusTargetNodeId === null ? null : discussionFocusRequestSequence,
+        focusTargetNodeId,
+        selectionRevision: selectionStateRef.current.selectionRevision,
       };
       if (viewportOperationTimerRef.current) {
         clearTimeout(viewportOperationTimerRef.current);
@@ -1866,10 +2269,17 @@ function DiscussionFlow({
       liveViewportOperationRef.current = operation;
       if (superseded) {
         // 先行操作はここで退役済み。以後その完了が届いてもstaleとして無視される。
-        recordViewportOperationPhase("viewport_operation_superseded", superseded, {
-          supersededByOperationId: operation.operationId,
-          supersededBySource: source,
-        });
+        recordViewportOperationPhase(
+          superseded.focusTargetNodeId === null
+            ? "viewport_operation_superseded"
+            : "focus_operation_superseded",
+          superseded,
+          {
+            supersededByOperationId: operation.operationId,
+            supersededBySource: source,
+            supersededByFocusTargetNodeId: focusTargetNodeId,
+          },
+        );
       }
       // 割り込みで完了通知が失われた操作を、そのid限定で打ち切る安全網。
       // 無条件にfalseへ倒すのではなく、いまなおliveな同一操作だけを退役させる。
@@ -1878,14 +2288,23 @@ function DiscussionFlow({
           viewportOperationTimerRef.current = null;
           const live = liveViewportOperationRef.current;
           if (!live || live.operationId !== operation.operationId) return;
-          retireViewportOperation(operation, "viewport_operation_cancelled", {
-            cancelReason: "settle_timeout",
-          });
+          retireViewportOperation(
+            operation,
+            operation.focusTargetNodeId === null
+              ? "viewport_operation_cancelled"
+              : "focus_operation_cancelled",
+            { cancelReason: "settle_timeout" },
+          );
         },
         Math.max(0, expectedDurationMs) + VIEWPORT_OPERATION_SETTLE_MARGIN_MS,
       );
       onProgrammaticViewportMoveChange(bufferSlot, true);
-      recordViewportOperationPhase("viewport_operation_started", operation);
+      recordViewportOperationPhase(
+        operation.focusTargetNodeId === null
+          ? "viewport_operation_started"
+          : "focus_operation_started",
+        operation,
+      );
       return operation;
     },
     [
@@ -1895,34 +2314,67 @@ function DiscussionFlow({
       retireViewportOperation,
     ],
   );
-  // 共有stateを書き換えてよいかどうか。generation・mount・対象tree/layoutを
-  // すべて満たすときだけ更新してよい。
+  // 共有stateを書き換えてよいかどうか。generation・mount・対象tree/layoutに加え、
+  // focus操作は「その操作を始めた選択がいまも現在の選択か」まで満たすときだけ
+  // 更新してよい。treeVersionとlayoutRevisionが同じでも対象nodeが違えば別物。
   const viewportOperationIsCurrent = useCallback(
     (operation: ViewportOperation) =>
       viewportOperationMountedRef.current &&
       liveViewportOperationRef.current?.operationId === operation.operationId &&
       operation.generation === viewportOperationGenerationRef.current &&
       operation.treeVersion === viewportOperationContextRef.current.treeVersion &&
-      operation.layoutRevision === viewportOperationContextRef.current.layoutRevision,
+      operation.layoutRevision === viewportOperationContextRef.current.layoutRevision &&
+      (operation.focusTargetNodeId === null ||
+        (operation.focusTargetNodeId === selectionStateRef.current.selectedId &&
+          operation.selectionRevision === selectionStateRef.current.selectionRevision)),
     [],
   );
   const completeViewportOperation = useCallback(
     (operation: ViewportOperation, extra: Record<string, unknown> = {}) => {
       if (!viewportOperationIsCurrent(operation)) {
-        recordViewportOperationPhase("viewport_operation_stale_completion_ignored", operation, {
-          ...extra,
-          liveViewportOperationId: liveViewportOperationRef.current?.operationId ?? null,
-          currentViewportGeneration: viewportOperationGenerationRef.current,
-          currentTreeVersion: viewportOperationContextRef.current.treeVersion,
-          mounted: viewportOperationMountedRef.current,
-        });
+        recordViewportOperationPhase(
+          operation.focusTargetNodeId === null
+            ? "viewport_operation_stale_completion_ignored"
+            : "focus_operation_stale_completion_ignored",
+          operation,
+          {
+            ...extra,
+            liveViewportOperationId: liveViewportOperationRef.current?.operationId ?? null,
+            currentViewportGeneration: viewportOperationGenerationRef.current,
+            currentTreeVersion: viewportOperationContextRef.current.treeVersion,
+            mounted: viewportOperationMountedRef.current,
+          },
+        );
         return false;
       }
-      retireViewportOperation(operation, "viewport_operation_completed", extra);
+      retireViewportOperation(
+        operation,
+        operation.focusTargetNodeId === null
+          ? "viewport_operation_completed"
+          : "focus_operation_completed",
+        extra,
+      );
       return true;
     },
     [recordViewportOperationPhase, retireViewportOperation, viewportOperationIsCurrent],
   );
+  // 別ノードを選んだ/選択を解除した時点で、前ノード向けfocus操作は即座に退役
+  // させる。以後その完了・reject・timeoutが届いても、現在のviewportや選択には
+  // 触れない(completeViewportOperationのcurrency判定で弾かれる)。
+  useEffect(() => {
+    const live = liveViewportOperationRef.current;
+    if (!live || live.focusTargetNodeId === null) {
+      return;
+    }
+    if (live.focusTargetNodeId === selectedId && live.selectionRevision === selectionRevision) {
+      return;
+    }
+    retireViewportOperation(live, "focus_operation_superseded", {
+      supersedeReason: selectedId === null ? "selection_cleared" : "selection_changed",
+      nextSelectedNodeId: selectedId,
+      nextSelectionRevision: selectionRevision,
+    });
+  }, [retireViewportOperation, selectedId, selectionRevision]);
   useEffect(() => {
     viewportOperationMountedRef.current = true;
     return () => {
@@ -2307,14 +2759,9 @@ function DiscussionFlow({
     internalNodeCount: reactFlowInternalNodeCount,
     internalEdgeCount: reactFlowInternalEdgeCount,
     nodesInitialized: reactFlowNodesInitialized,
+    displayedNodesMeasured: false,
     renderedDomNodeCount,
   });
-  syncObservationRef.current = {
-    internalNodeCount: reactFlowInternalNodeCount,
-    internalEdgeCount: reactFlowInternalEdgeCount,
-    nodesInitialized: reactFlowNodesInitialized,
-    renderedDomNodeCount,
-  };
   const lastHealthyTreeVersionRef = useRef<number | null>(null);
   const lastHealthyRenderRef = useRef<{
     canonicalNodeCount: number;
@@ -2350,6 +2797,27 @@ function DiscussionFlow({
   const renderedFlowNodes = renderedFrame.nodes;
   const renderedFlowEdges = renderedFrame.edges;
   const renderedBounds = renderedFrame.bounds;
+  // 実際にReact Flowへ渡した表示対象nodeが計測済みか。React Flowの集約フラグ
+  // (nodesInitialized)はnodesプロップ更新でしか再計算されないため、確定した
+  // ツリーを表示し続ける画面ではfalseのまま固定される。表示単位のこの判定を
+  // 描画健全性・LKG採用の正本にする。
+  const renderedNodeIdSignature = useMemo(
+    () =>
+      renderedFlowNodes
+        .map((node) => node.id)
+        .sort()
+        .join("\0"),
+    [renderedFlowNodes],
+  );
+  const renderedNodesMeasured =
+    renderedFlowNodes.length > 0 && reactFlowMeasuredNodeIdSignature === renderedNodeIdSignature;
+  syncObservationRef.current = {
+    internalNodeCount: reactFlowInternalNodeCount,
+    internalEdgeCount: reactFlowInternalEdgeCount,
+    nodesInitialized: reactFlowNodesInitialized,
+    displayedNodesMeasured: renderedNodesMeasured,
+    renderedDomNodeCount,
+  };
   const renderDiagnosticDetails = useCallback(
     (
       reason: string,
@@ -2400,7 +2868,7 @@ function DiscussionFlow({
           renderCommitted &&
           visibility.currentDomNodeCount === renderedFlowNodes.length &&
           visibility.staleDomNodeCount === 0,
-        nodesInitialized: observation.nodesInitialized,
+        displayedNodesMeasured: observation.displayedNodesMeasured,
         nodesInitializationGraceActive,
         viewport,
         measurement: visibility,
@@ -2476,6 +2944,11 @@ function DiscussionFlow({
         usedLayoutFallback: layoutResult.usedFallback,
         renderCommitted,
         nodesInitialized: observation.nodesInitialized,
+        displayedNodesMeasured: observation.displayedNodesMeasured,
+        nodesInitializedStale: observation.displayedNodesMeasured && !observation.nodesInitialized,
+        expectedDisplayedNodeIdsCount: renderedFlowNodes.length,
+        measuredNodeIdsCount: reactFlowMeasuredNodeCount,
+        hydrationKind,
         componentKey: `${sessionId || "anonymous"}:${bufferSlot}`,
         bufferSlot,
         providerInstanceId,
@@ -2504,6 +2977,7 @@ function DiscussionFlow({
       bufferSlot,
       displayNodes,
       getViewport,
+      hydrationKind,
       layoutResult,
       missingEdgeEndpointCount,
       nodes,
@@ -2815,6 +3289,22 @@ function DiscussionFlow({
       : 0;
     const paintReadiness = discussionFlowPaintReadiness(flowRootRef.current);
     const invalidReason = candidateFrameInvalidReasons[0] ?? "";
+    // readyの期待値は「React Flowへ実際に渡した表示対象node」であって、canonical
+    // なitem全件数ではない。件数だけでなくID集合で照合する。
+    const measurement = discussionTreeMeasurementReadiness({
+      expectedNodeCount: candidateFrame.nodes.length,
+      expectedNodeIdSignature: expectedNodeIDs,
+      expectedEdgeCount: candidateFrame.edges.length,
+      internalNodeCount: reactFlowInternalNodeCount,
+      internalNodeIdSignature: reactFlowInternalNodeIdSignature,
+      internalEdgeCount: reactFlowInternalEdgeCount,
+      measuredNodeCount: reactFlowMeasuredNodeCount,
+      measuredNodeIdSignature: reactFlowMeasuredNodeIdSignature,
+      domNodeCount: renderedDomNodeCount,
+      domNodeIdSignature: domNodeIDs,
+      domMeasuredNodeIdSignature: domMeasuredNodeIDs,
+      nodesInitialized: reactFlowNodesInitialized,
+    });
     const readiness: DiscussionTreeRuntimeReadiness = {
       generation: snapshotGeneration,
       bufferSlot,
@@ -2831,7 +3321,13 @@ function DiscussionFlow({
       domMeasuredNodeIdSignature: domMeasuredNodeIDs,
       measuredNodeCount: reactFlowMeasuredNodeCount,
       measuredNodeIdSignature: reactFlowMeasuredNodeIdSignature,
+      expectedDisplayedNodeIdSignature: expectedNodeIDs,
+      expectedDisplayedNodeCount: candidateFrame.nodes.length,
+      measurementComplete: measurement.complete,
+      measurementBlockingReason: measurement.blockingReason,
       nodesInitialized: reactFlowNodesInitialized,
+      nodesInitializedStale: measurement.nodesInitializedStale,
+      hydrationKind,
       paintReady: paintReadiness.ready,
       paintBlockingReason: paintReadiness.reason,
       visibleNodeCount,
@@ -2858,18 +3354,10 @@ function DiscussionFlow({
       !viewportInteractionActive &&
       !programmaticViewportMoveActive &&
       !manualResetActive &&
-      candidateFrame.nodes.length > 0 &&
-      reactFlowInternalNodeCount === candidateFrame.nodes.length &&
-      reactFlowInternalEdgeCount === candidateFrame.edges.length &&
-      reactFlowInternalNodeIdSignature === expectedNodeIDs &&
-      reactFlowMeasuredNodeCount === candidateFrame.nodes.length &&
-      reactFlowMeasuredNodeIdSignature === expectedNodeIDs &&
-      reactFlowNodesInitialized &&
-      renderedDomNodeCount === candidateFrame.nodes.length &&
-      domNodeIDs === expectedNodeIDs &&
-      domMeasuredNodeIDs === expectedNodeIDs &&
+      measurement.complete &&
       paintReadiness.ready &&
       diagnosticViewportIsSafe(viewport);
+    const initialHydration = hydrationKind === "initial";
     const viewportRecoverySignature = `${snapshotGeneration}:${metadataRevision}:${candidateFrame.signature}`;
     if (exactRuntimeReady && visibleNodeCount === 0) {
       if (pendingViewportRecoverySignatureRef.current !== viewportRecoverySignature) {
@@ -2907,11 +3395,21 @@ function DiscussionFlow({
           if (animationFrame !== 0) window.cancelAnimationFrame(animationFrame);
         };
       }
-      return;
+      // 復旧を一度試しても可視件数が0のままなら、通常updateは旧treeを表示した
+      // まま待てばよい。初回hydrateには待てる旧treeが無いので、そのまま昇格して
+      // committed側の初回fitに任せる。
+      if (!initialHydration) {
+        return;
+      }
     }
     const viewportAccepted =
       viewportMatches || pendingViewportRecoverySignatureRef.current === viewportRecoverySignature;
-    const ready = exactRuntimeReady && visibleNodeCount > 0 && viewportAccepted;
+    // 初回hydrateには継承すべきユーザーviewportも、表示し続けられる旧treeも無い。
+    // viewport一致や可視件数を昇格条件にすると、待っても状況が変わらないまま
+    // 全面空白で停止する。commit後にcommitted buffer側の初回fitが必ず走るので、
+    // ここでは表示対象nodeの計測完了だけを条件にする。
+    const ready =
+      exactRuntimeReady && (initialHydration || (visibleNodeCount > 0 && viewportAccepted));
     if (!ready) {
       return;
     }
@@ -2919,7 +3417,7 @@ function DiscussionFlow({
     if (pendingReadinessSignatureRef.current === signature) {
       return;
     }
-    if (snapshotGeneration > 1) {
+    if (snapshotGeneration > 1 && !initialHydration) {
       // This prepared buffer already inherited the user's active viewport.
       // Promotion must not run the first-mount fit path again.
       didInitialFitRef.current = true;
@@ -2932,6 +3430,7 @@ function DiscussionFlow({
     bufferSlot,
     candidateFrameInvalidReasons,
     canvasUnavailable,
+    hydrationKind,
     pendingSnapshot,
     programmaticViewportMoveActive,
     providerInstanceId,
@@ -2993,7 +3492,7 @@ function DiscussionFlow({
       .map((node) => node.id)
       .sort()
       .join("\0");
-    const renderedNodeIdSignature = [
+    const renderedDomNodeIdSignature = [
       ...(flowRootRef.current?.querySelectorAll<HTMLElement>(".react-flow__node[data-id]") ?? []),
     ]
       .map((element) => element.dataset.id ?? "")
@@ -3002,8 +3501,8 @@ function DiscussionFlow({
     const observation = syncObservationRef.current;
     const synchronizationMismatch =
       reactFlowInternalNodeIdSignature !== candidateNodeIdSignature ||
-      renderedNodeIdSignature !== candidateNodeIdSignature ||
-      !observation.nodesInitialized;
+      renderedDomNodeIdSignature !== candidateNodeIdSignature ||
+      !observation.displayedNodesMeasured;
     if (synchronizationMismatch) {
       lastLKGDecisionRef.current = "synchronization_mismatch";
       return;
@@ -3063,7 +3562,7 @@ function DiscussionFlow({
       const synchronized =
         observation.internalNodeCount === candidateFrame.nodes.length &&
         observation.internalEdgeCount === candidateFrame.edges.length &&
-        observation.nodesInitialized &&
+        observation.displayedNodesMeasured &&
         observation.renderedDomNodeCount === candidateFrame.nodes.length &&
         isFiniteViewport(viewport);
       const synchronizedDetails = renderDiagnosticDetails(
@@ -3581,8 +4080,8 @@ function DiscussionFlow({
 
   // 外部(AIアシスタントのカードクリック)からのフォーカス要求は、同じcommitの
   // 可視性復旧判定より先にユーザー操作として記録する。対象ノードを特定し、
-  // 折りたたみで隠れていれば祖先を展開してから選択状態にする。
-  const [pendingFocusNodeId, setPendingFocusNodeId] = useState<string | null>(null);
+  // 折りたたみで隠れていれば祖先を展開してから選択状態にする。選択とfocus対象は
+  // session単位で一元管理し、後発の選択が先行のfocus操作を必ずsupersedeする。
   useEffect(() => {
     if (
       !committedSnapshot ||
@@ -3598,11 +4097,19 @@ function DiscussionFlow({
     if (!targetId) {
       return;
     }
-    setSelectedId(targetId);
     setHoveredId(null);
     setCollapsed((current) => withAncestorsExpanded(current, discussionModel, targetId));
-    setPendingFocusNodeId(targetId);
-  }, [committedSnapshot, focusItemRequest, displayNodes, discussionModel, markManualInteraction]);
+    selectNode(targetId, { focus: true, source: "focus_item_request" });
+  }, [
+    committedSnapshot,
+    focusItemRequest,
+    displayNodes,
+    discussionModel,
+    markManualInteraction,
+    selectNode,
+    setCollapsed,
+    setHoveredId,
+  ]);
 
   const visibilityRecoveryRef = useRef({
     signature: "",
@@ -4090,7 +4597,7 @@ function DiscussionFlow({
   // ノードがカードに隠れたり視覚的に右へ寄って見えたりする。パネル幅に余裕が
   // あるときは、詳細カードを除いた可視領域の中央にノードが来るよう補正する。
   const centerNodeBesideDetailCard = useCallback(
-    (position: { x: number; y: number }) => {
+    (targetNodeId: string, position: { x: number; y: number }) => {
       const zoom = 1;
       const hasRoomForOffset =
         paneWidth - NODE_DETAIL_OVERLAY_WIDTH >= MIN_VISIBLE_WIDTH_FOR_OVERLAY_OFFSET;
@@ -4098,7 +4605,7 @@ function DiscussionFlow({
       // 右の点を渡すことでノード自体は詳細カードぶんだけ左に表示される。
       const offsetX = hasRoomForOffset ? NODE_DETAIL_OVERLAY_WIDTH / 2 / zoom : 0;
       autoMovingRef.current = true;
-      const operation = beginViewportOperation("selected_node_center", 400);
+      const operation = beginViewportOperation("selected_node_center", 400, targetNodeId);
       void setCenterAndPublishViewport(
         position.x + NODE_WIDTH / 2 + offsetX,
         position.y + NODE_HEIGHT / 2,
@@ -4108,39 +4615,53 @@ function DiscussionFlow({
         },
       ).finally(() => {
         autoMovingRef.current = false;
-        completeViewportOperation(operation);
+        // 完了を適用できるのは、この操作がいまも現在の選択に対する操作である
+        // 場合だけ。別ノードを選んだあとに届いた完了はここで捨てられ、
+        // focusedNodeId も viewport の active 状態も書き換えない。
+        if (completeViewportOperation(operation, { focusTargetNodeId: targetNodeId })) {
+          onFocusSettled(targetNodeId, operation.selectionRevision);
+        }
       });
     },
-    [beginViewportOperation, completeViewportOperation, paneWidth, setCenterAndPublishViewport],
+    [
+      beginViewportOperation,
+      completeViewportOperation,
+      onFocusSettled,
+      paneWidth,
+      setCenterAndPublishViewport,
+    ],
   );
 
+  // 詳細パネルの関連ノードリンクなど、明示的なフォーカス要求。
   const focusNode = useCallback(
     (id: string) => {
-      setSelectedId(id);
       setHoveredId(null);
-      const node = getNode(id);
-      if (node) {
-        centerNodeBesideDetailCard(node.position);
-      }
+      selectNode(id, { focus: true, source: "detail_card_related_node" });
     },
-    [getNode, centerNodeBesideDetailCard],
+    [selectNode, setHoveredId],
   );
 
+  // 「いま移動すべき対象」が決まったら、この committed buffer でだけ移動を開始する。
+  // 別ノードが選ばれた時点で pendingFocusTargetId は入れ替わるので、
+  // 前ノード向けの移動が後から始まることはない。
   useEffect(() => {
-    if (!pendingFocusNodeId) {
+    if (!committedSnapshot || !pendingFocusTargetId) {
       return;
     }
-    const node = renderedFlowNodes.find((flowNode) => flowNode.id === pendingFocusNodeId);
+    const node = renderedFlowNodes.find((flowNode) => flowNode.id === pendingFocusTargetId);
     if (!node) {
       return;
     }
-    setPendingFocusNodeId(null);
-    centerNodeBesideDetailCard(node.position);
+    const targetId = pendingFocusTargetId;
+    onPendingFocusTargetConsumed(targetId);
+    centerNodeBesideDetailCard(targetId, node.position);
   }, [
-    pendingFocusNodeId,
+    committedSnapshot,
+    pendingFocusTargetId,
     renderedFlowNodes,
     reactFlowInternalNodeCount,
     centerNodeBesideDetailCard,
+    onPendingFocusTargetConsumed,
     sessionId,
     treeVersion,
   ]);
@@ -4267,7 +4788,7 @@ function DiscussionFlow({
         let renderCommittedAfter =
           afterObservation.internalNodeCount === renderedFlowNodes.length &&
           afterObservation.renderedDomNodeCount === renderedFlowNodes.length &&
-          afterObservation.nodesInitialized;
+          afterObservation.displayedNodesMeasured;
         let after = renderDiagnosticDetails(
           "manual_view_reset_after_fit",
           afterObservation,
@@ -4294,7 +4815,7 @@ function DiscussionFlow({
             renderCommittedAfter =
               afterObservation.internalNodeCount === renderedFlowNodes.length &&
               afterObservation.renderedDomNodeCount === renderedFlowNodes.length &&
-              afterObservation.nodesInitialized;
+              afterObservation.displayedNodesMeasured;
             after = renderDiagnosticDetails(
               "manual_view_reset_after_center",
               afterObservation,
@@ -4319,7 +4840,7 @@ function DiscussionFlow({
           renderCommittedAfter =
             afterObservation.internalNodeCount === renderedFlowNodes.length &&
             afterObservation.renderedDomNodeCount === renderedFlowNodes.length &&
-            afterObservation.nodesInitialized;
+            afterObservation.displayedNodesMeasured;
           after = renderDiagnosticDetails(
             "manual_view_reset_after_rollback",
             afterObservation,
@@ -4451,6 +4972,10 @@ function DiscussionFlow({
         data-discussion-lkg-retained={usingLastGoodFrame ? "true" : "false"}
         data-discussion-lkg-available={lastGoodRenderFrame ? "true" : "false"}
         data-discussion-nodes-initialized={reactFlowNodesInitialized ? "true" : "false"}
+        data-discussion-displayed-nodes-measured={renderedNodesMeasured ? "true" : "false"}
+        data-discussion-hydration-kind={hydrationKind}
+        data-discussion-selected-node-id={selectedId ?? ""}
+        data-discussion-focused-node-id={focusedId ?? ""}
         data-discussion-canvas-unavailable={canvasUnavailable ? "true" : "false"}
         data-discussion-frame-invalid-reasons={candidateFrameInvalidReasons.join(",")}
         data-discussion-candidate-node-count={candidateFrame.nodes.length}
@@ -4491,7 +5016,9 @@ function DiscussionFlow({
           }}
           onNodeClick={(_, node) => {
             markManualInteraction();
-            setSelectedId(node.id);
+            // 同じノードの再クリックは「選択を維持したまま再フォーカス」に統一する
+            // (選択解除にはしない)。空白クリックが唯一の選択解除操作。
+            selectNode(node.id, { focus: true, source: "node_click" });
             const selectedNode = displayNodes.find((candidate) => candidate.id === node.id);
             const itemId = selectedNode
               ? relatedItemIdsForNode(selectedNode, analysisItemIds)[0]
@@ -4509,7 +5036,7 @@ function DiscussionFlow({
           }
           onPaneClick={() => {
             markManualInteraction();
-            setSelectedId(null);
+            selectNode(null, { focus: false, source: "pane_click" });
             setHoveredId(null);
           }}
         >
@@ -4624,7 +5151,8 @@ function DiscussionFlow({
           agendaLabels={agendaLabels}
           onSelectAnalysisItem={onSelectAnalysisItem}
           onClose={() => {
-            setSelectedId(null);
+            // 詳細パネルを閉じる = 選択解除。focus状態も同時に解除する。
+            selectNode(null, { focus: false, source: "detail_card_closed" });
             setHoveredId(null);
           }}
           onFocusNode={focusNode}

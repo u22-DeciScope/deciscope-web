@@ -393,9 +393,7 @@ describe("DiscussionTree node-count rendering boundaries", () => {
 });
 
 function committedView() {
-  const root = document.querySelector<HTMLElement>(
-    '[data-discussion-snapshot-role="committed"]',
-  );
+  const root = document.querySelector<HTMLElement>('[data-discussion-snapshot-role="committed"]');
   if (!root) {
     throw new Error("committed discussion snapshot was not rendered");
   }

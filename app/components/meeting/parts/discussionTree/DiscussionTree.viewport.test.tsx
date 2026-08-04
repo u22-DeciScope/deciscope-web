@@ -95,14 +95,7 @@ vi.mock("@xyflow/react", async () => {
       () => ({
         providerId: providerIdRef.current,
         nodeLookup: new Map(
-          graph.nodes.map((node) => [
-            node.id,
-            {
-              ...node,
-              measured: node.measured ?? { width: 260, height: 90 },
-              internals: { userNode: node },
-            },
-          ]),
+          graph.nodes.map((node) => [node.id, { ...node, internals: { userNode: node } }]),
         ),
         edgeLookup: new Map(graph.edges.map((edge) => [edge.id, edge])),
         updateGraph,
@@ -282,9 +275,22 @@ vi.mock("@xyflow/react", async () => {
       }) => unknown,
     ) => {
       const providerStore = useProviderStore();
+      // React Flow は adoptUserNodes(= nodes プロップの取り込み)まで measured を
+      // 持たない。「まだ計測されていない buffer」を集約フラグだけでなく
+      // measured 未設定としても再現する。
+      const defaultMeasured =
+        (flow.providerNodesInitialized.get(providerStore.providerId) ?? flow.nodesInitialized)
+          ? { width: 260, height: 90 }
+          : { width: undefined, height: undefined };
+      const nodeLookup = new Map(
+        [...providerStore.nodeLookup].map(([id, node]) => {
+          const typed = node as { measured?: { width?: number; height?: number } };
+          return [id, { ...typed, measured: typed.measured ?? defaultMeasured }];
+        }),
+      );
       return selector({
         ...flow.pane,
-        nodeLookup: providerStore.nodeLookup,
+        nodeLookup,
         edgeLookup: providerStore.edgeLookup,
       });
     },
@@ -1028,7 +1034,11 @@ describe("DiscussionTree structural viewport focus", () => {
 
   it("preserves the selected user's viewport while a structural buffer is promoted", async () => {
     const view = render(<DiscussionTree nodes={initialNodes} edges={initialEdges} />);
+    // ノードクリックは仕様上そのノードへのフォーカス要求でもあるため、この1回だけ
+    // setCenterが呼ばれる。構造更新の昇格がそれ以上viewportへ触れないことを見る。
     fireEvent.click(committedSnapshotView().getByTestId("flow-node-item-1"));
+    await waitFor(() => expect(flow.setCenter).toHaveBeenCalledTimes(1));
+    flow.setCenter.mockClear();
     view.rerender(
       <DiscussionTree
         nodes={updatedNodes}

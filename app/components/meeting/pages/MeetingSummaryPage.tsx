@@ -36,6 +36,7 @@ import { SessionReviewWorkspace } from "~/components/meeting/summary/SessionRevi
 import { SessionSummaryHeader } from "~/components/meeting/summary/SessionSummaryHeader";
 import { StatusPanel } from "~/components/meeting/summary/StatusPanel";
 import { summaryAnalysisLastKnownGood } from "~/components/meeting/summary/summaryAnalysisLkg";
+import { shouldReplaceFinalTreeSnapshot } from "~/hooks/meetingAnalysisState";
 import {
   hasPreMeetingContext,
   summaryFromMeetingSession,
@@ -155,7 +156,12 @@ export default function MeetingSummary() {
           return;
         }
         setTranscriptSegments(transcriptResult.segments);
-        setTree(analysis.tree);
+        // durable event 経路が空を返しても、last-known-good のツリーは捨てない。
+        setTree((current) =>
+          (analysis.tree?.nodes?.length ?? 0) > 0 || (current?.nodes?.length ?? 0) === 0
+            ? analysis.tree
+            : current,
+        );
         setAnalysisItems(analysis.analysisItems);
       })
       .catch((cause: unknown) => {
@@ -196,7 +202,13 @@ export default function MeetingSummary() {
         );
         setLiveAnalysis(analyses.live);
         setLiveHistory(analyses.liveHistory);
-        setTreeSnapshot(analyses.treeSnapshot);
+        // 確定済みの persisted final snapshot は、遅れて届いた古い/空の応答へ
+        // 巻き戻さない。取得順が入れ替わっても最終状態が同じになる。
+        setTreeSnapshot((current) =>
+          shouldReplaceFinalTreeSnapshot(current, analyses.treeSnapshot)
+            ? analyses.treeSnapshot
+            : current,
+        );
         setFinalAnalysisPending(false);
         // 再生成を要求した直後は、新しい試行の行がまだ書かれていないことがある。
         // 古い terminal 状態を見てポーリングを止めると、実行中なのに失敗表示へ

@@ -572,25 +572,25 @@ function snapshotDiagnostic() {
       "[data-discussion-snapshot-role][data-discussion-snapshot-version]",
     ),
   ].map((snapshot) => {
-      const flow = snapshot.querySelector<HTMLElement>("[data-discussion-flow-instance-id]");
-      return {
-        role: snapshot.dataset.discussionSnapshotRole,
-        version: snapshot.dataset.discussionSnapshotVersion,
-        generation: snapshot.dataset.discussionSnapshotGeneration,
-        phase: snapshot.dataset.discussionSwapPhase,
-        interactionActive: snapshot.dataset.discussionViewportInteractionActive,
-        programmaticActive: snapshot.dataset.discussionProgrammaticViewportMoveActive,
-        manualResetActive: snapshot.dataset.discussionManualResetActive,
-        canvasUnavailable: flow?.dataset.discussionCanvasUnavailable,
-        frameInvalid: flow?.dataset.discussionFrameInvalidReasons,
-        nodesInitialized: flow?.dataset.discussionNodesInitialized,
-        candidateCount: flow?.dataset.discussionCandidateNodeCount,
-        internalCount: flow?.dataset.discussionInternalNodeCount,
-        measuredCount: flow?.dataset.discussionMeasuredNodeCount,
-        domCount: flow?.dataset.discussionRenderedDomNodeCount,
-        viewport: flow?.querySelector<HTMLElement>(".react-flow__viewport")?.style.transform,
-      };
-    });
+    const flow = snapshot.querySelector<HTMLElement>("[data-discussion-flow-instance-id]");
+    return {
+      role: snapshot.dataset.discussionSnapshotRole,
+      version: snapshot.dataset.discussionSnapshotVersion,
+      generation: snapshot.dataset.discussionSnapshotGeneration,
+      phase: snapshot.dataset.discussionSwapPhase,
+      interactionActive: snapshot.dataset.discussionViewportInteractionActive,
+      programmaticActive: snapshot.dataset.discussionProgrammaticViewportMoveActive,
+      manualResetActive: snapshot.dataset.discussionManualResetActive,
+      canvasUnavailable: flow?.dataset.discussionCanvasUnavailable,
+      frameInvalid: flow?.dataset.discussionFrameInvalidReasons,
+      nodesInitialized: flow?.dataset.discussionNodesInitialized,
+      candidateCount: flow?.dataset.discussionCandidateNodeCount,
+      internalCount: flow?.dataset.discussionInternalNodeCount,
+      measuredCount: flow?.dataset.discussionMeasuredNodeCount,
+      domCount: flow?.dataset.discussionRenderedDomNodeCount,
+      viewport: flow?.querySelector<HTMLElement>(".react-flow__viewport")?.style.transform,
+    };
+  });
 }
 
 async function settleRenderFrame() {
