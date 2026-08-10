@@ -2406,7 +2406,7 @@ function DiscussionFlow({
       currentTreeVersion: treeVersion,
     });
   }, [committedSnapshot, layoutRevision, retireViewportOperation, treeVersion]);
-  const { fitView, getNode, getViewport, setCenter, setViewport } = useReactFlow();
+  const { fitView, getViewport, setCenter, setViewport } = useReactFlow();
   const setCenterAndPublishViewport = useCallback(
     async (
       x: number,
@@ -4209,10 +4209,6 @@ function DiscussionFlow({
     const recentlyManipulated =
       Date.now() - lastManualInteractionAtRef.current < AUTO_FOLLOW_INTERACTION_GRACE_MS;
     const lastHealthy = lastHealthyVisibilityRef.current;
-    const structuralDrift =
-      !lastHealthy ||
-      lastHealthy.frameSignature !== candidateFrame.signature ||
-      lastHealthy.treeVersion !== treeVersion;
     const hasNoActuallyVisibleNodes = Number(details.unoccludedVisibleNodeCount ?? 0) === 0;
     const recoverable =
       !userInteractionActiveRef.current &&

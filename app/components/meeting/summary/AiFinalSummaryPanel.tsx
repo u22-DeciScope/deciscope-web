@@ -11,7 +11,6 @@ import {
 import type {
   FinalSummaryActionItem,
   FinalSummaryPayload,
-  MeetingAIAnalysis,
   MeetingAIAnalysisImportance,
 } from "~/api/aiAnalysis/aiAnalysisApi";
 import {

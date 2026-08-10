@@ -30,6 +30,10 @@ VITE_FIREBASE_MESSAGING_SENDER_ID=...
 VITE_DECISCOPE_CLIENT_DIAGNOSTICS=true
 # 任意。診断イベントに載せるcommit SHA等
 VITE_FRONTEND_BUILD_VERSION=
+# 本番buildではCIが設定するartifact追跡情報
+VITE_COMMIT_SHA=
+VITE_BUILD_TIMESTAMP=
+VITE_DIRTY_BUILD=false
 ```
 
 開発時、ブラウザは同一オリジンの `/api` と `/ws` に接続し、Vite が上記のプロキシ先へ転送します。
@@ -38,6 +42,7 @@ VITE_FRONTEND_BUILD_VERSION=
 この2つを公開ホストに合わせて設定してください。
 会議画面のクライアント診断はブラウザコンソールではなく `/internal/client-diagnostics` へ送信し、
 core-api の標準ログおよび設定されたJSONL診断ログへ記録します。
+各環境変数の公開範囲と用途は [.env.example](./.env.example) のコメントを参照してください。
 
 Firebase Console の Authentication で Microsoft プロバイダーを有効化し、承認済みドメインに `localhost` が含まれていることを確認してください。
 
