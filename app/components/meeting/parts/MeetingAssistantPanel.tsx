@@ -343,18 +343,19 @@ export function MeetingAssistantPanel({
         </span>
       </header>
 
+      {/* 以前は幅を等分するgrid(minmax(0,1fr))だったが、セルが文字幅より狭くなれる
+          一方でボタン側はwhitespace-nowrapかつクリップしないため、パネルが狭いと
+          「決定事項」などがセルから溢れて隣のタブと重なっていた。折り返せるflexにし、
+          1行に収まらないときだけ段落ちさせる(広い幅では従来どおり1行に並ぶ)。 */}
       <div
-        className="grid h-10 w-full shrink-0 items-center gap-1 border-b px-2"
-        style={{
-          borderColor: "var(--node-border)",
-          gridTemplateColumns: `repeat(${visibleFilterTabs.length}, minmax(0, 1fr))`,
-        }}
+        className="flex min-h-10 w-full shrink-0 flex-wrap items-center gap-1 border-b px-2 py-1"
+        style={{ borderColor: "var(--node-border)" }}
       >
         {visibleFilterTabs.map((tab) => (
           <button
             key={tab.key}
             type="button"
-            className="min-w-0 whitespace-nowrap rounded-md px-1 py-1.5 text-center text-[12px] font-semibold"
+            className="grow whitespace-nowrap rounded-md px-1.5 py-1.5 text-center text-[12px] font-semibold"
             style={
               tab.key === filter
                 ? {

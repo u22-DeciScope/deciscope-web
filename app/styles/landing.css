@@ -1,0 +1,309 @@
+/* ============================================================
+   Landing (公開トップページ) 専用スタイル
+
+   コンセプトは製品名のとおり "Scope" = 観測機器。流れて消える会議の
+   発言を、観測して構造として写し取る計器、という見立てで組む。
+   計器の語彙として、等幅の時刻ラベル・細い罫線・目盛りを使う。
+
+   ここで定義するトークンは .ds-landing 配下だけで有効にし、
+   アプリ本体(themes.css)の配色には影響させない。
+   ============================================================ */
+.ds-landing {
+  /* 見出し・本文の和文。アプリ本体はInter(欧文)のみ指定で和文はOS任せだが、
+     公開ページは環境差で印象が変わるためNoto Sans JPを明示する。 */
+  --lp-sans: "Noto Sans JP", var(--font-sans), sans-serif;
+  /* 計器のラベル(時刻・種別・件数)に使う等幅。 */
+  --lp-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* 罫線。brandから混色するのでdarkテーマでも自動で追従する。 */
+  --lp-rule: color-mix(in srgb, var(--brand) 20%, transparent);
+  --lp-rule-strong: color-mix(in srgb, var(--brand) 45%, transparent);
+
+  /* ロゴマーク(public/deciscope-mark.png)に実在するシアン→パープル。
+     「変換が起きている場所」の印としてだけ使い、面には敷かない。 */
+  --lp-cyan: #17c8ee;
+  --lp-violet: #7c3aed;
+  --lp-flow: linear-gradient(140deg, var(--lp-cyan), var(--lp-violet));
+
+  font-family: var(--lp-sans);
+  background: var(--ds-bg);
+  color: var(--text-main);
+}
+
+.ds-landing-mono {
+  font-family: var(--lp-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 見出しは和文の字面が大きいぶん、既定の字間だと緩んで見えるので詰める。 */
+.ds-landing-display {
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+}
+
+/* stickyヘッダーぶんだけアンカー位置を下げる。 */
+.ds-landing-anchor {
+  scroll-margin-top: 5rem;
+}
+
+/* ============================================================
+   会議中ワークスペースのデモ
+
+   3つのパネルの中身は会議画面のコンポーネントをそのまま使うため、
+   ここで定義するのは外側の「アプリの窓」だけ。パネル内部の見た目は
+   会議画面側のスタイルが正となる。
+   小さい画面では各列を潰さず、アプリ画面そのものを横スクロールして見せる。
+   ============================================================ */
+.lp-workspace-preview {
+  overflow: hidden;
+  border: 1px solid var(--lp-rule-strong);
+  border-radius: calc(var(--ds-radius-dialog) + 2px);
+  background: color-mix(in srgb, var(--ds-surface) 58%, var(--ds-bg));
+  box-shadow: 0 22px 64px color-mix(in srgb, var(--brand) 16%, transparent);
+}
+
+.lp-preview-scroll {
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--lp-rule-strong) transparent;
+}
+
+.lp-preview-scroll:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -3px;
+}
+
+/* 窓の最小幅。AIアシスタント列のタブ(6個)が1行に収まる幅から逆算している。
+   列比 0.95/3.45 なので、窓 1280px → 内側 1246px → AIアシスタント列 約343px →
+   タブ行 約327px。タブの自然幅は約305pxなので余裕をもって1行に並ぶ。
+   ここを狭めるとタブが2行に折り返すので、変えるときは合わせて確認すること。 */
+.lp-preview-app {
+  min-width: 1280px;
+  padding: 10px;
+}
+
+.lp-preview-toolbar {
+  display: flex;
+  height: 52px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px 10px;
+  color: var(--text-main);
+}
+
+.lp-preview-meeting-title {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 9px;
+}
+
+.lp-preview-meeting-title p {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lp-preview-meeting-title span:not(.lp-preview-product-mark) {
+  display: block;
+  margin-top: 1px;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.lp-preview-product-mark {
+  width: 7px;
+  height: 26px;
+  flex: none;
+  border-radius: 99px;
+  background: var(--lp-flow);
+}
+
+.lp-preview-time {
+  color: var(--text-sub);
+  font-family: var(--lp-mono);
+  font-size: 10px;
+}
+
+/* 実画面(MeetingWorkspaceGrid)と同じ幅比。ただし実画面はビューポート幅で
+   段組みを切り替えるのに対し、ここは窓の中で常に3列を保ち、狭い画面では
+   窓ごと横スクロールさせる。 */
+.lp-preview-grid {
+  display: grid;
+  grid-template-columns: minmax(218px, 0.85fr) minmax(400px, 1.65fr) minmax(250px, 0.95fr);
+  gap: 7px;
+  height: 498px;
+}
+
+/* パネルを読み込むまでの枠。実パネルと同じ面・角丸・ヘッダー高にしておき、
+   差し替わったときに窓の中が動かないようにする。 */
+.lp-preview-placeholder {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  flex-direction: column;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-panel);
+  background: var(--ds-surface);
+}
+
+.lp-preview-placeholder header {
+  display: flex;
+  height: 44px;
+  flex: none;
+  align-items: center;
+  border-bottom: 1px solid var(--node-border);
+  padding: 0 14px;
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.lp-preview-placeholder p {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.lp-workspace-preview figcaption {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border-top: 1px solid var(--lp-rule);
+  padding: 9px 13px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.lp-preview-caption-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--lp-cyan);
+}
+
+.lp-preview-swipe-note {
+  display: none;
+  margin-left: auto;
+}
+
+/* 狭い画面では窓を縮めず、窓ごと横スクロールさせる。以前はここで min-width と
+   列幅を小さくしていたが、それをするとAIアシスタント列のタブが折り返すため、
+   最小幅は全サイズ共通にしてスクロール量で吸収する。 */
+@media (max-width: 1023px) {
+  .lp-preview-swipe-note {
+    display: inline;
+  }
+}
+
+@media (max-width: 639px) {
+  .lp-workspace-preview {
+    margin-right: -4px;
+    margin-left: -4px;
+    border-radius: var(--ds-radius-panel);
+  }
+
+  .lp-preview-app {
+    padding: 7px;
+  }
+
+  .lp-preview-grid {
+    height: 460px;
+  }
+
+  .lp-preview-swipe-note {
+    overflow: hidden;
+    max-width: 112px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* ============================================================
+   ロード時の一連の演出
+
+   署名要素(発話 → 議論ツリー)はファーストビューにあるため、
+   IntersectionObserverを使わずCSSのanimation-delayだけで順に出す。
+   遅延は各要素の style で --lp-delay に渡す。
+   ============================================================ */
+@keyframes ds-lp-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ds-lp-enter-left {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 枝が引かれる動き。上端から下へ伸ばす。 */
+@keyframes ds-lp-draw-y {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+/* 枝が引かれる動き。左端から右へ伸ばす。 */
+@keyframes ds-lp-draw-x {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.ds-lp-rise {
+  animation: ds-lp-rise 0.55s cubic-bezier(0.22, 0.75, 0.3, 1) both;
+  animation-delay: var(--lp-delay, 0s);
+}
+
+.ds-lp-enter-left {
+  animation: ds-lp-enter-left 0.5s cubic-bezier(0.22, 0.75, 0.3, 1) both;
+  animation-delay: var(--lp-delay, 0s);
+}
+
+.ds-lp-draw-y {
+  transform-origin: top center;
+  animation: ds-lp-draw-y 0.35s ease-out both;
+  animation-delay: var(--lp-delay, 0s);
+}
+
+.ds-lp-draw-x {
+  transform-origin: left center;
+  animation: ds-lp-draw-x 0.3s ease-out both;
+  animation-delay: var(--lp-delay, 0s);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-lp-rise,
+  .ds-lp-enter-left,
+  .ds-lp-draw-y,
+  .ds-lp-draw-x {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}

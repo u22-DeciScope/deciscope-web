@@ -129,7 +129,13 @@ describe("MeetingAssistantPanel item filters", () => {
     expect(screen.queryByRole("button", { name: /質問/ })).toBeNull();
 
     const issueTab = screen.getByRole("button", { name: "論点" });
-    expect(issueTab.className).toContain("min-w-0");
+    // タブ行は横に溢れさせない。以前は幅を等分するgridで各タブに min-w-0 を付け、
+    // セルが文字幅より狭くなれるようにしていたが、ボタンは whitespace-nowrap で
+    // クリップもしないため、パネルが狭いと「決定事項」がセルから溢れて隣のタブに
+    // 重なっていた。今は min-w-0 を付けず(文字幅より狭くしない)、収まらないときは
+    // 行を折り返すことで溢れを防ぐ。
+    expect(issueTab.className).not.toContain("min-w-0");
+    expect(issueTab.parentElement?.className).toContain("flex-wrap");
 
     fireEvent.click(issueTab);
     expect(screen.getByText("question-card")).not.toBeNull();
