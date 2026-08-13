@@ -111,8 +111,19 @@ export default function Home() {
             >
               {workspace.name.charAt(0)}
             </span>
-            <span className="truncate text-[16px] font-bold" style={{ color: "var(--text-main)" }}>
-              {workspace.name}
+            <span className="flex min-w-0 items-baseline gap-1">
+              <span
+                className="shrink-0 text-[12px] font-medium"
+                style={{ color: "var(--text-muted)" }}
+              >
+                現在のワークスペース：
+              </span>
+              <span
+                className="truncate text-[16px] font-bold"
+                style={{ color: "var(--text-main)" }}
+              >
+                {workspace.name}
+              </span>
             </span>
             <RoleBadge role={workspace.role} />
             {normalizeWorkspaceRole(workspace.role) === "viewer" && <ViewerOnlyBadge />}

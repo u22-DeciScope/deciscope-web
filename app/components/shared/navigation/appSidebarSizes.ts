@@ -1,5 +1,5 @@
 export const APP_SIDEBAR_SIZES = {
-  collapsedPaneWidth: 88,
+  collapsedPaneWidth: 72,
   defaultNavigationWidth: 180,
   maxNavigationWidth: 280,
   collapseThreshold: 100,
