@@ -10,7 +10,10 @@ import type { ReactNode } from "react";
 
 import type { Route } from "./+types/root";
 import { AuthenticatedSessionProvider } from "~/hooks/useAuthenticatedSession";
+import { logFrontendBuildFingerprint } from "~/utils/clientDiagnostics/clientDiagnostics";
 import "~/app.css";
+
+logFrontendBuildFingerprint();
 
 export const PRODUCT_NAME = "Deciscope";
 

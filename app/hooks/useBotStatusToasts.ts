@@ -4,7 +4,10 @@ import {
   isTerminalMeetingSessionStatus,
   type MeetingSessionStatus,
 } from "~/api/meetingSessions/meetingSessionsApi";
-import type { MeetingSessionTranscriptHealth } from "~/api/transcripts/transcriptSegmentsApi";
+import type {
+  MeetingSessionMediaHealth,
+  MeetingSessionTranscriptHealth,
+} from "~/api/transcripts/transcriptSegmentsApi";
 
 export type BotStatusToastTone = "error" | "warning" | "success";
 
@@ -35,21 +38,31 @@ export function useBotStatusToasts(
     isLocalEnd: boolean;
     botConnectionLost: boolean;
     transcriptHealth?: MeetingSessionTranscriptHealth | null;
+    mediaHealth?: MeetingSessionMediaHealth | null;
   },
 ) {
-  const { endReason, isLocalEnd, botConnectionLost, transcriptHealth = null } = options;
+  const {
+    endReason,
+    isLocalEnd,
+    botConnectionLost,
+    transcriptHealth = null,
+    mediaHealth = null,
+  } = options;
   const [toasts, setToasts] = useState<BotStatusToast[]>([]);
   const previousStatusRef = useRef<MeetingSessionStatus | null>(null);
   const recoveredTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const botConnectionRecoveredTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousBotConnectionLostRef = useRef(false);
   const previousTranscriptHealthRef = useRef<MeetingSessionTranscriptHealth | null>(null);
+  const previousMediaHealthRef = useRef<MeetingSessionMediaHealth | null>(null);
+  const mediaRecoveredTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 別の会議セッションに切り替わったら、前のセッションのトーストを引きずらない。
   useEffect(() => {
     previousStatusRef.current = null;
     previousBotConnectionLostRef.current = false;
     previousTranscriptHealthRef.current = null;
+    previousMediaHealthRef.current = null;
     setToasts([]);
     if (recoveredTimerRef.current) {
       clearTimeout(recoveredTimerRef.current);
@@ -59,7 +72,52 @@ export function useBotStatusToasts(
       clearTimeout(botConnectionRecoveredTimerRef.current);
       botConnectionRecoveredTimerRef.current = null;
     }
+    if (mediaRecoveredTimerRef.current) {
+      clearTimeout(mediaRecoveredTimerRef.current);
+      mediaRecoveredTimerRef.current = null;
+    }
   }, [sessionKey]);
+
+  useEffect(() => {
+    const previous = previousMediaHealthRef.current;
+    if (previous?.eventId && previous.eventId === mediaHealth?.eventId) {
+      return;
+    }
+    previousMediaHealthRef.current = mediaHealth;
+    const isTerminal = sessionStatus !== null && isTerminalMeetingSessionStatus(sessionStatus);
+    if (isTerminal || !mediaHealth) {
+      setToasts((current) => removeToast(current, "audio-receive"));
+      return;
+    }
+    if (mediaHealth.state === "audio_receive_stalled") {
+      setToasts((current) =>
+        upsertToast(removeToast(current, "transcript-health"), {
+          id: "audio-receive",
+          tone: "warning",
+          message: "Botとの接続は維持されていますが、音声フレームの受信が一時停止しています。",
+        }),
+      );
+      return;
+    }
+    setToasts((current) => removeToast(current, "audio-receive"));
+    if (previous?.state === "audio_receive_stalled" && mediaHealth.event === "recovered") {
+      const seconds = Math.max(0, Math.round((mediaHealth.durationMs ?? 0) / 1000));
+      setToasts((current) =>
+        upsertToast(current, {
+          id: "audio-receive-recovered",
+          tone: "success",
+          message:
+            seconds > 0 ? `音声受信が復旧しました（約${seconds}秒）。` : "音声受信が復旧しました。",
+        }),
+      );
+      if (mediaRecoveredTimerRef.current) {
+        clearTimeout(mediaRecoveredTimerRef.current);
+      }
+      mediaRecoveredTimerRef.current = setTimeout(() => {
+        setToasts((current) => removeToast(current, "audio-receive-recovered"));
+      }, recoveredToastDurationMs);
+    }
+  }, [mediaHealth, sessionStatus]);
 
   // Go API側watchdogがBotのハートビート途絶(60秒以上)を検知した通知。
   // 復帰(healthy=true)した場合は、既に会議が終了していない限り復旧トーストへ切り替える。
@@ -118,7 +176,10 @@ export function useBotStatusToasts(
       return;
     }
 
-    const message = transcriptHealthToastMessage(transcriptHealth);
+    const message =
+      mediaHealth?.state === "audio_receive_stalled" && transcriptHealth === "audio_stalled"
+        ? null
+        : transcriptHealthToastMessage(transcriptHealth);
     if (message) {
       setToasts((current) =>
         upsertToast(current, { id: "transcript-health", tone: "warning", message }),
@@ -127,7 +188,7 @@ export function useBotStatusToasts(
     }
 
     setToasts((current) => removeToast(current, "transcript-health"));
-  }, [sessionStatus, transcriptHealth]);
+  }, [mediaHealth?.state, sessionStatus, transcriptHealth]);
 
   useEffect(() => {
     const previousStatus = previousStatusRef.current;
@@ -184,6 +245,7 @@ export function useBotStatusToasts(
       setToasts((current) => removeToast(current, "speech-status"));
       setToasts((current) => removeToast(current, "bot-connection"));
       setToasts((current) => removeToast(current, "transcript-health"));
+      setToasts((current) => removeToast(current, "audio-receive"));
       // previousStatus === null は「終了済みセッションを後から開いた」初回ロードなので、
       // 会議中にライブで ended への遷移を目撃した場合だけ退出トーストを出す
       // (終了済みページでは既存の endedNotice バナーが案内を担う)。
@@ -206,6 +268,9 @@ export function useBotStatusToasts(
       }
       if (botConnectionRecoveredTimerRef.current) {
         clearTimeout(botConnectionRecoveredTimerRef.current);
+      }
+      if (mediaRecoveredTimerRef.current) {
+        clearTimeout(mediaRecoveredTimerRef.current);
       }
     };
   }, []);

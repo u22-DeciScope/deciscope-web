@@ -26,14 +26,23 @@ VITE_FIREBASE_APP_ID=...
 # 任意
 VITE_FIREBASE_STORAGE_BUCKET=deciscope-app.firebasestorage.app
 VITE_FIREBASE_MESSAGING_SENDER_ID=...
-# 任意。trueにすると会議開始まわりのdebugログを出力します
-VITE_DECISCOPE_DEBUG_MEETING_START=true
+# 任意。falseにすると診断イベントのAPI送信を停止します
+VITE_DECISCOPE_CLIENT_DIAGNOSTICS=true
+# 任意。診断イベントに載せるcommit SHA等
+VITE_FRONTEND_BUILD_VERSION=
+# 本番buildではCIが設定するartifact追跡情報
+VITE_COMMIT_SHA=
+VITE_BUILD_TIMESTAMP=
+VITE_DIRTY_BUILD=false
 ```
 
 開発時、ブラウザは同一オリジンの `/api` と `/ws` に接続し、Vite が上記のプロキシ先へ転送します。
 会議画面のworkspace-scoped APIは `VITE_API_BASE_URL`、文字起こしWebSocketは
 `VITE_WS_BASE_URL` を使います。本番環境でブラウザから別オリジンの API に直接接続する場合のみ、
 この2つを公開ホストに合わせて設定してください。
+会議画面のクライアント診断はブラウザコンソールではなく `/internal/client-diagnostics` へ送信し、
+core-api の標準ログおよび設定されたJSONL診断ログへ記録します。
+各環境変数の公開範囲と用途は [.env.example](./.env.example) のコメントを参照してください。
 
 Firebase Console の Authentication で Microsoft プロバイダーを有効化し、承認済みドメインに `localhost` が含まれていることを確認してください。
 
@@ -48,9 +57,17 @@ POST /v1/workspaces/{workspaceId}/meeting-sessions
 ```json
 {
   "joinUrl": "https://teams.microsoft.com/l/meetup-join/...",
-  "userProvidedTitle": "週次定例"
+  "userProvidedTitle": "週次定例",
+  "candidateUserPrincipalNames": ["user@example.com"],
+  "createdByEmail": "user@example.com",
+  "purpose": "今週の進捗と課題を共有する",
+  "context": "プロジェクトAの週次定例",
+  "agenda": "進捗、課題、次のアクション",
+  "customInstruction": "決定事項と担当者を明確にする"
 }
 ```
+
+`userProvidedTitle` 以降は画面で入力された場合だけ送信されます。
 
 レスポンスの `sessionId` を受け取ったら、フロントエンドは `sessionId` をパスに含めて会議画面へ遷移します。
 
@@ -60,21 +77,11 @@ POST /v1/workspaces/{workspaceId}/meeting-sessions
 
 会議URL送信時の流れは、workspace-scoped APIでのsession作成、pending navigationの保存、`sessionId` パスへの遷移の順です。`sessionId` をルートパラメータに持たせることで、認証状態の再確認、ページ再読み込み、React stateの破棄を挟んでも会議セッションを復元できます。送信中はボタンをdisabledにし、同じsubmitの二重実行を防ぎます。
 
-ホームの進行中一覧では、Go APIの `GET /v1/workspaces/{workspaceId}/meeting-sessions` と `GET /v1/workspaces/{workspaceId}/meeting-sessions/{sessionId}` のstatusを使ってTeams会議を表示します。`ended`、`failed`、`stale`、`timeout` のTeams sessionは進行中一覧から外れ、最近の会議側に表示されます。最近の会議は直近5件のみで、全件は「すべて」から会議履歴ページ (`/w/<workspaceId>/meetings/history`) で確認できます。Teams会議の「開く」「記録を見る」は `sessionId` を含む会議画面パスへ遷移するため、既存meetingレコードだけを開いて空の会議画面になることを避けます。
+ホームの進行中一覧では、Go APIの `GET /v1/workspaces/{workspaceId}/meeting-sessions` と `GET /v1/workspaces/{workspaceId}/meeting-sessions/{sessionId}` のstatusを使ってTeams会議を表示します。`ended`、`failed`、`stale`、`timeout` のTeams sessionは進行中一覧から外れ、最近の会議側に表示されます。進行中の会議は直近3件、最近の会議は直近7件を表示し、全件は「すべて」から会議履歴ページ (`/w/<workspaceId>/meetings/history`) で確認できます。Teams会議の「開く」「記録を見る」は `sessionId` を含む会議画面パスへ遷移するため、既存meetingレコードだけを開いて空の会議画面になることを避けます。
 
-`sessionId` はURLパスを正とします。`localStorage` の `deciscope:meetingSessions:v1` は、作成直後の復帰や旧導線の補助情報としてのみ使います。旧実装の `deciscope:lastSessionId` は最後に作成したsessionの控えとしてのみ更新し、ホーム一覧へは自動移行しません。
+`sessionId` はURLパスを正とします。`localStorage` の `deciscope:meetingSessions:v1` は作成直後の復帰や旧導線の補助情報、`deciscope:pendingMeetingNavigation:v1` は作成直後の遷移復旧に使います。最後に選択したworkspaceは `deciscope:lastWorkspaceId` に保存します。
 
 認証状態が `loading` の間は未認証扱いでredirectせず、「認証状態を確認しています...」を表示します。WebSocketの一時切断や再接続中も会議画面は維持し、画面内の接続状態として表示します。
-
-開発時は `VITE_DECISCOPE_DEBUG_MEETING_START=true`、またはVite dev modeで、次のdebugログを確認できます。joinUrl全文は出力しません。
-
-```text
-[meeting-start] session created
-[meeting-start] navigating to meeting page
-[auth-guard] state
-[meeting-page] mounted or route changed
-[meeting-page] WebSocket connected
-```
 
 フロントエンドが直接VM Botを叩くことはありません。正しい流れは `Frontend -> Go API -> VM Bot` です。`DECISCOPE_BOT_CONTROL_URL`、`DECISCOPE_BOT_CONTROL_TOKEN`、`DECISCOPE_INGEST_API_KEY` はフロントエンド環境変数に設定しないでください。
 
@@ -92,6 +99,8 @@ Vite はworkspace-scoped APIとWebSocketを Go API へ転送します。
 ```
 
 `/api/v1/meeting-sessions` はVM Bot連携や手動確認に残しているAPI-key系の互換ルートです。通常のブラウザUIは `/v1/workspaces/.../meeting-sessions` を使います。
+
+`npm run dev` では、環境変数を省略した場合も `.env.example` と同じ `http://127.0.0.1:9090` をAPIのproxy先として使います。
 
 Docker Compose内では、proxy先は既定で次になります。
 

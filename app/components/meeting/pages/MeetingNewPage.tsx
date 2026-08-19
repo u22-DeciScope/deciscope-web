@@ -15,7 +15,6 @@ import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeCo
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { useAuthenticatedSession } from "~/hooks/useAuthenticatedSession";
 import { workspaceMeetingPath, workspacePath } from "~/routing/workspacePaths";
-import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
 export default function MeetingNewPage() {
   const navigate = useNavigate();
@@ -55,16 +54,7 @@ export default function MeetingNewPage() {
     if (!pending) {
       return;
     }
-    meetingStartDebug("meeting-start", "recovering pending meeting navigation", {
-      source: "meeting-start",
-      reason: "returned_to_join_page_after_navigation",
-      currentPath,
-      targetPath: pending.path,
-      authLoading: false,
-      workspaceLoading: false,
-      sessionId: pending.sessionId,
-      meetingStatus: null,
-    });
+
     navigate(pending.path, { replace: true });
   }, [currentPath, navigate, workspaceId]);
 
@@ -76,40 +66,17 @@ export default function MeetingNewPage() {
     }
     const normalizedJoinUrl = normalizeMeetingUrlForClient(joinUrl);
     const createdByEmail = user?.email?.trim() || "";
-    meetingStartDebug("meeting-start", "meetingUrl input submitted", {
-      hasJoinUrl: Boolean(normalizedJoinUrl),
-      host: safeUrlHost(normalizedJoinUrl),
-      hasCreatedByEmail: Boolean(createdByEmail),
-    });
 
     if (submitInFlightRef.current && inFlightJoinUrlRef.current === normalizedJoinUrl) {
-      meetingStartDebug("meeting-start", "join request ignored for same meetingUrl in flight", {
-        host: safeUrlHost(normalizedJoinUrl),
-      });
       return;
     }
     if (submitInFlightRef.current) {
-      meetingStartDebug(
-        "meeting-start",
-        "submit ignored because another request is already in flight",
-      );
       return;
     }
     setError(null);
 
     const validationError = validateTeamsJoinUrl(normalizedJoinUrl);
     if (validationError) {
-      meetingStartDebug("meeting-start", "returning to URL input", {
-        source: "meeting-start",
-        reason: "validation_failed",
-        currentPath,
-        targetPath: currentPath,
-        authLoading: false,
-        workspaceLoading: false,
-        sessionId: null,
-        meetingStatus: null,
-        message: validationError,
-      });
       setError(validationError);
       return;
     }
@@ -117,13 +84,8 @@ export default function MeetingNewPage() {
     submitInFlightRef.current = true;
     inFlightJoinUrlRef.current = normalizedJoinUrl;
     setIsSubmitting(true);
-    meetingStartDebug("meeting-start", "join request started", {
-      host: safeUrlHost(normalizedJoinUrl),
-    });
+
     try {
-      meetingStartDebug("meeting-start", "POST workspace-scoped meeting-sessions started", {
-        workspaceId,
-      });
       const session = await createWorkspaceMeetingSession(workspaceId, normalizedJoinUrl, {
         title,
         userProvidedTitle: title,
@@ -134,16 +96,6 @@ export default function MeetingNewPage() {
         agenda,
         customInstruction,
       });
-      meetingStartDebug("meeting-start", "join request completed", {
-        sessionId: session.sessionId,
-        title: session.title ?? null,
-        titleSource: session.titleSource ?? null,
-        userProvidedTitle: session.userProvidedTitle ?? null,
-        graphTitle: session.graphTitle ?? null,
-        meetingUrlHash: session.meetingUrlHash ?? null,
-        status: session.status,
-        reused: session.reused ?? false,
-      });
 
       const targetWorkspaceId = session.workspaceId || workspaceId;
       const meetingPath = workspaceMeetingPath(targetWorkspaceId, session.sessionId);
@@ -152,36 +104,9 @@ export default function MeetingNewPage() {
         sessionId: session.sessionId,
         path: meetingPath,
       });
-      meetingStartDebug("meeting-start", "navigating to meeting page", {
-        source: "meeting-start",
-        reason: "session_created_or_reused",
-        currentPath,
-        targetPath: meetingPath,
-        authLoading: false,
-        workspaceLoading: false,
-        sessionId: session.sessionId,
-        meetingUrlHash: session.meetingUrlHash ?? null,
-        status: session.status,
-        meetingStatus: session.status,
-        botCallId: session.botCallId ?? null,
-        reused: session.reused ?? false,
-      });
+
       navigate(meetingPath);
     } catch (cause) {
-      meetingStartDebug("meeting-start", "submit failed", {
-        message: cause instanceof Error ? cause.message : String(cause),
-      });
-      meetingStartDebug("meeting-start", "returning to URL input", {
-        source: "meeting-start",
-        reason: "join_request_failed",
-        currentPath,
-        targetPath: currentPath,
-        authLoading: false,
-        workspaceLoading: false,
-        sessionId: null,
-        meetingStatus: null,
-        message: cause instanceof Error ? cause.message : String(cause),
-      });
       setError(cause instanceof Error ? cause.message : "会議に入室できませんでした。");
     } finally {
       submitInFlightRef.current = false;
@@ -331,12 +256,4 @@ function TextArea({
       />
     </label>
   );
-}
-
-function safeUrlHost(value: string) {
-  try {
-    return new URL(value).host;
-  } catch {
-    return "";
-  }
 }

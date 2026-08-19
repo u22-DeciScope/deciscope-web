@@ -37,10 +37,12 @@ export function SessionReviewWorkspace({
 
   return (
     // タイムラインなど中身の高さでページ全体が無限に伸びないよう、lg以上では
-    // グリッド自体を一定の高さ(ビューポート連動・上下限つき)に固定し、
-    // 各パネル(タイムライン/議論ツリー/AIアシスタント)内部のスクロールに任せる。
+    // グリッド自体の高さを固定し、各パネル(タイムライン/議論ツリー/AIアシスタント)
+    // 内部のスクロールに任せる。高さは表示領域(main)いっぱいにしたいので、親である
+    // /summary ページのスクロールコンテナに対する h-full を使う。パーセンテージ高さは
+    // 親のcontent box基準で解決されるため、親のpadding分はここで引く必要がない。
     <MeetingWorkspaceGrid
-      className="min-h-140 shrink-0 pb-1 lg:h-[clamp(560px,72vh,900px)]"
+      className="min-h-140 shrink-0 pb-1 lg:h-full"
       partials={partials}
       segments={finalSegments}
       treeNodes={tree?.nodes ?? []}

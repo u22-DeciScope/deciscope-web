@@ -12,6 +12,7 @@ import {
   initialMeetingAnalysisState,
   meetingAnalysisReducer,
   selectedAnalysisTree,
+  shouldReplaceFinalTreeSnapshot,
 } from "./meetingAnalysisState";
 
 function live(version = 11, nodeCount = 27): MeetingAIAnalysis {
@@ -504,6 +505,40 @@ describe("meetingAnalysisReducer payload merge and REST/WS ordering", () => {
       treeVersion: 16,
       selectionReason: "newer_final_tree_version",
     });
+  });
+
+  it("keeps the persisted final snapshot when an older or empty response arrives later", () => {
+    const persisted: TreeSnapshotPayload = {
+      treeVersion: 26,
+      generatedAtUtc: "2026-07-23T00:20:00Z",
+      tree: {
+        nodes: [
+          { id: "root", kind: "topic", label: "root" },
+          { id: "final-node", kind: "decision", label: "final" },
+        ],
+        edges: [],
+      },
+    };
+    const olderSnapshot: TreeSnapshotPayload = {
+      treeVersion: 21,
+      generatedAtUtc: "2026-07-23T00:10:00Z",
+      tree: {
+        nodes: [{ id: "root", kind: "topic", label: "root" }],
+        edges: [],
+      },
+    };
+    const emptySnapshot: TreeSnapshotPayload = {
+      treeVersion: 27,
+      generatedAtUtc: "2026-07-23T00:30:00Z",
+      tree: { nodes: [], edges: [] },
+    };
+
+    expect(shouldReplaceFinalTreeSnapshot(null, persisted)).toBe(true);
+    expect(shouldReplaceFinalTreeSnapshot(persisted, olderSnapshot)).toBe(false);
+    expect(shouldReplaceFinalTreeSnapshot(persisted, emptySnapshot)).toBe(false);
+    expect(shouldReplaceFinalTreeSnapshot(persisted, null)).toBe(false);
+    // 取得順が入れ替わっても最終状態は同じになる。
+    expect(shouldReplaceFinalTreeSnapshot(olderSnapshot, persisted)).toBe(true);
   });
 
   it("does not change tree source for recording to ending to ended status transitions", () => {

@@ -12,26 +12,18 @@ import {
 import type { MeetingSegmentDto } from "~/api/meetings/meetingEventsApi";
 import type { RuntimePartial } from "~/api/meetings/meetingRuntimeTypes";
 import {
-  buildWorkspaceMeetingSessionTranscriptHistoryDebugUrl,
   buildWorkspaceMeetingSessionTranscriptWebSocketUrl,
+  fetchWorkspaceMeetingSessionMediaHealth,
   fetchWorkspaceMeetingSessionTranscriptSegmentHistory,
-  maskWebSocketUrl,
   parseTranscriptWebSocketEvent,
   transcriptSegmentKey,
   type MeetingSessionTranscriptHealth,
+  type MeetingSessionMediaHealth,
   type TranscriptSegment,
 } from "~/api/transcripts/transcriptSegmentsApi";
-import { meetingStartDebug } from "~/utils/meetingStartDebug";
+
 import { isPermanentRealtimeApiError, realtimeRecoveryDecision } from "~/utils/realtimeRecovery";
-import {
-  analysisSelectionDebugSnapshot,
-  analysisTreeNodeCount,
-  analysisTreeVersion,
-  meetingAnalysisReducer,
-  selectedAnalysisTree,
-  treeApplyDecision,
-  type MeetingAnalysisAction,
-} from "~/hooks/meetingAnalysisState";
+import { selectedAnalysisTree, type MeetingAnalysisAction } from "~/hooks/meetingAnalysisState";
 import { useMeetingAnalysisSessionStore } from "~/hooks/meetingAnalysisSessionStore";
 import { analysisDiagnosticsFields } from "~/hooks/meetingAnalysisDiagnostics";
 import {
@@ -118,6 +110,7 @@ export function useMeetingTranscriptSession(
   const [transcriptHealth, setTranscriptHealth] = useState<MeetingSessionTranscriptHealth | null>(
     null,
   );
+  const [mediaHealth, setMediaHealth] = useState<MeetingSessionMediaHealth | null>(null);
   const { state: analysisState, dispatch: dispatchAnalysis } = useMeetingAnalysisSessionStore(
     normalizedSessionId,
     workspaceId,
@@ -180,77 +173,34 @@ export function useMeetingTranscriptSession(
         return status;
       });
       applyAnalysisAction({ type: "meeting_status", status });
-      if (isTerminalMeetingSessionStatus(status)) {
-        meetingStartDebug("meeting-page", "analysis tree preserved", {
-          meetingStatus: status,
-          treePreserved: analysisTreeNodeCount(analysisStateRef.current) > 0,
-          treeNodeCountAfter: analysisTreeNodeCount(analysisStateRef.current),
-          reason: "meeting_ended",
-        });
-      }
     },
     [applyAnalysisAction],
   );
 
   const appendSegments = useCallback(
-    (incoming: TranscriptSegment[], source = "unknown") => {
+    (incoming: TranscriptSegment[]) => {
       if (!normalizedSessionId) {
-        meetingStartDebug("meeting-page", "transcript ignored", {
-          source,
-          reason: "missing_current_session_id",
-          incomingCount: incoming.length,
-        });
         return;
       }
 
       const accepted: TranscriptSegment[] = [];
-      let ignoredSessionMismatch = 0;
-      let ignoredEmptyText = 0;
-      let ignoredDuplicate = 0;
-      let ignoredPartial = 0;
-      const mismatchSamples: Array<Record<string, unknown>> = [];
       for (const segment of incoming) {
         if (!segment.isFinal) {
-          ignoredPartial += 1;
           continue;
         }
         if (segment.sessionId !== normalizedSessionId) {
-          ignoredSessionMismatch += 1;
-          if (mismatchSamples.length < 3) {
-            mismatchSamples.push({
-              eventId: segment.eventId ?? null,
-              segmentSessionId: segment.sessionId ?? null,
-              currentSessionId: normalizedSessionId,
-              callId: segment.callId,
-              sequenceNo: segment.sequenceNo,
-            });
-          }
           continue;
         }
         if (!segment.text.trim()) {
-          ignoredEmptyText += 1;
           continue;
         }
         const key = transcriptSegmentKey(segment);
         if (seenKeysRef.current.has(key)) {
-          ignoredDuplicate += 1;
           continue;
         }
         seenKeysRef.current.add(key);
         accepted.push(segment);
       }
-
-      meetingStartDebug("meeting-page", "transcript append evaluated", {
-        source,
-        sessionId: normalizedSessionId,
-        incomingCount: incoming.length,
-        acceptedCount: accepted.length,
-        ignoredSessionMismatch,
-        ignoredEmptyText,
-        ignoredDuplicate,
-        ignoredPartial,
-        mismatchSamples,
-      });
 
       if (accepted.length === 0) {
         return;
@@ -265,57 +215,23 @@ export function useMeetingTranscriptSession(
         return changed ? next : current;
       });
       setSegments((current) => sortTranscriptSegments([...current, ...accepted]));
-      meetingStartDebug("meeting-page", "transcript appended", {
-        source,
-        sessionId: normalizedSessionId,
-        appendedCount: accepted.length,
-        sequenceNos: accepted.map((segment) => segment.sequenceNo),
-      });
     },
     [normalizedSessionId],
   );
 
   const applyPartial = useCallback(
-    (segment: TranscriptSegment, source = "unknown") => {
+    (segment: TranscriptSegment) => {
       if (!normalizedSessionId) {
-        meetingStartDebug("meeting-page", "transcript partial ignored", {
-          source,
-          reason: "missing_current_session_id",
-          eventId: segment.eventId ?? null,
-        });
         return;
       }
       if (segment.sessionId !== normalizedSessionId) {
-        meetingStartDebug("meeting-page", "transcript partial ignored", {
-          source,
-          reason: "session_id_mismatch",
-          eventId: segment.eventId ?? null,
-          segmentSessionId: segment.sessionId ?? null,
-          currentSessionId: normalizedSessionId,
-          callId: segment.callId,
-        });
         return;
       }
       if (!segment.text.trim()) {
-        meetingStartDebug("meeting-page", "transcript partial ignored", {
-          source,
-          reason: "empty_text",
-          eventId: segment.eventId ?? null,
-        });
         return;
       }
 
       setPartials((current) => upsertPartialEntry(current, segment));
-      meetingStartDebug("meeting-page", "transcript partial applied", {
-        source,
-        sessionId: normalizedSessionId,
-        eventId: segment.eventId ?? null,
-        callId: segment.callId,
-        partialGapThresholdMs: partialBubbleGapThresholdMs,
-        speakerId: segment.speakerId ?? null,
-        speakerName: segment.speakerName ?? null,
-        textLength: segment.text.trim().length,
-      });
     },
     [normalizedSessionId],
   );
@@ -344,6 +260,7 @@ export function useMeetingTranscriptSession(
       setSessionEndReason("");
       setBotConnectionLost(false);
       setTranscriptHealth(null);
+      setMediaHealth(null);
       setLiveAnalysisMeta(initialLiveAnalysisMeta);
       setConnectionStatus("idle");
       setError(null);
@@ -367,27 +284,18 @@ export function useMeetingTranscriptSession(
     setSessionEndedAt("");
     setBotConnectionLost(false);
     setTranscriptHealth(null);
+    setMediaHealth(null);
     setLiveAnalysisMeta(initialLiveAnalysisMeta);
     setConnectionStatus("loading");
     setError(null);
     setRecoveryRequired(false);
 
     let active = true;
-    const historyDebugUrl = buildWorkspaceMeetingSessionTranscriptHistoryDebugUrl(
-      workspaceId,
-      normalizedSessionId,
-      100,
-    );
     const websocketUrl = buildWorkspaceMeetingSessionTranscriptWebSocketUrl(
       workspaceId,
       normalizedSessionId,
     );
 
-    meetingStartDebug("meeting-page", "transcript subscription started", {
-      sessionId: normalizedSessionId,
-      historyUrl: historyDebugUrl,
-      websocketUrl: maskWebSocketUrl(websocketUrl),
-    });
     recordDiagnosticEvent("session_hook_created", {
       ...diagnosticFields(),
       details: { connectWebSocketEnabled: connectEnabledRef.current },
@@ -397,9 +305,6 @@ export function useMeetingTranscriptSession(
 
     async function loadInitialData() {
       try {
-        meetingStartDebug("meeting-page", "session data loading started", {
-          sessionId: normalizedSessionId,
-        });
         const session = await getWorkspaceMeetingSession(workspaceId, normalizedSessionId);
         if (!active) {
           return null;
@@ -430,24 +335,14 @@ export function useMeetingTranscriptSession(
         if (statusError) {
           setError(statusError);
         }
-        meetingStartDebug("meeting-page", "session data loaded", {
-          sessionId: normalizedSessionId,
-          title: session.title ?? null,
-          titleSource: session.titleSource ?? null,
-          meetingUrlHash: session.meetingUrlHash ?? null,
-          status: session.status,
-          lastBotStatusAt: session.lastBotStatusAt ?? null,
-        });
+
         return session;
       } catch (cause) {
         if (!active) {
           return null;
         }
         setError(`会議セッションを復元できませんでした: ${errorMessage(cause)}`);
-        meetingStartDebug("meeting-page", "session data load failed", {
-          sessionId: normalizedSessionId,
-          message: errorMessage(cause),
-        });
+
         throw cause;
       }
     }
@@ -455,11 +350,6 @@ export function useMeetingTranscriptSession(
     async function loadTranscriptHistory(attempt = 0) {
       clearReconnectTimer(historyRetryTimerRef);
       try {
-        meetingStartDebug("meeting-page", "transcript history loading started", {
-          sessionId: normalizedSessionId,
-          historyUrl: historyDebugUrl,
-          attempt,
-        });
         const history = await fetchWorkspaceMeetingSessionTranscriptSegmentHistory(
           workspaceId,
           normalizedSessionId,
@@ -468,14 +358,8 @@ export function useMeetingTranscriptSession(
         if (!active) {
           return;
         }
-        appendSegments(history.segments, "history");
+        appendSegments(history.segments);
         setError((current) => (current === transcriptHistoryRetryMessage ? null : current));
-        meetingStartDebug("meeting-page", "transcript history loaded", {
-          sessionId: normalizedSessionId,
-          historyCount: history.segments.length,
-          historyUnavailable: history.unavailable,
-          attempt,
-        });
       } catch (cause) {
         if (!active) {
           return;
@@ -489,14 +373,7 @@ export function useMeetingTranscriptSession(
               ? transcriptHistoryRetryMessage
               : "文字起こし履歴を取得できませんでした。手動で再接続してください。"),
         );
-        meetingStartDebug("meeting-page", "transcript history load failed", {
-          sessionId: normalizedSessionId,
-          historyUrl: historyDebugUrl,
-          attempt,
-          message: errorMessage(cause),
-          willRetry,
-          retryDelayMs: delay,
-        });
+
         if (willRetry) {
           historyRetryTimerRef.current = setTimeout(() => {
             void loadTranscriptHistory(attempt + 1);
@@ -505,16 +382,22 @@ export function useMeetingTranscriptSession(
       }
     }
 
+    async function loadMediaHealth() {
+      try {
+        const health = await fetchWorkspaceMeetingSessionMediaHealth(
+          workspaceId,
+          normalizedSessionId,
+        );
+        if (!active || health.sessionId !== activeSessionRef.current) {
+          return;
+        }
+        setMediaHealth((current) => latestMediaHealth(current, health));
+      } catch {
+        // This transient diagnostic must not prevent transcript/session recovery.
+      }
+    }
+
     async function loadAIAnalyses(source: string) {
-      const beforeRequest = analysisStateRef.current;
-      meetingStartDebug("meeting-page", "tree hydrate started", {
-        sessionId: normalizedSessionId,
-        source,
-        currentVersion: beforeRequest.analysisRuntimeStatus.liveVersion,
-        currentTreeVersion: analysisTreeVersion(beforeRequest),
-        currentNodeCount: analysisTreeNodeCount(beforeRequest),
-        timestamp: new Date().toISOString(),
-      });
       recordDiagnosticEvent("rest_fetch_started", {
         ...diagnosticFields(),
         snapshotSource: "rest",
@@ -534,7 +417,6 @@ export function useMeetingTranscriptSession(
           return;
         }
         const live = analyses.live;
-        const analysisBefore = analysisStateRef.current;
         const liveTreePayload = (live?.payload ?? null) as LiveAnalysisPayload | null;
         // 採用/拒否の判定そのものは store 側で記録する。ここでは
         // 「何を受け取ったか」を到着順に残す。
@@ -556,7 +438,6 @@ export function useMeetingTranscriptSession(
           },
         });
         applyAnalysisAction({ type: "rest_snapshot", analyses });
-        const analysisAfter = analysisStateRef.current;
         const intervalSeconds = analyses.liveIntervalSeconds;
         setLiveAnalysisMeta((current) => {
           // WSイベントを既に受信済みならintervalSecondsの補完のみ行う。
@@ -574,37 +455,7 @@ export function useMeetingTranscriptSession(
             failed: live.status === "failed",
           };
         });
-        meetingStartDebug("meeting-page", "tree hydrate completed", {
-          sessionId: normalizedSessionId,
-          source,
-          liveVersion: analyses.live?.version ?? null,
-          finalVersion: analyses.final?.version ?? null,
-          finalTreeSnapshotVersion: analyses.treeSnapshot?.treeVersion ?? null,
-          treeNodeCountBefore: analysisTreeNodeCount(analysisBefore),
-          treeNodeCountAfter: analysisTreeNodeCount(analysisAfter),
-          treeReplaced:
-            analysisTreeNodeCount(analysisBefore) !== analysisTreeNodeCount(analysisAfter) ||
-            analysisTreeVersion(analysisBefore) !== analysisTreeVersion(analysisAfter),
-          treePreserved:
-            analysisTreeNodeCount(analysisBefore) > 0 &&
-            analysisTreeNodeCount(analysisBefore) === analysisTreeNodeCount(analysisAfter),
-          mergeDecision:
-            analysisTreeVersion(analysisBefore) === analysisTreeVersion(analysisAfter)
-              ? "tree_retained"
-              : "tree_hydrated",
-          ...analysisSelectionDebugSnapshot(analysisAfter),
-          timestamp: new Date().toISOString(),
-        });
       } catch (cause) {
-        meetingStartDebug("meeting-page", "tree hydrate failed", {
-          sessionId: normalizedSessionId,
-          source,
-          message: errorMessage(cause),
-          treeRetained: analysisTreeNodeCount(analysisStateRef.current) > 0,
-          currentTreeVersion: analysisTreeVersion(analysisStateRef.current),
-          currentNodeCount: analysisTreeNodeCount(analysisStateRef.current),
-          timestamp: new Date().toISOString(),
-        });
         recordDiagnosticEvent("rest_snapshot_received", {
           ...diagnosticFields(),
           snapshotSource: "rest",
@@ -639,26 +490,13 @@ export function useMeetingTranscriptSession(
       const socket = new WebSocket(websocketUrl);
       socketRef.current = socket;
       setConnectionStatus(reconnecting ? "reconnecting" : "connecting");
-      meetingStartDebug("meeting-page", "WebSocket connecting", {
-        sessionId: normalizedSessionId,
-        reconnecting,
-        retryCount: reconnectAttemptRef.current,
-        lastEventAt: lastWebSocketEventAtRef.current,
-        url: maskWebSocketUrl(websocketUrl),
-        timestamp: new Date().toISOString(),
-      });
 
       connectTimeoutRef.current = setTimeout(() => {
         if (!active || socketRef.current !== socket || socket.readyState !== WebSocket.CONNECTING) {
           return;
         }
         setConnectionStatus("error");
-        meetingStartDebug("meeting-page", "WebSocket connect timeout", {
-          sessionId: normalizedSessionId,
-          timeoutMs: websocketConnectTimeoutMs,
-          url: maskWebSocketUrl(websocketUrl),
-          readyState: socket.readyState,
-        });
+
         socket.close();
       }, websocketConnectTimeoutMs);
 
@@ -671,17 +509,7 @@ export function useMeetingTranscriptSession(
         reconnectAttemptRef.current = 0;
         setRecoveryRequired(false);
         setConnectionStatus("connected");
-        meetingStartDebug(
-          "meeting-page",
-          reconnecting ? "WebSocket reconnected" : "WebSocket connected",
-          {
-            sessionId: normalizedSessionId,
-            retryCount: completedRetryCount,
-            lastEventAt: lastWebSocketEventAtRef.current,
-            url: maskWebSocketUrl(websocketUrl),
-            timestamp: new Date().toISOString(),
-          },
-        );
+
         recordDiagnosticEvent("ws_connected", {
           ...diagnosticFields(),
           details: {
@@ -696,10 +524,7 @@ export function useMeetingTranscriptSession(
           // サーバが遷移時に1回しか送らないため見逃す可能性がある。再接続直後に
           // 現在状態を取り直して画面を復旧させる。3つとも冪等(historyはseenKeysRef
           // でdedupe、AI分析はversion比較guard)であることを確認済み。
-          meetingStartDebug("meeting-page", "reconnected, refetching missed state", {
-            sessionId: normalizedSessionId,
-            url: maskWebSocketUrl(websocketUrl),
-          });
+
           void loadInitialData()
             .then((session) => {
               if (
@@ -727,6 +552,7 @@ export function useMeetingTranscriptSession(
             });
           void loadTranscriptHistory();
           void loadAIAnalyses("reconnect");
+          void loadMediaHealth();
         }
       });
 
@@ -737,11 +563,7 @@ export function useMeetingTranscriptSession(
         try {
           const raw = String(event.data);
           lastWebSocketEventAtRef.current = new Date().toISOString();
-          meetingStartDebug("meeting-page", "transcript WebSocket message received", {
-            sessionId: normalizedSessionId,
-            url: maskWebSocketUrl(websocketUrl),
-            length: raw.length,
-          });
+
           const parsed = parseTranscriptWebSocketEvent(raw);
           if (parsed.sessionStatus && parsed.sessionStatus.sessionId === activeSessionRef.current) {
             applySessionStatus(parsed.sessionStatus.status, parsed.sentAtUtc);
@@ -765,24 +587,10 @@ export function useMeetingTranscriptSession(
             if (isTerminalMeetingSessionStatus(parsed.sessionStatus.status)) {
               setBotConnectionLost(false);
               setTranscriptHealth(null);
+              setMediaHealth(null);
               void loadAIAnalyses("meeting_ended");
             }
-            meetingStartDebug("meeting-page", "session status received", {
-              sessionId: parsed.sessionStatus.sessionId,
-              title: parsed.sessionStatus.title ?? null,
-              titleSource: parsed.sessionStatus.titleSource ?? null,
-              provider: parsed.sessionStatus.provider ?? null,
-              externalMeetingId: parsed.sessionStatus.externalMeetingId ?? null,
-              joinMeetingId: parsed.sessionStatus.joinMeetingId ?? null,
-              joinWebUrl: parsed.sessionStatus.joinWebUrl ?? null,
-              threadId: parsed.sessionStatus.threadId ?? null,
-              organizerId: parsed.sessionStatus.organizerId ?? null,
-              titleResolutionErrorCode: parsed.sessionStatus.titleResolutionErrorCode ?? null,
-              titleResolutionErrorMessage: parsed.sessionStatus.titleResolutionErrorMessage ?? null,
-              endReason: parsed.sessionStatus.endReason ?? null,
-              lastError: parsed.sessionStatus.lastError ?? null,
-              status: parsed.sessionStatus.status,
-            });
+
             const statusError = sessionStatusErrorMessage(parsed.sessionStatus.status);
             if (statusError) {
               setError(statusError);
@@ -791,61 +599,37 @@ export function useMeetingTranscriptSession(
           }
 
           if (parsed.sessionStatus) {
-            meetingStartDebug("meeting-page", "session status ignored", {
-              reason: "session_id_mismatch",
-              currentSessionId: activeSessionRef.current,
-              receivedSessionId: parsed.sessionStatus.sessionId,
-              status: parsed.sessionStatus.status,
-            });
             return;
           }
 
           if (parsed.botHealth) {
             if (parsed.botHealth.sessionId !== activeSessionRef.current) {
-              meetingStartDebug("meeting-page", "bot health ignored", {
-                reason: "session_id_mismatch",
-                currentSessionId: activeSessionRef.current,
-                receivedSessionId: parsed.botHealth.sessionId,
-                healthy: parsed.botHealth.healthy,
-              });
               return;
             }
             setBotConnectionLost(!parsed.botHealth.healthy);
-            meetingStartDebug("meeting-page", "bot health received", {
-              sessionId: parsed.botHealth.sessionId,
-              healthy: parsed.botHealth.healthy,
-              lastBotStatusAtUtc: parsed.botHealth.lastBotStatusAtUtc ?? null,
-            });
+
             return;
           }
 
           if (parsed.transcriptHealth) {
             if (parsed.transcriptHealth.sessionId !== activeSessionRef.current) {
-              meetingStartDebug("meeting-page", "transcript health ignored", {
-                reason: "session_id_mismatch",
-                currentSessionId: activeSessionRef.current,
-                receivedSessionId: parsed.transcriptHealth.sessionId,
-                transcriptHealth: parsed.transcriptHealth.transcriptHealth,
-              });
               return;
             }
             setTranscriptHealth(parsed.transcriptHealth.transcriptHealth);
-            meetingStartDebug("meeting-page", "transcript health received", {
-              sessionId: parsed.transcriptHealth.sessionId,
-              transcriptHealth: parsed.transcriptHealth.transcriptHealth,
-              secondsSinceLastTranscript: parsed.transcriptHealth.secondsSinceLastTranscript,
-            });
+
+            return;
+          }
+
+          if (parsed.mediaHealth) {
+            if (parsed.mediaHealth.sessionId !== activeSessionRef.current) {
+              return;
+            }
+            setMediaHealth((current) => latestMediaHealth(current, parsed.mediaHealth!));
             return;
           }
 
           if (parsed.aiAnalysis) {
             if (parsed.aiAnalysis.sessionId !== activeSessionRef.current) {
-              meetingStartDebug("meeting-page", "ai analysis ignored", {
-                reason: "session_id_mismatch",
-                currentSessionId: activeSessionRef.current,
-                receivedSessionId: parsed.aiAnalysis.sessionId ?? null,
-                analysisType: parsed.aiAnalysis.analysisType,
-              });
               return;
             }
 
@@ -870,55 +654,8 @@ export function useMeetingTranscriptSession(
               },
             });
             if (incoming.analysisType === "live") {
-              // Debug logging is gated by meetingStartDebug and records both
-              // type-specific versions and the last-known-good tree count.
-              const livePayload = incoming.payload as LiveAnalysisPayload | null;
-              const before = analysisStateRef.current;
-              const after = meetingAnalysisReducer(before, {
-                type: "analysis_event",
-                analysis: incoming,
-              });
               applyAnalysisAction({ type: "analysis_event", analysis: incoming });
-              meetingStartDebug("meeting-page", "analysis event received", {
-                sessionId: incoming.sessionId,
-                analysisType: incoming.analysisType,
-                status: incoming.status,
-                eventStatus: incoming.status,
-                incomingVersion: incoming.version,
-                currentVersion: before.analysisRuntimeStatus.liveVersion,
-                payloadKind: livePayload?.payloadKind ?? null,
-                incomingTreeKind: livePayload?.treePayloadState ?? null,
-                treePayloadState: livePayload?.treePayloadState ?? null,
-                explicitTreeReset: livePayload?.treeReset === true,
-                serverNodeCount: livePayload?.nodeCount ?? null,
-                normalizedNodeCount: livePayload?.tree?.nodes?.length ?? 0,
-                incomingNodeCount: livePayload?.tree?.nodes?.length ?? 0,
-                incomingEdgeCount: livePayload?.tree?.edges?.length ?? 0,
-                incomingTreeVersion: livePayload?.treeVersion ?? null,
-                currentTreeVersion: analysisTreeVersion(before),
-                resultingTreeVersion: analysisTreeVersion(after),
-                liveVersionBefore: before.analysisRuntimeStatus.liveVersion,
-                liveVersionAfter: after.analysisRuntimeStatus.liveVersion,
-                finalVersionBefore: before.analysisRuntimeStatus.finalVersion,
-                finalVersionAfter: after.analysisRuntimeStatus.finalVersion,
-                canonicalNodeCountBefore: analysisTreeNodeCount(before),
-                canonicalNodeCountAfter: analysisTreeNodeCount(after),
-                treeNodeCountBefore: analysisTreeNodeCount(before),
-                treeNodeCountAfter: analysisTreeNodeCount(after),
-                treeReplaced:
-                  analysisTreeNodeCount(after) !== analysisTreeNodeCount(before) ||
-                  analysisTreeVersion(after) !== analysisTreeVersion(before),
-                treePreserved:
-                  analysisTreeNodeCount(before) > 0 &&
-                  analysisTreeNodeCount(after) === analysisTreeNodeCount(before),
-                treeClearRejected:
-                  livePayload?.tree?.nodes?.length === 0 && analysisTreeNodeCount(after) > 0,
-                decision: treeApplyDecision(before.liveAnalysis, incoming),
-                mergeDecision: treeApplyDecision(before.liveAnalysis, incoming),
-                LKGNodeCount: analysisTreeNodeCount(after),
-                ...analysisSelectionDebugSnapshot(after),
-                timestamp: new Date().toISOString(),
-              });
+
               const receivedAtMs = Date.now();
               setLiveAnalysisMeta((current) => ({
                 ...current,
@@ -936,28 +673,8 @@ export function useMeetingTranscriptSession(
                     : { generating: false, failed: true }),
               }));
             } else {
-              const before = analysisStateRef.current;
-              const after = meetingAnalysisReducer(before, {
-                type: "analysis_event",
-                analysis: incoming,
-              });
               applyAnalysisAction({ type: "analysis_event", analysis: incoming });
-              meetingStartDebug("meeting-page", "analysis event received", {
-                sessionId: incoming.sessionId,
-                analysisType: incoming.analysisType,
-                status: incoming.status,
-                incomingVersion: incoming.version,
-                liveVersionBefore: before.analysisRuntimeStatus.liveVersion,
-                liveVersionAfter: after.analysisRuntimeStatus.liveVersion,
-                finalVersionBefore: before.analysisRuntimeStatus.finalVersion,
-                finalVersionAfter: after.analysisRuntimeStatus.finalVersion,
-                treeNodeCountBefore: analysisTreeNodeCount(before),
-                treeNodeCountAfter: analysisTreeNodeCount(after),
-                treePreserved: analysisTreeNodeCount(before) > 0,
-                reason: "final_event_without_tree",
-                ...analysisSelectionDebugSnapshot(after),
-                timestamp: new Date().toISOString(),
-              });
+
               if (incoming.status === "completed") {
                 void loadAIAnalyses("final_analysis_completed");
               }
@@ -966,40 +683,19 @@ export function useMeetingTranscriptSession(
           }
 
           if (parsed.segment) {
-            meetingStartDebug("meeting-page", "transcript received", {
-              sessionId: parsed.segment.sessionId ?? null,
-              currentSessionId: activeSessionRef.current,
-              eventId: parsed.segment.eventId ?? null,
-              callId: parsed.segment.callId,
-              sequenceNo: parsed.segment.sequenceNo,
-              isFinal: parsed.segment.isFinal,
-              speakerId: parsed.segment.speakerId ?? null,
-              speakerName: parsed.segment.speakerName ?? null,
-              textLength: parsed.segment.text.trim().length,
-            });
             if (!parsed.segment.isFinal) {
-              applyPartial(parsed.segment, "websocket");
+              applyPartial(parsed.segment);
               return;
             }
-            appendSegments([parsed.segment], "websocket");
+            appendSegments([parsed.segment]);
             // 最後のcompleted以降に新しい確定発話があったことを更新チップへ伝える。
             setLiveAnalysisMeta((current) =>
               current.hasNewSpeech ? current : { ...current, hasNewSpeech: true },
             );
             return;
           }
-
-          meetingStartDebug("meeting-page", "transcript event ignored", {
-            reason: "unsupported_or_empty_event",
-            type: parsed.type,
-            sentAtUtc: parsed.sentAtUtc ?? null,
-          });
         } catch (cause) {
           setError(`文字起こしイベントを解析できませんでした: ${errorMessage(cause)}`);
-          meetingStartDebug("meeting-page", "transcript event parse failed", {
-            sessionId: normalizedSessionId,
-            message: errorMessage(cause),
-          });
         }
       });
 
@@ -1009,11 +705,6 @@ export function useMeetingTranscriptSession(
         }
         clearReconnectTimer(connectTimeoutRef);
         setConnectionStatus("error");
-        meetingStartDebug("meeting-page", "WebSocket error", {
-          sessionId: normalizedSessionId,
-          url: maskWebSocketUrl(websocketUrl),
-          readyState: socket.readyState,
-        });
       });
 
       socket.addEventListener("close", (event) => {
@@ -1023,22 +714,7 @@ export function useMeetingTranscriptSession(
         clearReconnectTimer(connectTimeoutRef);
         socketRef.current = null;
         applyAnalysisAction({ type: "websocket_closed" });
-        meetingStartDebug("meeting-page", "WebSocket closed", {
-          sessionId: normalizedSessionId,
-          url: maskWebSocketUrl(websocketUrl),
-          code: event.code,
-          reason: event.reason || null,
-          wasClean: event.wasClean,
-          retryCount: reconnectAttemptRef.current,
-          lastEventAt: lastWebSocketEventAtRef.current,
-          timestamp: new Date().toISOString(),
-        });
-        meetingStartDebug("meeting-page", "analysis tree preserved", {
-          sessionId: normalizedSessionId,
-          websocketClosed: true,
-          treePreserved: analysisTreeNodeCount(analysisStateRef.current) > 0,
-          treeNodeCountAfter: analysisTreeNodeCount(analysisStateRef.current),
-        });
+
         recordDiagnosticEvent("ws_disconnected", {
           ...diagnosticFields(),
           details: {
@@ -1078,17 +754,7 @@ export function useMeetingTranscriptSession(
             probe: decision.probe,
           },
         });
-        meetingStartDebug("meeting-page", "WebSocket reconnect scheduled", {
-          sessionId: normalizedSessionId,
-          url: maskWebSocketUrl(websocketUrl),
-          delay: decision.delayMs,
-          code: event.code,
-          reason: event.reason || null,
-          wasClean: event.wasClean,
-          retryCount: failedAttempt,
-          lastEventAt: lastWebSocketEventAtRef.current,
-          timestamp: new Date().toISOString(),
-        });
+
         void (async () => {
           if (decision.probe) {
             try {
@@ -1140,6 +806,7 @@ export function useMeetingTranscriptSession(
       });
       void loadTranscriptHistory();
       void loadAIAnalyses("manual_retry");
+      void loadMediaHealth();
       connect(true);
     };
 
@@ -1169,6 +836,7 @@ export function useMeetingTranscriptSession(
       });
     void loadTranscriptHistory();
     void loadAIAnalyses("initial");
+    void loadMediaHealth();
 
     return () => {
       active = false;
@@ -1179,12 +847,7 @@ export function useMeetingTranscriptSession(
       clearReconnectTimer(connectTimeoutRef);
       socketRef.current?.close();
       socketRef.current = null;
-      meetingStartDebug("meeting-page", "transcript subscription closed", {
-        sessionId: normalizedSessionId,
-        reason: "effect_cleanup",
-        componentUnmounted: true,
-        treePreserved: analysisTreeNodeCount(analysisStateRef.current) > 0,
-      });
+
       recordDiagnosticEvent("session_hook_disposed", {
         ...diagnosticFields(),
         details: { reason: "effect_cleanup" },
@@ -1216,10 +879,6 @@ export function useMeetingTranscriptSession(
     clearReconnectTimer(historyRetryTimerRef);
     clearReconnectTimer(connectTimeoutRef);
     if (socketRef.current) {
-      meetingStartDebug("meeting-page", "WebSocket closed by meeting UI state", {
-        sessionId: normalizedSessionId,
-        reason: "meeting_ended_modal_opened",
-      });
       recordDiagnosticEvent("ws_disconnected", {
         ...diagnosticFields(),
         details: { reason: "meeting_ended_modal_opened", willReconnect: false },
@@ -1228,13 +887,7 @@ export function useMeetingTranscriptSession(
       socketRef.current = null;
     }
     applyAnalysisAction({ type: "websocket_closed" });
-    meetingStartDebug("meeting-page", "analysis tree preserved", {
-      sessionId: normalizedSessionId,
-      websocketClosed: true,
-      treePreserved: analysisTreeNodeCount(analysisStateRef.current) > 0,
-      treeNodeCountAfter: analysisTreeNodeCount(analysisStateRef.current),
-      reason: "meeting_ended_socket_close",
-    });
+
     setConnectionStatus((current) => (current === "idle" ? current : "closed"));
   }, [applyAnalysisAction, connectWebSocket, diagnosticFields, normalizedSessionId]);
 
@@ -1254,6 +907,7 @@ export function useMeetingTranscriptSession(
       sessionStatus,
       botConnectionLost,
       transcriptHealth,
+      mediaHealth,
       liveAnalysis,
       finalAnalysis,
       finalTreeSnapshot: analysisState.finalTreeSnapshot,
@@ -1295,8 +949,24 @@ export function useMeetingTranscriptSession(
       sessionTitle,
       sessionTitleSource,
       transcriptHealth,
+      mediaHealth,
     ],
   );
+}
+
+function latestMediaHealth(
+  current: MeetingSessionMediaHealth | null,
+  incoming: MeetingSessionMediaHealth,
+): MeetingSessionMediaHealth {
+  if (!current || current.eventId === incoming.eventId) {
+    return current ?? incoming;
+  }
+  const currentAt = Date.parse(current.occurredAtUtc);
+  const incomingAt = Date.parse(incoming.occurredAtUtc);
+  if (!Number.isNaN(currentAt) && !Number.isNaN(incomingAt) && incomingAt < currentAt) {
+    return current;
+  }
+  return incoming;
 }
 
 function transcriptSegmentToMeetingSegment(

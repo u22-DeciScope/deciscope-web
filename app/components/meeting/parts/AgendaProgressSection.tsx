@@ -17,7 +17,6 @@ import type {
   LiveAnalysisMeta,
   TranscriptSessionConnectionStatus,
 } from "~/hooks/useMeetingTranscriptSession";
-import { meetingStartDebug } from "~/utils/meetingStartDebug";
 
 type AgendaProgressSectionProps = {
   progress: AgendaProgressPayload | null | undefined;
@@ -114,47 +113,11 @@ export function AgendaProgressSection({
     [displayProgress],
   );
   const canOperate = canManage && Boolean(workspaceId) && Boolean(sessionId);
-  const linkLogSignatureRef = useRef("");
-
-  useEffect(() => {
-    const records = dynamicEntries.map((entry) => {
-      const focus = resolveAgendaEntryFocusDecision(entry, treeNodeIds);
-      return {
-        candidateId: entry.candidateId ?? null,
-        materializedTopicId: entry.materializedTopicId ?? null,
-        focusNodeIds: entry.focusNodeIds,
-        linkState: entry.linkState,
-        focusDecision: focus.decision,
-        focusTargetId: "targetId" in focus ? focus.targetId : null,
-      };
-    });
-    const signature = JSON.stringify(records);
-    if (linkLogSignatureRef.current === signature) {
-      return;
-    }
-    linkLogSignatureRef.current = signature;
-    for (const record of records) {
-      meetingStartDebug("meeting-page", "Agenda progress link state", {
-        sessionId: sessionId || null,
-        ...record,
-        timestamp: new Date().toISOString(),
-      });
-    }
-  }, [dynamicEntries, sessionId, treeNodeIds]);
 
   const handleEntryClick = useCallback(
     (entry: AgendaProgressEntryPayload) => {
       const focus = resolveAgendaEntryFocusDecision(entry, treeNodeIds);
-      meetingStartDebug("meeting-page", "Agenda progress focus decision", {
-        sessionId: sessionId || null,
-        candidateId: entry.candidateId ?? null,
-        materializedTopicId: entry.materializedTopicId ?? null,
-        focusNodeIds: entry.focusNodeIds,
-        linkState: entry.linkState,
-        focusDecision: focus.decision,
-        focusTargetId: "targetId" in focus ? focus.targetId : null,
-        timestamp: new Date().toISOString(),
-      });
+
       if ("targetId" in focus) {
         onFocusTreeItem?.(focus.targetId);
         return;

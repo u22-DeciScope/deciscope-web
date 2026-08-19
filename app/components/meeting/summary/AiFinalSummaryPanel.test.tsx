@@ -1,276 +1,160 @@
-import {
-  HiArrowPath,
-  HiSparkles,
-  HiCheckCircle,
-  HiClipboardDocumentCheck,
-  HiOutlineQuestionMarkCircle,
-  HiOutlineLightBulb,
-  HiOutlineQueueList,
-  HiCheck,
-  HiOutlineUser, // 担当者アイコン用に追加
-} from "react-icons/hi2";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
-import type {
-  FinalSummaryActionItem,
-  FinalSummaryDecision,
-  FinalSummaryPayload,
-  MeetingAIAnalysis,
-  MeetingAIAnalysisImportance,
-} from "~/api/aiAnalysis/aiAnalysisApi";
+import type { FinalSummaryPayload, MeetingAIAnalysis } from "~/api/aiAnalysis/aiAnalysisApi";
+import { AiFinalSummaryPanel } from "~/components/meeting/summary/AiFinalSummaryPanel";
+import type { FinalSummaryViewState } from "~/components/meeting/summary/finalSummaryState";
 
-const importanceDot: Record<MeetingAIAnalysisImportance, string> = {
-  high: "var(--priority-high)",
-  medium: "var(--priority-medium)",
-  low: "var(--priority-low)",
+function completedState(final: MeetingAIAnalysis): FinalSummaryViewState {
+  return { kind: "completed", final };
+}
+
+const payload: FinalSummaryPayload = {
+  suggestedTitle: "価格改定方針レビュー",
+  overview: "値上げ対象と時期を確認した。",
+  decisions: [{ text: "大口顧客のみ5%値上げする" }],
+  actionItems: [{ text: "対象顧客リストを作成する", owner: "山田", due: "8/10" }],
+  openIssues: ["中小顧客の解約リスク"],
+  keyPoints: ["原価上昇による利益率悪化"],
+  nextMeetingTopics: ["適用タイミングの最終決定"],
 };
 
-const importanceLabel: Record<MeetingAIAnalysisImportance, string> = {
-  high: "高",
-  medium: "中",
-  low: "低",
-};
+function finalWith(overrides: Partial<FinalSummaryPayload> = {}): MeetingAIAnalysis {
+  return {
+    analysisType: "final",
+    status: "completed",
+    version: 1,
+    payload: { ...payload, ...overrides },
+  };
+}
 
-type AiFinalSummaryPanelProps = {
-  final: MeetingAIAnalysis | null;
-  currentTitle?: string;
-  pending?: boolean;
-  contextPanel?: React.ReactNode;
-};
+describe("AiFinalSummaryPanel", () => {
+  it("payloadに入っていても表示対象外の4フィールドは描画しない", () => {
+    render(<AiFinalSummaryPanel state={completedState(finalWith())} />);
 
-export function AiFinalSummaryPanel({
-  final,
-  currentTitle,
-  pending,
-  contextPanel,
-}: AiFinalSummaryPanelProps) {
-  if (!final) {
-    if (!pending) {
-      return null;
-    }
-    return (
-      <section
-        className="ds-surface shrink-0 rounded-(--ds-radius-panel) px-8 py-7"
-        style={{ boxShadow: "var(--ds-shadow)" }}
-      >
-        <p className="flex items-center gap-2 text-[14px]" style={{ color: "var(--text-sub)" }}>
-          <HiArrowPath className="h-4 w-4 animate-spin" style={{ color: "var(--brand)" }} />
-          AI最終要約を生成しています…
-        </p>
-      </section>
+    // 決定事項・重要な論点・未解決事項は下段のAIアシスタント列と重複するため出さない。
+    expect(screen.queryByText("決定事項")).toBeNull();
+    expect(screen.queryByText("重要な論点")).toBeNull();
+    expect(screen.queryByText("未解決事項")).toBeNull();
+    expect(screen.queryByText("大口顧客のみ5%値上げする")).toBeNull();
+    expect(screen.queryByText("原価上昇による利益率悪化")).toBeNull();
+    expect(screen.queryByText("中小顧客の解約リスク")).toBeNull();
+    // タイトル案は反映する導線が無いため出さない。
+    expect(screen.queryByText(/価格改定方針レビュー/)).toBeNull();
+  });
+
+  it("要約・担当者付きアクションアイテム・次回トピックを表示する", () => {
+    render(<AiFinalSummaryPanel state={completedState(finalWith())} />);
+
+    expect(screen.getByText("AI最終要約")).toBeTruthy();
+    expect(screen.getByText("値上げ対象と時期を確認した。")).toBeTruthy();
+    expect(screen.getByText("アクションアイテム")).toBeTruthy();
+    expect(screen.getByText("対象顧客リストを作成する")).toBeTruthy();
+    expect(screen.getByText("山田")).toBeTruthy();
+    expect(screen.getByText("期限: 8/10")).toBeTruthy();
+    expect(screen.getByText("次回トピック")).toBeTruthy();
+    expect(screen.getByText("適用タイミングの最終決定")).toBeTruthy();
+  });
+
+  it("アクションアイテムと次回トピックが揃うときだけ2カラムで横並びにする", () => {
+    const both = render(<AiFinalSummaryPanel state={completedState(finalWith())} />);
+    expect(both.container.querySelector(".md\\:grid-cols-2")).not.toBeNull();
+    both.unmount();
+
+    const actionsOnly = render(
+      <AiFinalSummaryPanel state={completedState(finalWith({ nextMeetingTopics: [] }))} />,
     );
-  }
+    expect(actionsOnly.container.querySelector(".md\\:grid-cols-2")).toBeNull();
+    expect(screen.getByText("アクションアイテム")).toBeTruthy();
+  });
 
-  if (final.status === "running") {
-    return (
-      <section
-        className="ds-surface shrink-0 rounded-(--ds-radius-panel) px-8 py-7"
-        style={{ boxShadow: "var(--ds-shadow)" }}
-      >
-        <p className="flex items-center gap-2 text-[14px]" style={{ color: "var(--text-sub)" }}>
-          <span
-            className="h-2 w-2 shrink-0 animate-pulse rounded-full"
-            style={{ background: "var(--brand)" }}
-          />
-          AI最終要約を生成中です…
-        </p>
-      </section>
+  it("会議前コンテキストは既定で閉じており、トグルで開閉できる", () => {
+    render(
+      <AiFinalSummaryPanel
+        state={completedState(finalWith())}
+        contextPanel={<div>会議前コンテキスト(実データ)</div>}
+      />,
     );
-  }
 
-  if (final.status === "failed") {
-    return (
-      <section
-        className="ds-surface shrink-0 rounded-(--ds-radius-panel) px-8 py-7"
-        style={{ boxShadow: "var(--ds-shadow)" }}
-      >
-        <p className="text-[14px]" style={{ color: "var(--text-muted)" }}>
-          AI最終要約の生成に失敗しました。
-        </p>
-      </section>
+    const toggle = screen.getByRole("button", { name: "会議前コンテキスト" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("会議前コンテキスト(実データ)")).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("会議前コンテキスト(実データ)")).toBeTruthy();
+
+    fireEvent.click(toggle);
+    expect(screen.queryByText("会議前コンテキスト(実データ)")).toBeNull();
+  });
+
+  it("会議前コンテキストが渡されない会議ではトグル自体を出さない", () => {
+    render(<AiFinalSummaryPanel state={completedState(finalWith())} />);
+
+    expect(screen.queryByRole("button", { name: "会議前コンテキスト" })).toBeNull();
+  });
+
+  it("生成中は進捗段階を添えてスピナーを出す", () => {
+    render(
+      <AiFinalSummaryPanel
+        state={{ kind: "generating", stage: "waiting_for_live_analysis", retryable: false }}
+      />,
     );
-  }
 
-  const payload = final.payload as FinalSummaryPayload | null;
-  if (!payload) {
-    return null;
-  }
+    expect(screen.getByText("AI最終要約を生成しています…")).toBeTruthy();
+    expect(screen.getByText("進行中の分析の完了を待っています")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /再生成/ })).toBeNull();
+  });
 
-  const suggestedTitle = payload.suggestedTitle?.trim();
-  const showSuggestedTitle = Boolean(suggestedTitle && suggestedTitle !== currentTitle?.trim());
-  const hasOverview = Boolean(payload.overview);
+  it("失敗状態では内部エラーではなく失敗表示と再生成ボタンを出す", () => {
+    const onRetry = vi.fn();
+    render(
+      <AiFinalSummaryPanel
+        state={{ kind: "failed", retryable: true, message: "live_wait_timeout" }}
+        onRetry={onRetry}
+      />,
+    );
 
-  return (
-    <div className="flex shrink-0 flex-col gap-8">
-      <section
-        className="rounded-(--ds-radius-panel) border p-8"
-        style={{ borderColor: "var(--ds-border)", boxShadow: "var(--ds-shadow)" }}
-      >
-        <div className="mb-6 flex items-center gap-3">
-          <div
-            className="flex h-10 w-10 items-center justify-center rounded-(--ds-radius-control)"
-            style={{ background: "var(--brand)" }}
-          >
-            <HiSparkles className="h-5 w-5 text-white" />
-          </div>
-          <h2 className="text-[18px] font-bold" style={{ color: "var(--text-main)" }}>
-            重要な結果
-          </h2>
-        </div>
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.8fr)]">
-          <div
-            className="rounded-(--ds-radius-panel) p-6"
-            style={{
-              background: "var(--ai-quest-bg)",
-              border: "1px solid var(--ai-quest-border)",
-            }}
-          >
-            <p className="mb-4 text-[15px] font-bold" style={{ color: "var(--ai-quest-fg)" }}>
-              AI 最終要約
-            </p>
-            {showSuggestedTitle && (
-              <p className="mb-4 text-[13px] font-medium" style={{ color: "var(--ai-quest-fg)", opacity: 0.85 }}>
-                AI提案: {suggestedTitle}
-              </p>
-            )}
-            {hasOverview && (
-              <ul className="flex flex-col gap-3">
-                {payload.overview?.split('\n').filter(Boolean).map((line, i) => (
-                  <li key={i} className="flex items-start gap-3 text-[14px] leading-relaxed" style={{ color: "var(--ai-quest-fg)" }}>
-                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-60" />
-                    <span>{line}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <div>{contextPanel}</div>
-        </div>
-      </section>
+    expect(screen.getByText("AI最終要約の生成に失敗しました。")).toBeTruthy();
+    expect(screen.queryByText(/live_wait_timeout/)).toBeNull();
+    const retry = screen.getByRole("button", { name: "最終要約を再生成" });
+    fireEvent.click(retry);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
 
-      {/* 改善点1: CSS Grid (grid-cols-2) を使用して、同じ行のパネルの高さを揃える */}
-      <div className="grid gap-8 md:grid-cols-2">
-        {payload.decisions.length > 0 && (
-          <FinalDecisionList decisions={payload.decisions} />
-        )}
-        {payload.actionItems.length > 0 && (
-          <FinalActionList actions={payload.actionItems} />
-        )}
-        {payload.openIssues.length > 0 && (
-          <FinalTextListSection title="未解決事項" items={payload.openIssues} icon={HiOutlineQuestionMarkCircle} />
-        )}
-        {payload.keyPoints.length > 0 && (
-          <FinalTextListSection title="重要な論点" items={payload.keyPoints} icon={HiOutlineLightBulb} />
-        )}
-        {payload.nextMeetingTopics.length > 0 && (
-          <FinalTextListSection title="次回トピック" items={payload.nextMeetingTopics} icon={HiOutlineQueueList} />
-        )}
-      </div>
-    </div>
-  );
-}
+  it("不完全終了は生成中ではなく専用の文言で表示する", () => {
+    render(
+      <AiFinalSummaryPanel state={{ kind: "incomplete", retryable: true }} onRetry={() => {}} />,
+    );
 
-function FinalSummarySection({
-  badge,
-  children,
-  count,
-  title,
-  icon: Icon,
-}: {
-  badge: "action" | "decision";
-  children: React.ReactNode;
-  count: number;
-  title: string;
-  icon?: React.ElementType;
-}) {
-  return (
-    // 改善点1: h-full, flex, flex-col を追加し、グリッド内で高さが最大まで広がるように
-    <div className="ds-surface flex h-full flex-col overflow-hidden rounded-(--ds-radius-panel) p-8" style={{ boxShadow: "var(--ds-shadow)" }}>
-      <div className="mb-6 flex shrink-0 items-center">
-        {Icon ? (
-          <Icon className="mr-3 h-5 w-5" style={{ color: "var(--text-muted)" }} />
-        ) : (
-          <span className="mr-3 h-2.5 w-2.5 rounded-full" style={{ background: "var(--text-muted)" }} />
-        )}
-        <span className="text-[13px] font-semibold tracking-wide uppercase" style={{ color: "var(--text-muted)" }}>
-          {title}
-        </span>
-        <span
-          className="ml-3 flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold"
-          style={{ background: "var(--ds-surface-subtle)", color: "var(--text-sub)" }}
-        >
-          {count}
-        </span>
-      </div>
-      <div className="flex-1 text-[15px] leading-relaxed" style={{ color: "var(--text-main)" }}>
-        {children}
-      </div>
-    </div>
-  );
-}
+    expect(screen.getByText("会議の最終処理が完了しませんでした。")).toBeTruthy();
+    expect(screen.queryByText("AI最終要約を生成しています…")).toBeNull();
+    expect(screen.getByRole("button", { name: "最終要約を再生成" })).toBeTruthy();
+  });
 
-function FinalDecisionList({ decisions }: { decisions: FinalSummaryDecision[] }) {
-  return (
-    <FinalSummarySection title="決定事項" count={decisions.length} badge="decision" icon={HiCheckCircle}>
-      <ul className="flex flex-col gap-5">
-        {decisions.map((decision, index) => (
-          <li key={`${index}:${decision.text}`} className="flex items-start gap-4">
-            <HiCheck className="mt-1 h-5 w-5 shrink-0" style={{ color: "var(--brand)" }} />
-            <span className="font-medium leading-relaxed">{decision.text}</span>
-          </li>
-        ))}
-      </ul>
-    </FinalSummarySection>
-  );
-}
+  it("retryable でなければ再生成ボタンを出さない", () => {
+    render(<AiFinalSummaryPanel state={{ kind: "failed", retryable: false }} onRetry={() => {}} />);
 
-function FinalActionList({ actions }: { actions: FinalSummaryActionItem[] }) {
-  return (
-    <FinalSummarySection title="アクションアイテム" count={actions.length} badge="action" icon={HiClipboardDocumentCheck}>
-      <ul className="flex flex-col gap-6">
-        {actions.map((action, index) => (
-          <li key={`${index}:${action.text}`} className="flex flex-col gap-3">
-            <span className="font-medium leading-relaxed">{action.text}</span>
-            
-            {/* 改善点2: 担当者(owner)と期限(due)のデザインを分離し、担当者を強調 */}
-            <div className="flex flex-wrap items-center gap-3">
-              {action.owner && (
-                <div 
-                  className="flex items-center gap-1.5 rounded-full border px-3 py-1" 
-                  style={{ borderColor: "var(--brand)", color: "var(--brand)" }}
-                >
-                  <HiOutlineUser className="h-4 w-4" />
-                  <span className="text-[13px] font-bold">{action.owner}</span>
-                </div>
-              )}
-              {action.due && (
-                <span className="rounded-full bg-(--ds-surface-subtle) px-3 py-1 text-[12px] font-semibold" style={{ color: "var(--text-sub)" }}>
-                  期限: {action.due}
-                </span>
-              )}
-              <div
-                className="ml-auto h-2 w-2 shrink-0 rounded-full"
-                style={{ background: importanceDot[action.priority ?? "medium"] }}
-                title={importanceLabel[action.priority ?? "medium"]}
-              />
-            </div>
-          </li>
-        ))}
-      </ul>
-    </FinalSummarySection>
-  );
-}
+    expect(screen.queryByRole("button", { name: /再生成/ })).toBeNull();
+  });
 
-function FinalTextListSection({ title, items, icon }: { title: string; items: string[]; icon?: React.ElementType }) {
-  return (
-    <FinalSummarySection title={title} count={items.length} badge="decision" icon={icon}>
-      <ul className="flex flex-col gap-4">
-        {items.map((item, index) => (
-          <li key={`${index}:${item}`} className="flex items-start gap-3 leading-relaxed">
-            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--text-muted)]" />
-            {item}
-          </li>
-        ))}
-      </ul>
-    </FinalSummarySection>
-  );
-}
+  it("再生成の実行中はボタンを無効化し、失敗理由を表示する", () => {
+    render(
+      <AiFinalSummaryPanel
+        state={{ kind: "failed", retryable: true }}
+        onRetry={() => {}}
+        retryInProgress
+        retryError="再生成を開始できませんでした。"
+      />,
+    );
+
+    const retry = screen.getByRole("button", { name: "再生成しています…" });
+    expect((retry as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("再生成を開始できませんでした。")).toBeTruthy();
+  });
+
+  it("hidden では何も描画しない", () => {
+    const { container } = render(<AiFinalSummaryPanel state={{ kind: "hidden" }} />);
+    expect(container.firstChild).toBeNull();
+  });
+});

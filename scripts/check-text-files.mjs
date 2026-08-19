@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 
 const repository = process.cwd().replaceAll("\\", "/");
 const git = (...args) =>
@@ -16,9 +17,13 @@ const errors = [];
 for (const path of paths) {
   const attribute = git("check-attr", "-z", "binary", "--", path).toString("utf8").split("\0")[2];
   if (attribute === "set") continue;
+  if (!existsSync(path)) continue;
 
-  const data = git("show", `:${path}`);
-  if (data.includes(0)) continue;
+  const data = readFileSync(path);
+  if (data.includes(0)) {
+    errors.push(`${path}: NUL byte is not allowed`);
+    continue;
+  }
 
   if (data.length >= 3 && data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf) {
     errors.push(`${path}: UTF-8 BOM is not allowed`);
@@ -45,4 +50,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log(`Validated ${paths.length} tracked files as UTF-8 without BOM or U+FFFD.`);
+console.log(`Validated ${paths.length} tracked files as UTF-8 without BOM, NUL, or U+FFFD.`);

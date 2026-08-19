@@ -120,7 +120,15 @@ export function humanizeAgendaReferences(value: string, labels: Map<string, stri
       label,
     );
   }
-  return result.replace(/\bagenda[-_](\d+)\b/gi, (_, number: string) => `議題${Number(number)}`);
+  result = result.replace(/\bagenda[-_](\d+)\b/gi, (_, number: string) => `議題${Number(number)}`);
+  result = result.replace(
+    /(?<![A-Za-z0-9_-])(?:(?:topic|agenda|item|candidate)-[A-Za-z0-9_-]+|[A-Za-z0-9_-]+-fallback)(?![A-Za-z0-9_-])/gi,
+    "",
+  );
+  return result
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+([、,。:：])/g, "$1")
+    .trim();
 }
 
 function escapeRegExp(value: string) {
