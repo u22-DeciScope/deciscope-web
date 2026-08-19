@@ -474,26 +474,6 @@ export function selectedAnalysisTree(state: MeetingAnalysisState): SelectedAnaly
   };
 }
 
-export function analysisSelectionDebugSnapshot(state: MeetingAnalysisState) {
-  const selected = selectedAnalysisTree(state);
-  const livePayload = state.liveAnalysis?.payload as LiveAnalysisPayload | null;
-  return {
-    sessionStatus: state.analysisRuntimeStatus.meetingStatus,
-    liveStatus: state.analysisRuntimeStatus.liveStatus,
-    liveAnalysisVersion: state.analysisRuntimeStatus.liveVersion,
-    liveTreeVersion: livePayload?.treeVersion ?? null,
-    liveNodeCount: livePayload?.tree?.nodes?.length ?? 0,
-    finalStatus: state.analysisRuntimeStatus.finalStatus,
-    finalAnalysisVersion: state.analysisRuntimeStatus.finalVersion,
-    finalTreeVersion: state.finalTreeSnapshot?.treeVersion ?? null,
-    finalNodeCount: state.finalTreeSnapshot?.tree?.nodes?.length ?? 0,
-    selectedAnalysisType: selected.source,
-    selectedTreeVersion: selected.treeVersion,
-    selectedNodeCount: selected.tree?.nodes?.length ?? 0,
-    selectionReason: selected.selectionReason,
-  };
-}
-
 type TreeCandidate = {
   treeVersion: number | null;
   updatedAt?: string;
@@ -517,6 +497,25 @@ function isTreeCandidateNewer(candidate: TreeCandidate, current: TreeCandidate):
   const candidateTime = parseAnalysisTime(candidate.updatedAt);
   const currentTime = parseAnalysisTime(current.updatedAt);
   return candidateTime !== null && (currentTime === null || candidateTime >= currentTime);
+}
+
+// /summary は session store ではなく画面ローカルの state で final snapshot を
+// 保持する。REST の再取得やポーリング順の入れ替わりで、確定済みの新しい snapshot
+// が空・古い応答へ巻き戻らないよう、採用可否をここで一元的に判定する。
+export function shouldReplaceFinalTreeSnapshot(
+  current: TreeSnapshotPayload | null,
+  incoming: TreeSnapshotPayload | null,
+): boolean {
+  if (!incoming || !hasCompleteTree(incoming.tree)) {
+    return false;
+  }
+  if (!current || !hasCompleteTree(current.tree)) {
+    return true;
+  }
+  return isTreeCandidateNewer(
+    { treeVersion: incoming.treeVersion ?? null, updatedAt: incoming.generatedAtUtc },
+    { treeVersion: current.treeVersion ?? null, updatedAt: current.generatedAtUtc },
+  );
 }
 
 function shouldApplyFinalTreeSnapshot(

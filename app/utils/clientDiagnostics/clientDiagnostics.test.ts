@@ -4,6 +4,7 @@ import {
   configureClientDiagnosticsForTest,
   diagnosticsTabId,
   flushDiagnostics,
+  frontendBuildFingerprint,
   pendingDiagnosticEventsForTest,
   recentDiagnosticEvents,
   recordDiagnosticEvent,
@@ -67,6 +68,17 @@ describe("client diagnostics ring buffer", () => {
     expect(second?.tabId).toBe(first?.tabId);
     expect(first?.frontendBuildVersion).toBeTruthy();
     expect(second?.sequence).toBeGreaterThan(first?.sequence ?? 0);
+  });
+
+  it("exposes a complete safe frontend build fingerprint", () => {
+    expect(frontendBuildFingerprint()).toMatchObject({
+      repositoryName: "deciscope-web",
+      frontendBuildVersion: expect.any(String),
+      gitCommitSha: expect.any(String),
+      buildTimestamp: expect.any(String),
+      dirtyBuild: expect.any(String),
+      runtimeEnvironment: "test",
+    });
   });
 });
 

@@ -12,11 +12,27 @@ export type MeetingAIAnalysisStatus = "running" | "completed" | "failed";
 export type MeetingAIAnalysisImportance = "high" | "medium" | "low";
 export type LiveTreePayloadState = "omitted" | "null" | "empty" | "snapshot" | "invalid";
 
+// 終了処理の状態機械。バックエンドが finalization payload に持たせる値で、
+// /summary の要約欄は「生成中」「完了」「失敗」「不完全終了」をこれで区別する。
+export type MeetingFinalizationStatus =
+  | "not_started"
+  | "waiting_for_transcript_drain"
+  | "waiting_for_live_analysis"
+  | "building_final_tree"
+  | "generating_summary"
+  | "completed"
+  | "failed"
+  | "incomplete";
+
 export type MeetingFinalizationProgressPayload = {
   stage: string;
   finalizationId?: string;
   pendingSegmentCount?: number;
   finalizationIncomplete?: boolean;
+  finalizationStatus?: MeetingFinalizationStatus;
+  finalizationErrorCode?: string;
+  retryable?: boolean;
+  attemptCount?: number;
 };
 
 export type MeetingFinalizationAnalysis = {
@@ -332,6 +348,11 @@ export function normalizeFinalizationAnalysis(value: unknown): MeetingFinalizati
   const pendingSegmentCount = optionalNumber(payloadSource.pendingSegmentCount);
   const updatedAtUtc = optionalString(source.updatedAtUtc) ?? optionalString(source.updated_at_utc);
   const error = optionalString(source.error)?.trim();
+  const finalizationStatus = isMeetingFinalizationStatus(payloadSource.finalizationStatus)
+    ? payloadSource.finalizationStatus
+    : undefined;
+  const finalizationErrorCode = optionalString(payloadSource.finalizationErrorCode)?.trim();
+  const attemptCount = optionalNumber(payloadSource.attemptCount);
   return {
     analysisType: "finalization",
     status: source.status,
@@ -343,10 +364,45 @@ export function normalizeFinalizationAnalysis(value: unknown): MeetingFinalizati
       ...(typeof payloadSource.finalizationIncomplete === "boolean"
         ? { finalizationIncomplete: payloadSource.finalizationIncomplete }
         : {}),
+      ...(finalizationStatus ? { finalizationStatus } : {}),
+      ...(finalizationErrorCode ? { finalizationErrorCode } : {}),
+      ...(typeof payloadSource.retryable === "boolean"
+        ? { retryable: payloadSource.retryable }
+        : {}),
+      ...(attemptCount !== undefined ? { attemptCount } : {}),
     },
     ...(updatedAtUtc ? { updatedAtUtc } : {}),
     ...(error ? { error } : {}),
   };
+}
+
+function isMeetingFinalizationStatus(value: unknown): value is MeetingFinalizationStatus {
+  return (
+    value === "not_started" ||
+    value === "waiting_for_transcript_drain" ||
+    value === "waiting_for_live_analysis" ||
+    value === "building_final_tree" ||
+    value === "generating_summary" ||
+    value === "completed" ||
+    value === "failed" ||
+    value === "incomplete"
+  );
+}
+
+/**
+ * 終了処理が最終要約まで到達しなかったセッションの再実行を要求する。
+ * 実処理はバックエンドがリクエスト外で走らせるため、呼び出し側は
+ * ai-analyses をポーリングして結果を観測する。
+ */
+export async function retryWorkspaceMeetingSessionFinalization(
+  workspaceId: string,
+  sessionId: string,
+): Promise<MeetingAIAnalyses> {
+  const payload = await requestJson<unknown>(
+    `${workspaceMeetingSessionsPath(workspaceId)}/${encodeURIComponent(sessionId.trim())}/finalization/retry`,
+    { method: "POST" },
+  );
+  return normalizeAIAnalyses(payload, sessionId);
 }
 
 function normalizeAIAnalysisList(value: unknown): MeetingAIAnalysis[] {

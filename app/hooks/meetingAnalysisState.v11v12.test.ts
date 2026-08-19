@@ -175,9 +175,9 @@ describe("meetingAnalysisReducer v11→v12 (session_497ed2b0aedf9dc6 regression)
     const state = stateWith(v11Completed, v12Completed, v11Completed);
     expect(state.analysisRuntimeStatus.liveVersion).toBe(12);
     expect(new Set(liveTreeNodeIds(state)).has("candidate-2e0a7402415d")).toBe(true);
-    expect(treeApplyDecision(stateWith(v11Completed, v12Completed).liveAnalysis, v11Completed)).toBe(
-      "ignored_stale",
-    );
+    expect(
+      treeApplyDecision(stateWith(v11Completed, v12Completed).liveAnalysis, v11Completed),
+    ).toBe("ignored_stale");
   });
 
   it("applies a duplicate v12 completed idempotently", () => {

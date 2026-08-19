@@ -1,5 +1,3 @@
-import { isMeetingStartDebugEnabled } from "./meetingStartDebug";
-
 export const FALLBACK_MEETING_DISPLAY_TITLE = "Teams会議";
 
 export type MeetingDisplayTitleSource = {
@@ -18,14 +16,7 @@ export type MeetingDisplayTitleSource = {
   } | null;
 };
 
-export type MeetingDisplayTitleOptions = {
-  component?: string;
-};
-
-export function getMeetingDisplayTitle(
-  session: MeetingDisplayTitleSource | null | undefined,
-  options: MeetingDisplayTitleOptions = {},
-) {
+export function getMeetingDisplayTitle(session: MeetingDisplayTitleSource | null | undefined) {
   const title =
     session?.displayTitle?.trim() ||
     session?.title?.trim() ||
@@ -34,40 +25,8 @@ export function getMeetingDisplayTitle(
     session?.meetingSubject?.trim() ||
     session?.metadata?.subject?.trim();
 
-  const sessionId = session?.sessionId ?? session?.id ?? null;
-  const component = options.component ?? "unknown";
   if (title) {
-    if (isMeetingStartDebugEnabled()) {
-      const logger =
-        session?.titleSource === "fallback" || session?.titleResolutionErrorCode
-          ? console.warn
-          : console.log;
-      logger("[meeting-title] meeting title rendered", {
-        component,
-        sessionId,
-        title,
-        titleSource: session?.titleSource ?? null,
-        titleResolutionErrorCode: session?.titleResolutionErrorCode ?? null,
-        titleResolutionErrorMessage: session?.titleResolutionErrorMessage ?? null,
-        fallbackUsed: false,
-      });
-    }
     return title;
-  }
-
-  if (isMeetingStartDebugEnabled()) {
-    console.warn("[meeting-title] fallback title used", {
-      component,
-      sessionId,
-      reason: "missing_title_subject_metadata_subject",
-      title: session?.title ?? null,
-      displayTitle: session?.displayTitle ?? null,
-      graphTitle: session?.graphTitle ?? null,
-      userProvidedTitle: session?.userProvidedTitle ?? null,
-      meetingSubject: session?.meetingSubject ?? null,
-      titleSource: session?.titleSource ?? null,
-      fallbackUsed: true,
-    });
   }
 
   return FALLBACK_MEETING_DISPLAY_TITLE;

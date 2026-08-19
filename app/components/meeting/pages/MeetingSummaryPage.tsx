@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router";
 
 import {
   getWorkspaceMeetingSessionAIAnalyses,
+  retryWorkspaceMeetingSessionFinalization,
   type LiveAnalysisPayload,
   type MeetingAIAnalysis,
+  type MeetingFinalizationAnalysis,
   type TreeSnapshotPayload,
 } from "~/api/aiAnalysis/aiAnalysisApi";
 import {
@@ -25,35 +27,77 @@ import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeCo
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/routing/workspacePaths";
 import { AiFinalSummaryPanel } from "~/components/meeting/summary/AiFinalSummaryPanel";
+import {
+  deriveFinalSummaryState,
+  mergeFinalizationAnalysis,
+} from "~/components/meeting/summary/finalSummaryState";
 import { PreMeetingContextPanel } from "~/components/meeting/summary/PreMeetingContextPanel";
 import { SessionReviewWorkspace } from "~/components/meeting/summary/SessionReviewWorkspace";
 import { SessionSummaryHeader } from "~/components/meeting/summary/SessionSummaryHeader";
 import { StatusPanel } from "~/components/meeting/summary/StatusPanel";
+import { summaryAnalysisLastKnownGood } from "~/components/meeting/summary/summaryAnalysisLkg";
+import { shouldReplaceFinalTreeSnapshot } from "~/hooks/meetingAnalysisState";
 import {
+  hasPreMeetingContext,
   summaryFromMeetingSession,
 } from "~/components/meeting/summary/meetingSummaryViewModel";
 import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
-import { meetingStartDebug } from "~/utils/meetingStartDebug";
+import { recordDiagnosticEvent } from "~/utils/clientDiagnostics/clientDiagnostics";
+
 import { boundedRetryDelay } from "~/utils/boundedRetry";
 
 const finalAnalysisPollIntervalMs = 10_000;
-// final レコードがまだ作成されていない(final: null)場合の最大ポーリング回数。
-// running になった後は打ち切らず、null が続く場合のみこの回数で諦める(約5分)。
-const finalAnalysisMaxPendingAttempts = 30;
 const finalAnalysisErrorRetryDelaysMs = [2000, 5000, 10000];
+// 再生成要求から新しい finalization 行が現れるまでの短い確認窓。
+const finalizationRetryConfirmIntervalMs = 1_000;
+const finalizationRetryConfirmMaxAttempts = 10;
+
+// バックエンドの finalization 状態が terminal になったらポーリングを止める。
+// 「要約が無いから生成中」という推測は行わない(永久スピナーの原因になる)。
+function finalizationInProgress(
+  finalization: MeetingFinalizationAnalysis | null,
+  final: MeetingAIAnalysis | null,
+): boolean {
+  if (finalization) {
+    const status = finalization.payload.finalizationStatus;
+    if (status === "completed" || status === "failed" || status === "incomplete") {
+      return false;
+    }
+    return finalization.status === "running";
+  }
+  return final?.status === "running";
+}
 
 export default function MeetingSummary() {
   const { id } = useParams();
   const { workspaceId } = useAuthenticatedLayout();
   const meetingsPath = workspacePath(workspaceId, "/meetings");
+  const cachedAnalysis = useMemo(
+    () => (id ? summaryAnalysisLastKnownGood(id, workspaceId) : null),
+    [id, workspaceId],
+  );
   const [session, setSession] = useState<MeetingSessionDto | null>(null);
   const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([]);
-  const [tree, setTree] = useState<TreeUpdatePayload | null>(null);
-  const [treeSnapshot, setTreeSnapshot] = useState<TreeSnapshotPayload | null>(null);
-  const [analysisItems, setAnalysisItems] = useState<AnalysisItem[]>([]);
-  const [finalAnalysis, setFinalAnalysis] = useState<MeetingAIAnalysis | null>(null);
-  const [finalAnalysisPending, setFinalAnalysisPending] = useState(false);
-  const [liveAnalysis, setLiveAnalysis] = useState<MeetingAIAnalysis | null>(null);
+  const [tree, setTree] = useState<TreeUpdatePayload | null>(() => cachedAnalysis?.tree ?? null);
+  const [treeSnapshot, setTreeSnapshot] = useState<TreeSnapshotPayload | null>(
+    () => cachedAnalysis?.treeSnapshot ?? null,
+  );
+  const [analysisItems, setAnalysisItems] = useState<AnalysisItem[]>(
+    () => cachedAnalysis?.analysisItems ?? [],
+  );
+  const [finalAnalysis, setFinalAnalysis] = useState<MeetingAIAnalysis | null>(
+    () => cachedAnalysis?.finalAnalysis ?? null,
+  );
+  const [finalAnalysisPending, setFinalAnalysisPending] = useState(true);
+  const [finalization, setFinalization] = useState<MeetingFinalizationAnalysis | null>(null);
+  const [retryInProgress, setRetryInProgress] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const [retryGeneration, setRetryGeneration] = useState(0);
+  // 再生成要求時点の finalization version。新しい試行の行が現れたかの判定に使う。
+  const retryBaselineVersionRef = useRef<number | null>(null);
+  const [liveAnalysis, setLiveAnalysis] = useState<MeetingAIAnalysis | null>(
+    () => cachedAnalysis?.liveAnalysis ?? null,
+  );
   const [liveHistory, setLiveHistory] = useState<MeetingAIAnalysis[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [finalAnalysisError, setFinalAnalysisError] = useState<string | null>(null);
@@ -63,21 +107,40 @@ export default function MeetingSummary() {
       return;
     }
     let active = true;
+    const cached = summaryAnalysisLastKnownGood(id, workspaceId);
     setError(null);
     setSession(null);
     setTranscriptSegments([]);
-    setTree(null);
-    setTreeSnapshot(null);
-    setAnalysisItems([]);
-    setFinalAnalysis(null);
-    setFinalAnalysisPending(false);
-    setLiveAnalysis(null);
+    setTree(cached.tree);
+    setTreeSnapshot(cached.treeSnapshot);
+    setAnalysisItems(cached.analysisItems);
+    setFinalAnalysis(cached.finalAnalysis);
+    setFinalAnalysisPending(true);
+    setFinalization(null);
+    setRetryInProgress(false);
+    setRetryError(null);
+    setLiveAnalysis(cached.liveAnalysis);
     setLiveHistory([]);
     setFinalAnalysisError(null);
     if (!id.startsWith("session_")) {
       // この画面は会議セッション(session_...)の記録だけを表示する。
       setError("会議記録が見つかりませんでした。");
       return;
+    }
+    if ((cached.tree?.nodes?.length ?? 0) > 0) {
+      recordDiagnosticEvent("tree_render_recovery", {
+        sessionId: id,
+        workspaceId,
+        treeVersion: cached.treeVersion,
+        nodeCount: cached.tree?.nodes?.length ?? 0,
+        rootNodeId: cached.tree?.nodes?.find((node) => !node.parentId)?.id ?? "",
+        details: {
+          reason: "summary_route_last_known_good_seed",
+          recoveryAttempted: true,
+          recoveryResult: "success",
+          snapshotSource: cached.source,
+        },
+      });
     }
     getWorkspaceMeetingSession(workspaceId, id)
       .then(async (sessionResult) => {
@@ -93,7 +156,12 @@ export default function MeetingSummary() {
           return;
         }
         setTranscriptSegments(transcriptResult.segments);
-        setTree(analysis.tree);
+        // durable event 経路が空を返しても、last-known-good のツリーは捨てない。
+        setTree((current) =>
+          (analysis.tree?.nodes?.length ?? 0) > 0 || (current?.nodes?.length ?? 0) === 0
+            ? analysis.tree
+            : current,
+        );
         setAnalysisItems(analysis.analysisItems);
       })
       .catch((cause: unknown) => {
@@ -106,21 +174,21 @@ export default function MeetingSummary() {
     };
   }, [id, workspaceId]);
 
-  // 会議終了直後にこの画面へ遷移した場合、final分析はバックエンドでまだ running のことがある。
-  // completed/failed になるまで10秒間隔でポーリングし、アンマウント/セッション切替で停止する。
+  // 会議終了直後にこの画面へ遷移した場合、終了処理はまだ進行中のことがある。
+  // バックエンドの finalization 状態が terminal になるまで10秒間隔でポーリングし、
+  // アンマウント/セッション切替/再生成要求で作り直す。
   useEffect(() => {
     if (!id || !id.startsWith("session_")) {
       return;
     }
     let active = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let attempt = 0;
     let consecutiveErrors = 0;
+    let retryConfirmAttempts = 0;
     setFinalAnalysisPending(true);
     setFinalAnalysisError(null);
 
     async function poll() {
-      attempt += 1;
       try {
         const analyses = await getWorkspaceMeetingSessionAIAnalyses(workspaceId, id as string);
         if (!active) {
@@ -129,17 +197,36 @@ export default function MeetingSummary() {
         consecutiveErrors = 0;
         setFinalAnalysisError(null);
         setFinalAnalysis(analyses.final);
+        setFinalization((current) =>
+          mergeFinalizationAnalysis(current, analyses.finalization ?? null),
+        );
         setLiveAnalysis(analyses.live);
         setLiveHistory(analyses.liveHistory);
-        setTreeSnapshot(analyses.treeSnapshot);
-        if (analyses.final?.status === "running") {
-          // running の間は打ち切らず、完了/失敗になるまでポーリングし続ける。
-          timer = setTimeout(() => void poll(), finalAnalysisPollIntervalMs);
-        } else if (analyses.final === null && attempt < finalAnalysisMaxPendingAttempts) {
-          // final レコードがまだ作成されていない。最大試行回数まではポーリングを継続する。
+        // 確定済みの persisted final snapshot は、遅れて届いた古い/空の応答へ
+        // 巻き戻さない。取得順が入れ替わっても最終状態が同じになる。
+        setTreeSnapshot((current) =>
+          shouldReplaceFinalTreeSnapshot(current, analyses.treeSnapshot)
+            ? analyses.treeSnapshot
+            : current,
+        );
+        setFinalAnalysisPending(false);
+        // 再生成を要求した直後は、新しい試行の行がまだ書かれていないことがある。
+        // 古い terminal 状態を見てポーリングを止めると、実行中なのに失敗表示へ
+        // 戻ってしまうため、versionが進むまで短間隔で確認する。
+        const awaitingRetry =
+          retryBaselineVersionRef.current !== null &&
+          (analyses.finalization?.version ?? 0) <= retryBaselineVersionRef.current &&
+          retryConfirmAttempts < finalizationRetryConfirmMaxAttempts;
+        if (awaitingRetry) {
+          retryConfirmAttempts += 1;
+          timer = setTimeout(() => void poll(), finalizationRetryConfirmIntervalMs);
+          return;
+        }
+        retryBaselineVersionRef.current = null;
+        if (finalizationInProgress(analyses.finalization ?? null, analyses.final)) {
           timer = setTimeout(() => void poll(), finalAnalysisPollIntervalMs);
         } else {
-          setFinalAnalysisPending(false);
+          setRetryInProgress(false);
         }
       } catch (cause) {
         if (!active) {
@@ -156,10 +243,6 @@ export default function MeetingSummary() {
             "AI分析を取得できませんでした。時間をおいてページを再読み込みしてください。",
           );
         }
-        meetingStartDebug("meeting-summary-page", "ai final analysis load failed", {
-          sessionId: id,
-          message: cause instanceof Error ? cause.message : "unknown error",
-        });
       }
     }
 
@@ -171,9 +254,43 @@ export default function MeetingSummary() {
         clearTimeout(timer);
       }
     };
-  }, [id, workspaceId]);
+  }, [id, workspaceId, retryGeneration]);
 
   const summary = useMemo(() => (session ? summaryFromMeetingSession(session) : null), [session]);
+
+  const finalSummaryState = useMemo(
+    () =>
+      deriveFinalSummaryState({
+        ...(session ? { sessionStatus: session.status } : {}),
+        finalization,
+        final: finalAnalysis,
+        loading: finalAnalysisPending,
+      }),
+    [session, finalization, finalAnalysis, finalAnalysisPending],
+  );
+
+  const retryFinalization = useCallback(async () => {
+    if (!id) {
+      return;
+    }
+    setRetryInProgress(true);
+    setRetryError(null);
+    retryBaselineVersionRef.current = finalization?.version ?? 0;
+    try {
+      const analyses = await retryWorkspaceMeetingSessionFinalization(workspaceId, id);
+      setFinalization((current) =>
+        mergeFinalizationAnalysis(current, analyses.finalization ?? null),
+      );
+      // ポーリングを作り直し、再生成の進行と結果をバックエンド状態から観測する。
+      setRetryGeneration((generation) => generation + 1);
+    } catch (cause) {
+      retryBaselineVersionRef.current = null;
+      setRetryInProgress(false);
+      setRetryError(
+        cause instanceof Error ? cause.message : "最終要約の再生成を開始できませんでした。",
+      );
+    }
+  }, [id, workspaceId, finalization]);
 
   // 議論ツリーは、会議終了時に保存されたdurableスナップショットを最優先し、
   // 無ければ durable イベント(旧経路)、最後にライブ分析payloadのtreeで補う。
@@ -191,18 +308,16 @@ export default function MeetingSummary() {
   const chrome = useMemo(
     () => ({
       header: {
-        title: session
-          ? getMeetingDisplayTitle(session, { component: "meeting-session-summary-header" })
-          : "会議サマリー",
+        title: session ? getMeetingDisplayTitle(session) : "会議サマリー",
         breadcrumbs: [
           { label: "ホーム", to: meetingsPath },
           {
-            label: session
-              ? getMeetingDisplayTitle(session, { component: "meeting-session-summary-crumb" })
-              : "会議サマリー",
+            label: session ? getMeetingDisplayTitle(session) : "会議サマリー",
           },
         ],
       },
+      // /meetings と同じく、mainの白パネルを外して各カードを青背景の上に置く。
+      fullBleedMain: true,
     }),
     [meetingsPath, session],
   );
@@ -217,9 +332,15 @@ export default function MeetingSummary() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto pr-1">
+    <div
+      className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto rounded-(--ds-radius-panel) p-3 sm:p-4"
+      style={{ background: "var(--ds-bg)" }}
+    >
       {finalAnalysisError && (
-        <p className="rounded-(--ds-radius-control) border px-3 py-2 text-[11px] text-red-600">
+        <p
+          className="ds-surface shrink-0 rounded-(--ds-radius-control) border px-3 py-2 text-[11px]"
+          style={{ borderColor: "var(--danger)", color: "var(--danger)" }}
+        >
           {finalAnalysisError}
         </p>
       )}
@@ -228,16 +349,18 @@ export default function MeetingSummary() {
         <SessionSummaryHeader summary={summary} />
       </div>
 
-          {/* 2. 議事録サマリーの2カラムレイアウトエリア */}
-          <div className="shrink-0 mb-4">
-            <div className="flex flex-col gap-4">
-              <AiFinalSummaryPanel
-                final={finalAnalysis}
-                currentTitle={summary.title}
-                pending={finalAnalysisPending}
-              />
-            </div>
-          </div>
+      {/* 2. AI最終要約(会議前コンテキストの折りたたみを含む)とサマリーカード */}
+      <div className="shrink-0">
+        <AiFinalSummaryPanel
+          state={finalSummaryState}
+          onRetry={() => void retryFinalization()}
+          retryInProgress={retryInProgress}
+          retryError={retryError}
+          contextPanel={
+            hasPreMeetingContext(session) ? <PreMeetingContextPanel session={session} /> : undefined
+          }
+        />
+      </div>
 
       {/* 3. 操作を行わない領域: 現状のまま完全に維持 */}
       <SessionReviewWorkspace

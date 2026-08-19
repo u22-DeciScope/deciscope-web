@@ -16,7 +16,6 @@ import {
   formatShortDate,
   formatSource,
   isActiveMeetingItem,
-  isActiveMeetingStatus,
   sortByCreatedAtDesc,
   type MeetingListItem,
 } from "~/components/home/meetingListItems";
@@ -24,7 +23,7 @@ import { MeetingTitleLine } from "~/components/home/parts/MeetingTitleLine";
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/routing/workspacePaths";
-import { meetingStartDebug } from "~/utils/meetingStartDebug";
+
 import { formatStatus } from "~/utils/meetingStatusLabels";
 
 export default function Home() {
@@ -47,11 +46,7 @@ export default function Home() {
           return;
         }
         setMeetingSessions(sessions);
-        meetingStartDebug("dashboard", "dashboard fetched sessions", {
-          sessionCount: sessions.length,
-          activeSessions: sessions.filter((session) => isActiveMeetingStatus(session.status, true))
-            .length,
-        });
+
         setError(null);
       })
       .catch((cause: unknown) => {
@@ -94,11 +89,7 @@ export default function Home() {
   );
   const allActiveMeetings = useMemo(() => {
     const active = meetingItems.filter(isActiveMeetingItem);
-    meetingStartDebug("dashboard", "activeSessions filtering result", {
-      total: meetingItems.length,
-      active: active.length,
-      inactive: meetingItems.length - active.length,
-    });
+
     return sortByCreatedAtDesc(active);
   }, [meetingItems]);
   const activeMeetings = useMemo(() => allActiveMeetings.slice(0, 3), [allActiveMeetings]);
@@ -120,8 +111,19 @@ export default function Home() {
             >
               {workspace.name.charAt(0)}
             </span>
-            <span className="truncate text-[16px] font-bold" style={{ color: "var(--text-main)" }}>
-              {workspace.name}
+            <span className="flex min-w-0 items-baseline gap-1">
+              <span
+                className="shrink-0 text-[12px] font-medium"
+                style={{ color: "var(--text-muted)" }}
+              >
+                現在のワークスペース：
+              </span>
+              <span
+                className="truncate text-[16px] font-bold"
+                style={{ color: "var(--text-main)" }}
+              >
+                {workspace.name}
+              </span>
             </span>
             <RoleBadge role={workspace.role} />
             {normalizeWorkspaceRole(workspace.role) === "viewer" && <ViewerOnlyBadge />}

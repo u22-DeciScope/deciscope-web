@@ -3,8 +3,8 @@ import type { MeetingSummaryViewModel } from "~/components/meeting/summary/meeti
 export function SessionSummaryHeader({ summary }: { summary: MeetingSummaryViewModel }) {
   return (
     <section
-      className="ds-surface shrink-0 rounded-(--ds-radius-panel) px-5 py-4"
-      style={{ boxShadow: "var(--ds-shadow)" }}
+      className="ds-surface shrink-0 rounded-(--ds-radius-panel) border px-5 py-4"
+      style={{ borderColor: "var(--ds-border)", boxShadow: "var(--ds-shadow)" }}
       aria-label="会議概要"
     >
       <div className="mb-2 flex flex-wrap items-center gap-2">
