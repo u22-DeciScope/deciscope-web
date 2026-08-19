@@ -7,6 +7,7 @@ import type { AnalysisItem } from "~/api/meetings/meetingRuntimeTypes";
 import { analysisKindLabel } from "~/components/meeting/parts/analysisKindPalette";
 import {
   buildLiveCardUpdateHistoryFromLiveHistory,
+  deriveLiveCardChanges,
   filterForInsightItem,
   hasInsightTab,
   isLiveDisplayItem,
@@ -219,6 +220,19 @@ describe("MeetingAssistantPanel item filters", () => {
     fireEvent.click(card!);
     expect(onFocus).toHaveBeenCalledTimes(1);
     expect(onFocus).toHaveBeenCalledWith(todo.id);
+  });
+
+  it("does not put an internal fallback bucket id into card update text", () => {
+    const before: AnalysisItem = {
+      ...item("todo-security", "todo", "open"),
+      title: "セキュリティルールを確認する",
+    };
+    const after: AnalysisItem = {
+      ...before,
+      relatedAgendaIds: ["action-summary-fallback"],
+    };
+    const changes = deriveLiveCardChanges([before], [after], new Map());
+    expect(JSON.stringify(changes)).not.toContain("action-summary-fallback");
   });
 
   it("renders card updates as cards without the removed topic or key points sections", async () => {

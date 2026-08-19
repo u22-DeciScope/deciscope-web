@@ -905,9 +905,9 @@ function displaySeverity(value: string) {
 }
 
 function displayRelatedAgendas(item: AnalysisItem, agendaLabels: Map<string, string>) {
-  const labels = [...new Set(item.relatedAgendaIds ?? [])].map((id) =>
-    humanizeAgendaReferences(id, agendaLabels),
-  );
+  const labels = [...new Set(item.relatedAgendaIds ?? [])]
+    .map((id) => humanizeAgendaReferences(id, agendaLabels))
+    .filter(Boolean);
   return labels.join("、") || "なし";
 }
 
