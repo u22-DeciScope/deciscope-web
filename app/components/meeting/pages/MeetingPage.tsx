@@ -293,7 +293,7 @@ export default function Meeting() {
   useWorkspaceChrome(chrome);
 
   return (
-    <section className="flex h-full min-w-0 flex-col gap-2 overflow-hidden">
+    <section className="flex h-full min-w-0 flex-col gap-2 overflow-visible md:overflow-hidden">
       <BotStatusToasts toasts={botStatusToasts} onDismiss={dismissBotStatusToast} />
 
       {pageNotice && (

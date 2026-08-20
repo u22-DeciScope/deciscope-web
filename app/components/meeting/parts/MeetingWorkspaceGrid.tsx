@@ -152,7 +152,7 @@ export function MeetingWorkspaceGrid({
   return (
     <section
       className={[
-        "grid min-h-0 gap-2 overflow-y-auto transition-[grid-template-columns] duration-200 lg:overflow-hidden",
+        "grid min-h-0 gap-2 overflow-visible transition-[grid-template-columns] duration-200 md:overflow-y-auto lg:overflow-hidden",
         timelineCollapsed
           ? "lg:grid-cols-[56px_minmax(420px,2.4fr)_minmax(280px,0.95fr)]"
           : "lg:grid-cols-[minmax(250px,0.85fr)_minmax(420px,1.65fr)_minmax(280px,0.95fr)]",
@@ -161,33 +161,38 @@ export function MeetingWorkspaceGrid({
         .filter(Boolean)
         .join(" ")}
     >
-      <div className="min-h-0 min-w-0">
+      <div className="min-h-80 min-w-0 lg:min-h-0">
         {timelineCollapsed ? (
-          <button
-            type="button"
-            className="flex h-full min-h-20 w-full flex-col items-center justify-start gap-2.5 rounded-(--ds-radius-panel) border py-3"
-            style={{ background: "var(--ds-surface)", borderColor: "var(--ds-border)" }}
-            onClick={() => setTimelineCollapsed(false)}
-            aria-label="タイムラインを開く"
-            title="タイムラインを開く"
-          >
-            <span
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border"
-              style={{
-                background: "var(--ds-surface-muted)",
-                borderColor: "var(--ds-border)",
-                color: "var(--text-sub)",
-              }}
+          <>
+            <button
+              type="button"
+              className="hidden h-full min-h-20 w-full flex-col items-center justify-start gap-2.5 rounded-(--ds-radius-panel) border py-3 lg:flex"
+              style={{ background: "var(--ds-surface)", borderColor: "var(--ds-border)" }}
+              onClick={() => setTimelineCollapsed(false)}
+              aria-label="タイムラインを開く"
+              title="タイムラインを開く"
             >
-              <HiChevronRight className="h-3.5 w-3.5" />
-            </span>
-            <span
-              className="text-[10px] font-semibold tracking-widest [writing-mode:vertical-rl]"
-              style={{ color: "var(--text-sub)" }}
-            >
-              タイムライン
-            </span>
-          </button>
+              <span
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border"
+                style={{
+                  background: "var(--ds-surface-muted)",
+                  borderColor: "var(--ds-border)",
+                  color: "var(--text-sub)",
+                }}
+              >
+                <HiChevronRight className="h-3.5 w-3.5" />
+              </span>
+              <span
+                className="text-[10px] font-semibold tracking-widest [writing-mode:vertical-rl]"
+                style={{ color: "var(--text-sub)" }}
+              >
+                タイムライン
+              </span>
+            </button>
+            <div className="grid h-full min-h-80 min-w-0 lg:hidden">
+              <MeetingChatPanel partials={partials} segments={segments} />
+            </div>
+          </>
         ) : (
           <div className="grid h-full min-h-0 min-w-0">
             <MeetingChatPanel
@@ -196,7 +201,7 @@ export function MeetingWorkspaceGrid({
               headerAction={
                 <button
                   type="button"
-                  className="group relative ml-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-(--ds-radius-control) border"
+                  className="group relative ml-1.5 hidden h-6 w-6 shrink-0 items-center justify-center rounded-(--ds-radius-control) border lg:flex"
                   style={{
                     background: "var(--ds-surface-muted)",
                     borderColor: "var(--ds-border)",

@@ -2,14 +2,16 @@ import { BrandLogo } from "~/components/BrandLogo";
 import { APP_SIDEBAR_SIZES } from "~/components/shared/navigation/appSidebarSizes";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/routing/workspacePaths";
+import { HiXMark } from "react-icons/hi2";
 
 const LOGO_TEXT_MIN_WIDTH = 156;
 
 type AppSidebarHeaderProps = {
   navigationWidth: number;
+  onClose?: () => void;
 };
 
-export function AppSidebarHeader({ navigationWidth }: AppSidebarHeaderProps) {
+export function AppSidebarHeader({ navigationWidth, onClose }: AppSidebarHeaderProps) {
   const { workspaceId } = useAuthenticatedLayout();
   const showLogoText = navigationWidth >= LOGO_TEXT_MIN_WIDTH;
   const logoFrameWidth = showLogoText ? navigationWidth : APP_SIDEBAR_SIZES.collapsedPaneWidth;
@@ -20,7 +22,7 @@ export function AppSidebarHeader({ navigationWidth }: AppSidebarHeaderProps) {
       style={{ borderColor: "var(--ds-border)" }}
     >
       <div
-        className={`flex h-full min-w-0 items-center px-3 ${
+        className={`flex h-full min-w-0 flex-1 items-center px-3 ${
           showLogoText ? "justify-start" : "justify-center"
         }`}
         style={{ width: logoFrameWidth }}
@@ -45,6 +47,17 @@ export function AppSidebarHeader({ navigationWidth }: AppSidebarHeaderProps) {
           )}
         </div>
       </div>
+      {onClose ? (
+        <button
+          type="button"
+          autoFocus
+          className="mr-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-(--ds-radius-control) transition hover:bg-(--ds-surface-muted) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--brand)"
+          aria-label="メニューを閉じる"
+          onClick={onClose}
+        >
+          <HiXMark className="h-5 w-5" />
+        </button>
+      ) : null}
     </header>
   );
 }

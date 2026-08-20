@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
 import { ConfirmDialog } from "~/components/shared/modal/ConfirmDialog";
-import { AppSettingsModal } from "~/components/shared/settings/AppSettingsModal";
 import { UserMenuButton } from "~/components/shared/navigation/UserMenuButton";
 import { UserMenuPopover } from "~/components/shared/navigation/UserMenuPopover";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
@@ -13,9 +12,10 @@ type AppUserMenuProps = {
 export function AppUserMenu({ collapsed }: AppUserMenuProps) {
   const { logout, user } = useAuthenticatedLayout();
   const [open, setOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const menuRoot = useRef<HTMLDivElement>(null);
+  const popoverRoot = useRef<HTMLDivElement>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) {
@@ -23,14 +23,17 @@ export function AppUserMenu({ collapsed }: AppUserMenuProps) {
     }
 
     function handlePointerDown(event: PointerEvent) {
-      if (!menuRoot.current?.contains(event.target as Node)) {
-        setOpen(false);
+      const target = event.target as Node;
+      if (menuRoot.current?.contains(target) || popoverRoot.current?.contains(target)) {
+        return;
       }
+      setOpen(false);
     }
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setOpen(false);
+        menuButton.current?.focus();
       }
     }
 
@@ -52,32 +55,27 @@ export function AppUserMenu({ collapsed }: AppUserMenuProps) {
     await logout();
   }
 
-  function handleOpenSettings() {
-    setOpen(false);
-    setSettingsOpen(true);
-  }
-
   return (
     <>
       <div ref={menuRoot} className="relative border-t" style={{ borderColor: "var(--ds-border)" }}>
         {open && (
           <UserMenuPopover
-            anchorEl={menuRoot.current} // 💡 追記：親要素の参照を渡す
+            anchorEl={menuRoot.current}
             collapsed={collapsed}
+            menuRef={popoverRoot}
             onLogout={handleRequestLogout}
-            onOpenSettings={handleOpenSettings}
             user={user}
           />
         )}
 
         <UserMenuButton
+          buttonRef={menuButton}
           collapsed={collapsed}
           open={open}
           onClick={() => setOpen((current) => !current)}
           user={user}
         />
       </div>
-      {settingsOpen && <AppSettingsModal onClose={() => setSettingsOpen(false)} />}
       {logoutConfirmOpen && (
         <ConfirmDialog
           title="ログアウトしますか？"
