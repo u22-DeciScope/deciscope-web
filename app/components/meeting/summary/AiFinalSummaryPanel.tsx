@@ -247,10 +247,10 @@ function FinalSummarySection({
   return (
     // 横並びにしたとき2枚のカードの高さが揃うよう、グリッドの行いっぱいに広げる。
     <div
-      className="ds-surface flex h-full flex-col overflow-hidden rounded-(--ds-radius-panel) border p-8"
+      className="ds-surface flex h-full flex-col overflow-hidden rounded-(--ds-radius-panel) border p-4 sm:p-6 lg:p-8"
       style={{ borderColor: "var(--ds-border)", boxShadow: "var(--ds-shadow)" }}
     >
-      <div className="mb-6 flex shrink-0 items-center">
+      <div className="mb-4 flex shrink-0 items-center sm:mb-6">
         {Icon ? (
           <Icon className="mr-3 h-5 w-5" style={{ color: "var(--text-muted)" }} />
         ) : (

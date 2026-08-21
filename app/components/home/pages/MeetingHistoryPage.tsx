@@ -210,12 +210,12 @@ function MeetingHistoryCard({
   const duration = formatDuration(meeting.joined_at, meeting.ended_at);
   return (
     <div
-      className="ds-surface flex items-center gap-4 rounded-(--ds-radius-panel) border px-5 py-5 sm:px-6 sm:py-6"
+      className="ds-surface flex flex-col items-stretch gap-3 rounded-(--ds-radius-panel) border px-4 py-4 sm:flex-row sm:items-center sm:gap-4 sm:px-6 sm:py-6"
       style={{ borderColor: "var(--ds-border)", boxShadow: "var(--ds-shadow)" }}
     >
       <Link
         to={meeting.recentTo}
-        className="flex min-w-0 flex-1 items-center gap-4 transition hover:opacity-80"
+        className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-start gap-3 transition hover:opacity-80 sm:flex sm:items-center sm:gap-4"
       >
         <div
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-(--ds-radius-control)"
@@ -246,7 +246,7 @@ function MeetingHistoryCard({
           </p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="col-span-2 flex shrink-0 items-center justify-end gap-3 sm:col-auto sm:justify-start">
           <span
             className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium"
             style={{ background: "var(--input-bg)", color: statusColor(meeting.status) }}
@@ -262,7 +262,7 @@ function MeetingHistoryCard({
           variant="secondary"
           disabled={isDeleting}
           onClick={onRequestDelete}
-          className="shrink-0"
+          className="w-full shrink-0 sm:w-auto"
         >
           {isDeleting ? "削除中..." : "削除"}
         </DsButton>

@@ -2,10 +2,6 @@ import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { HiChevronRight } from "react-icons/hi2";
 
-import { BrandLogo } from "~/components/BrandLogo";
-import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
-import { workspacePath } from "~/routing/workspacePaths";
-
 export type WorkspaceHeaderBreadcrumb = {
   label: ReactNode;
   to?: string;
@@ -28,22 +24,13 @@ export function WorkspaceHeader({
   subtitle,
   title,
 }: WorkspaceHeaderConfig) {
-  const { workspaceId } = useAuthenticatedLayout();
   const hasBreadcrumbs = Boolean(breadcrumbs?.length);
 
   return (
     <header
-      className="ds-surface sticky top-2 z-20 shrink-0 overflow-hidden rounded-(--ds-radius-panel) md:static"
+      className="ds-surface sticky top-[calc(4rem+env(safe-area-inset-top))] z-20 shrink-0 overflow-hidden rounded-(--ds-radius-panel) md:static"
       style={{ boxShadow: "var(--ds-shadow)" }}
     >
-      <div
-        className="flex items-center justify-between border-b px-4 py-3 md:hidden"
-        style={{ borderColor: "var(--ds-border)" }}
-      >
-        <BrandLogo size="sm" linkTo={workspacePath(workspaceId, "/meetings")} />
-        <WorkspaceHeaderAvatar />
-      </div>
-
       <div className="flex min-h-13 flex-wrap items-center gap-3 px-4 py-3 md:h-13 md:flex-nowrap md:px-5 md:py-0">
         <div className="min-w-0 flex-1">
           {hasBreadcrumbs ? (
@@ -54,7 +41,7 @@ export function WorkspaceHeader({
         </div>
 
         {(meta || status || actions) && (
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 md:gap-3">
+          <div className="flex w-full shrink-0 flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end md:gap-3">
             {meta}
             {status}
             {actions}
@@ -115,24 +102,6 @@ function WorkspaceHeaderTitle({ subtitle, title }: { subtitle?: ReactNode; title
           {subtitle}
         </p>
       ) : null}
-    </div>
-  );
-}
-
-function WorkspaceHeaderAvatar() {
-  const { user } = useAuthenticatedLayout();
-  const avatarLetter = (user.displayName ?? "ゲスト").charAt(0);
-
-  if (user.photoURL) {
-    return <img src={user.photoURL} alt="" className="h-8 w-8 rounded-full object-cover" />;
-  }
-
-  return (
-    <div
-      className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-white"
-      style={{ background: "var(--brand)" }}
-    >
-      {avatarLetter}
     </div>
   );
 }

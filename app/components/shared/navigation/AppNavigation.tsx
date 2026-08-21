@@ -7,9 +7,10 @@ import { workspacePath } from "~/routing/workspacePaths";
 
 type AppNavigationProps = {
   collapsed: boolean;
+  onNavigate?: () => void;
 };
 
-export function AppNavigation({ collapsed }: AppNavigationProps) {
+export function AppNavigation({ collapsed, onNavigate }: AppNavigationProps) {
   const activeItem = useActiveNavigationItem();
   const { workspace, workspaceId } = useAuthenticatedLayout();
   // viewer には管理系メニューを表示しない (backend 認可は別途維持されている)。
@@ -41,6 +42,7 @@ export function AppNavigation({ collapsed }: AppNavigationProps) {
             aria-label={collapsed ? item.label : undefined}
             className={className}
             style={style}
+            onClick={onNavigate}
           >
             {content}
           </Link>
