@@ -313,7 +313,7 @@ export function MeetingAssistantPanel({
 
   return (
     <div
-      className="relative flex min-h-0 w-full flex-col overflow-hidden rounded-(--ds-radius-panel) border"
+      className="relative flex min-h-80 w-full flex-col overflow-hidden rounded-(--ds-radius-panel) border lg:min-h-0"
       style={{ background: "var(--ds-surface)", borderColor: "var(--ds-border)" }}
       data-live-active-items={liveActiveItemCount}
       data-live-resolved-items={liveResolvedItemCount}
