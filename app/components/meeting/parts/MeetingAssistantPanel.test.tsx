@@ -1,11 +1,12 @@
 import { StrictMode } from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { MeetingAIAnalysis } from "~/api/aiAnalysis/aiAnalysisApi";
 import type { AnalysisItem } from "~/api/meetings/meetingRuntimeTypes";
 import { analysisKindLabel } from "~/components/meeting/parts/analysisKindPalette";
 import {
+  analysisItemElementId,
   buildLiveCardUpdateHistoryFromLiveHistory,
   deriveLiveCardChanges,
   filterForInsightItem,
@@ -646,5 +647,48 @@ describe("MeetingAssistantPanel item filters", () => {
     );
     expect(screen.getByRole("heading", { name: "カードの更新" })).not.toBeNull();
     expect(screen.queryByText("たった今 更新")).toBeNull();
+  });
+});
+
+describe("MeetingAssistantPanel focus scrolling", () => {
+  it("scrolls the card list itself instead of every scrollable ancestor", () => {
+    // scrollIntoView は祖先のスクロールコンテナも動かすため、ページ側がスクロール
+    // できる画面(/summary・公開サンプル)では画面全体が上下に飛んでしまう。
+    // jsdom はどちらのAPIも実装しないので、呼び出しの有無を見るために差し込む。
+    const scrollTargets: Element[] = [];
+    const scrollToArgs: unknown[] = [];
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollTo = function scrollToStub(this: Element, options: unknown) {
+      scrollTargets.push(this);
+      scrollToArgs.push(options);
+    } as never;
+    Element.prototype.scrollIntoView = scrollIntoView as never;
+    vi.useFakeTimers();
+
+    try {
+      render(
+        <MeetingAssistantPanel
+          insights={[item("issue-1", "issue", "open")]}
+          speakerSummaries={[]}
+          showLiveTab={false}
+          focusedAnalysisItemId="issue-1"
+        />,
+      );
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+
+      const card = document.getElementById(analysisItemElementId("issue-1"));
+      expect(card).not.toBeNull();
+      expect(scrollIntoView).not.toHaveBeenCalled();
+      expect(scrollTargets).toHaveLength(1);
+      expect(scrollTargets[0].contains(card)).toBe(true);
+      expect(scrollTargets[0].className).toContain("overflow-y-auto");
+      expect(scrollToArgs[0]).toMatchObject({ behavior: "smooth" });
+    } finally {
+      vi.useRealTimers();
+      delete (Element.prototype as { scrollTo?: unknown }).scrollTo;
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
   });
 });

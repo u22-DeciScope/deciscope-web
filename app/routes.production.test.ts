@@ -7,6 +7,7 @@ describe("production route exposure", () => {
     const transcriptApi = readFileSync("app/api/transcripts/transcriptSegmentsApi.ts", "utf8");
     const firebaseAuth = readFileSync("app/api/firebase/firebaseAuthClient.ts", "utf8");
 
+    expect(routes).toContain('route("sample-meeting", "routes/sample-meeting.tsx")');
     expect(routes).not.toContain('route("test"');
     expect(routes).not.toContain('route("debug/');
     expect(transcriptApi).not.toContain("VITE_DECISCOPE_WS_CLIENT_TOKEN");

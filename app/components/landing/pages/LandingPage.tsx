@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { HiArrowRight, HiEye } from "react-icons/hi2";
 import { Link } from "react-router";
 
 import { BrandLogo } from "~/components/BrandLogo";
@@ -132,6 +133,43 @@ function WorkspaceSection() {
           lead="画面は3つの領域に分かれています。左で発言を追い、中央で議論の構造を見て、右でAIの指摘を受け取ります。"
         />
         <WorkspaceColumns />
+        <div
+          id="meeting-history-sample"
+          className="mx-auto mt-6 flex w-fit max-w-full scroll-mt-24 flex-col gap-4 rounded-(--ds-radius-panel) border px-5 py-5 sm:flex-row sm:items-center sm:px-6"
+          style={{
+            background: "color-mix(in srgb, var(--ds-surface) 88%, var(--brand) 12%)",
+            borderColor: "var(--lp-rule-strong)",
+          }}
+        >
+          <div className="flex min-w-0 max-w-2xl items-start gap-3">
+            <span
+              className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-(--ds-radius-control)"
+              style={{ background: "var(--brand)", color: "var(--text-on-brand)" }}
+            >
+              <HiEye className="h-4 w-4" />
+            </span>
+            <div>
+              <p className="text-[14px] font-bold" style={{ color: "var(--text-main)" }}>
+                会議後の履歴画面を、より詳しく確認できます
+              </p>
+              <p className="mt-1 text-[12px] leading-6" style={{ color: "var(--text-sub)" }}>
+                文字起こし・議論ツリー・AI分析・最終要約が、会議後にどう残るかをご覧ください。
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/sample-meeting"
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-(--ds-radius-control) border px-5 py-2.5 text-[13px] font-semibold transition hover:opacity-75"
+            style={{
+              background: "var(--ds-surface)",
+              borderColor: "var(--brand)",
+              color: "var(--brand)",
+            }}
+          >
+            サンプル会議の履歴を見る
+            <HiArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
       </Shell>
     </section>
   );
