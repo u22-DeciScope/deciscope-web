@@ -87,23 +87,6 @@ export default function PublicSampleMeetingPage() {
             />
           </div>
         </div>
-
-        <div
-          className="flex flex-col items-center justify-between gap-3 border-t py-5 sm:flex-row"
-          style={{ borderColor: "var(--lp-rule)" }}
-        >
-          <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>
-            このページは公開用の固定サンプルで、ワークスペース内の会議データには接続しません。
-          </p>
-          <div className="flex items-center gap-4 text-[12px] font-semibold">
-            <Link to="/" className="hover:underline" style={{ color: "var(--text-sub)" }}>
-              トップへ戻る
-            </Link>
-            <Link to="/signup" className="hover:underline" style={{ color: "var(--brand)" }}>
-              無料ではじめる
-            </Link>
-          </div>
-        </div>
       </main>
     </div>
   );

@@ -40,6 +40,13 @@ describe("PublicSampleMeetingPage", () => {
     );
 
     expect(screen.queryByText("会議後に残る記録を、そのまま体験できます")).toBeNull();
+    expect(
+      screen.queryByText(
+        "このページは公開用の固定サンプルで、ワークスペース内の会議データには接続しません。",
+      ),
+    ).toBeNull();
+    expect(screen.queryByRole("link", { name: "トップへ戻る" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "無料ではじめる" })).toBeNull();
     expect(screen.getByText("会議概要")).toBeTruthy();
     expect(screen.getByText("AI最終要約")).toBeTruthy();
     expect(screen.getByText("会議履歴ワークスペース")).toBeTruthy();
