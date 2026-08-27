@@ -519,6 +519,25 @@ function isTreeCandidateNewer(candidate: TreeCandidate, current: TreeCandidate):
   return candidateTime !== null && (currentTime === null || candidateTime >= currentTime);
 }
 
+// /summary は session store ではなく画面ローカルの state で final snapshot を
+// 保持する。REST の再取得やポーリング順の入れ替わりで、確定済みの新しい snapshot
+// が空・古い応答へ巻き戻らないよう、採用可否をここで一元的に判定する。
+export function shouldReplaceFinalTreeSnapshot(
+  current: TreeSnapshotPayload | null,
+  incoming: TreeSnapshotPayload | null,
+): boolean {
+  if (!incoming || !hasCompleteTree(incoming.tree)) {
+    return false;
+  }
+  if (!current || !hasCompleteTree(current.tree)) {
+    return true;
+  }
+  return isTreeCandidateNewer(
+    { treeVersion: incoming.treeVersion ?? null, updatedAt: incoming.generatedAtUtc },
+    { treeVersion: current.treeVersion ?? null, updatedAt: current.generatedAtUtc },
+  );
+}
+
 function shouldApplyFinalTreeSnapshot(
   state: MeetingAnalysisState,
   incoming: TreeSnapshotPayload,

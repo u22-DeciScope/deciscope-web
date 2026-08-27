@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./styles/themes.css";
+@import "./styles/landing.css";
 
 /* ============================================================
    Base
@@ -10,6 +11,25 @@ body {
   background: var(--ds-bg);
   color: var(--text-main);
   font-family: var(--font-sans), sans-serif;
+}
+
+body {
+  overflow-x: clip;
+}
+
+.ds-mobile-app-bar {
+  padding-top: env(safe-area-inset-top);
+  padding-left: max(0.75rem, env(safe-area-inset-left));
+  padding-right: max(0.75rem, env(safe-area-inset-right));
+  height: calc(3.5rem + env(safe-area-inset-top));
+  border-color: var(--ds-border);
+  box-shadow: var(--ds-shadow);
+}
+
+.ds-mobile-navigation {
+  padding-top: max(0.5rem, env(safe-area-inset-top));
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  padding-left: max(0.5rem, env(safe-area-inset-left));
 }
 
 .ds-surface {

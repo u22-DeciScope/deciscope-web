@@ -5,7 +5,7 @@ import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
 
 export function summaryFromMeetingSession(session: MeetingSessionDto): MeetingSummaryViewModel {
   return {
-    title: getMeetingDisplayTitle(session, { component: "meeting-session-summary" }),
+    title: getMeetingDisplayTitle(session),
     statusLabel: formatStatus(session.status),
     dateRange: formatSessionRange(session),
     duration: sessionDuration(session),
