@@ -197,6 +197,8 @@ export function MeetingAssistantPanel({
   // 直近で自動タブ切替を実行済みのフォーカスIDを保持する。同じIDに対してタブ切替は
   // 1回だけ行い、ユーザーが手動でタブを変えても再度引き戻さないようにするための目印。
   const processedFocusIdRef = useRef<string | null>(null);
+  // フォーカスされたカードへスクロールする対象。パネル内のカード一覧そのもの。
+  const itemListRef = useRef<HTMLDivElement>(null);
   const visibleInsights = useMemo(
     () => insights.filter((insight) => !isDismissedItem(insight)),
     [insights],
@@ -304,9 +306,20 @@ export function MeetingAssistantPanel({
       return;
     }
     const timer = window.setTimeout(() => {
-      document
-        .getElementById(analysisItemElementId(focusedAnalysisItemId))
-        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      const list = itemListRef.current;
+      const target = document.getElementById(analysisItemElementId(focusedAnalysisItemId));
+      if (!list || !target) {
+        return;
+      }
+      // scrollIntoView は祖先のスクロールコンテナも動かすため、ページ側がスクロール
+      // できる画面(/summary・公開サンプル・モバイル)では画面全体が上下に飛ぶ。
+      // カード一覧の scrollTop だけを動かして、パネル内に閉じたスクロールにする。
+      const offsetInList =
+        target.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
+      const centeredTop = offsetInList - (list.clientHeight - target.offsetHeight) / 2;
+      const maxTop = Math.max(0, list.scrollHeight - list.clientHeight);
+      const top = Math.min(Math.max(centeredTop, 0), maxTop);
+      list.scrollTo({ top, behavior: "smooth" });
     }, 80);
     return () => window.clearTimeout(timer);
   }, [filteredInsights, filteredLiveItems, focusedAnalysisItemId]);
@@ -378,6 +391,7 @@ export function MeetingAssistantPanel({
       </div>
 
       <div
+        ref={itemListRef}
         className={[
           "min-h-0 flex-1 overflow-y-auto p-3",
           liveTabActive ? "space-y-6" : "space-y-3",
