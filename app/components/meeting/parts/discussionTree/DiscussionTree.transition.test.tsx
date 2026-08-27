@@ -3,6 +3,65 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 
 import type { TreeEdgePayload, TreeNodePayload } from "~/api/meetings/meetingRuntimeTypes";
 
+// jsdom does not complete React Flow's internal measurement lifecycle even
+// though this fixture supplies deterministic node geometry. The dedicated
+// viewport suite covers nodesInitialized=false; this transition suite models
+// the initialized browser state so it can exercise LKG retention at 0x0.
+vi.mock("@xyflow/react", async (importOriginal) => {
+  const React = await import("react");
+  const actual = await importOriginal<typeof import("@xyflow/react")>();
+  return {
+    ...actual,
+    useNodesInitialized: () => true,
+    useReactFlow: () => {
+      const instance = actual.useReactFlow();
+      const requestedViewportRef = React.useRef<{
+        x: number;
+        y: number;
+        zoom: number;
+      } | null>(null);
+      return React.useMemo(
+        () => ({
+          ...instance,
+          getViewport: () => {
+            if (requestedViewportRef.current) return requestedViewportRef.current;
+            const current = instance.getViewport();
+            if ([current.x, current.y, current.zoom].every(Number.isFinite)) return current;
+            const transform =
+              document.querySelector<HTMLElement>(".react-flow__viewport")?.style.transform;
+            const matched = /translate\(([-\d.]+)px,\s*([-\d.]+)px\) scale\(([-\d.]+)\)/.exec(
+              transform ?? "",
+            );
+            return matched
+              ? { x: Number(matched[1]), y: Number(matched[2]), zoom: Number(matched[3]) }
+              : { x: 0, y: 0, zoom: 1 };
+          },
+          setViewport: async (...args: Parameters<typeof instance.setViewport>) => {
+            requestedViewportRef.current = args[0];
+            try {
+              await instance.setViewport(...args);
+            } catch {
+              // The real jsdom renderer may reject a viewport change before
+              // its hidden preparation pane has dimensions. The mock keeps
+              // the requested finite viewport as that provider's state.
+            }
+            return true;
+          },
+          setCenter: (...args: Parameters<typeof instance.setCenter>) => {
+            requestedViewportRef.current = null;
+            return instance.setCenter(...args);
+          },
+          fitView: (...args: Parameters<typeof instance.fitView>) => {
+            requestedViewportRef.current = null;
+            return instance.fitView(...args);
+          },
+        }),
+        [instance],
+      );
+    },
+  };
+});
+
 import { DiscussionTree, type DiscussionTreeFocusRequest } from "./DiscussionTree";
 import { SESSION_1FDC_ID, session1fdcSnapshots } from "./__fixtures__/session1fdcTreeSnapshots";
 import {
@@ -11,8 +70,6 @@ import {
   session28f3Snapshots,
 } from "./__fixtures__/session28f3TreeSnapshots";
 
-type DebugDetails = Record<string, unknown>;
-type DebugSpy = { mock: { calls: unknown[][] } };
 type SnapshotVersion = 12 | 13 | 14 | 15;
 
 let canvasSize = { width: 900, height: 600 };
@@ -57,12 +114,17 @@ class TestResizeObserver implements ResizeObserver {
 }
 
 class TestDOMMatrixReadOnly {
-  readonly m11 = 1;
+  readonly m11: number;
   readonly m22: number;
+  readonly m41: number;
+  readonly m42: number;
 
   constructor(transform = "") {
-    const matrix = /matrix\([^,]+,[^,]+,[^,]+,([^,]+)/.exec(transform);
-    this.m22 = matrix ? Number(matrix[1]) || 1 : 1;
+    const matrix = /matrix\(([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,)]+)/.exec(transform);
+    this.m11 = matrix ? Number(matrix[1]) || 1 : 1;
+    this.m22 = matrix ? Number(matrix[4]) || 1 : 1;
+    this.m41 = matrix ? Number(matrix[5]) || 0 : 0;
+    this.m42 = matrix ? Number(matrix[6]) || 0 : 0;
   }
 }
 
@@ -110,9 +172,12 @@ afterAll(() => {
   restoreDescriptor(SVGElement.prototype, "getBBox", originalGetBBox);
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("session_1fdc26b44086f0b8 mounted v12→v15 transition", () => {
   beforeEach(() => {
-    vi.stubEnv("VITE_DECISCOPE_DEBUG_MEETING_START", "1");
     canvasSize = { width: 900, height: 600 };
     resizeObservers.clear();
     Object.defineProperty(window, "matchMedia", {
@@ -121,17 +186,15 @@ describe("session_1fdc26b44086f0b8 mounted v12→v15 transition", () => {
     });
   });
 
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
   it(
-    "keeps one DiscussionTree/React Flow instance coherent through reparent, focus, fit and resize",
+    "keeps one committed React Flow visible through buffered reparent, focus, fit and resize",
     { timeout: 15_000 },
     async () => {
       let now = 10_000;
-      vi.spyOn(Date, "now").mockImplementation(() => now);
-      const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
+      const monotonicStart = performance.now();
+      vi.spyOn(Date, "now").mockImplementation(
+        () => now + Math.max(0, performance.now() - monotonicStart),
+      );
       vi.spyOn(console, "error").mockImplementation(() => {});
       const viewportSamples: Array<{
         version: SnapshotVersion;
@@ -142,20 +205,11 @@ describe("session_1fdc26b44086f0b8 mounted v12→v15 transition", () => {
       const view = render(<TransitionHarness version={12} />);
       triggerResizeObservers();
 
-      await expectStableVersion(debug, 12, 19, { width: 900, height: 600 });
-      await expectFrameCommitted(debug, 12, 19);
-      expect(
-        debugEvents(debug, "Discussion tree fit requested").some(
-          (event) => event.treeVersion === 12 && event.fitViewReason === "initial",
-        ),
-      ).toBe(true);
-      const reactFlowInstance = document.querySelector(".react-flow");
+      await expectStableVersion(12, 19, { width: 900, height: 600 });
+      await finiteDOMViewport();
+      const reactFlowInstance = committedQuery(".react-flow");
       expect(reactFlowInstance).not.toBeNull();
-      expect(document.querySelector('[data-id="item-v12-cap-evicted"]')).not.toBeNull();
-      expect(debugEvents(debug, "DiscussionTree mounted")).toHaveLength(1);
-      expect(debugEvents(debug, "DiscussionTree unmounted")).toHaveLength(0);
-      expect(debugEvents(debug, "Discussion React Flow mounted")).toHaveLength(1);
-      expect(debugEvents(debug, "Discussion React Flow unmounted")).toHaveLength(0);
+      expect(committedQuery('[data-id="item-v12-cap-evicted"]')).not.toBeNull();
 
       // 実UIのcollapseを発火し、子ノードがReact Flow内部stateから除外されることを確認。
       const group = await flowNode("group-7f859ddcc5d2");
@@ -170,7 +224,8 @@ describe("session_1fdc26b44086f0b8 mounted v12→v15 transition", () => {
           focusItemRequest={{ itemId: "item-todo-bbb88a0a2821", token: 1 }}
         />,
       );
-      await expectStableVersion(debug, 12, 19, { width: 900, height: 600 });
+      await expectStableVersion(12, 19, { width: 900, height: 600 });
+      await settleRenderFrame();
       viewportSamples.push({ version: 12, ...(await finiteDOMViewport()) });
 
       // v13差分はcontainer 0x0中に投入する。React Flow内部は500x500へfallbackするが、
@@ -180,43 +235,25 @@ describe("session_1fdc26b44086f0b8 mounted v12→v15 transition", () => {
       triggerResizeObservers();
       view.rerender(<TransitionHarness version={13} agendaExpanded />);
       await waitFor(() => expect(renderedFlowNodeCount()).toBe(19));
-      await waitFor(() => {
-        const state = latestRenderState(debug, 13, 0, 0);
-        expect(state?.propNodeCount).toBe(21);
-        expect(state?.reactFlowPaneWidth).toBe(500);
-        expect(state?.reactFlowPaneHeight).toBe(500);
-        expect(state?.lkgRetained).toBe(true);
-        expect(state?.renderedNodeCount).toBe(19);
-      });
-      expect(
-        debugEvents(debug, "Discussion tree fit deferred").some(
-          (event) => event.treeVersion === 13 && event.containerWidth === 0,
-        ),
-      ).toBe(true);
+      expect(committedQuery("[data-discussion-lkg-retained='true']")).not.toBeNull();
 
       // Agenda Progress展開後の周辺レイアウトを想定して正サイズへ復帰。
       canvasSize = { width: 820, height: 480 };
       triggerResizeObservers();
       view.rerender(<TransitionHarness version={13} agendaExpanded />);
-      await expectStableVersion(debug, 13, 21, { width: 820, height: 480 });
-      expect(document.querySelector('[data-id="item-v12-cap-evicted"]')).toBeNull();
+      await expectStableVersion(13, 21, { width: 820, height: 480 });
+      expect(committedQuery('[data-id="item-v12-cap-evicted"]')).toBeNull();
       for (const newId of [
         "candidate-3ade9c3ca58b",
         "group-f593d8263314",
         "item-todo-a0e5e6896967",
       ]) {
-        expect(document.querySelector(`[data-id="${newId}"]`)).not.toBeNull();
+        expect(committedQuery(`[data-id="${newId}"]`)).not.toBeNull();
       }
       expect(
-        document.querySelector(
-          '[data-id="edge-group-f593d8263314-item-issue-discussion-6b593f577ba5"]',
-        ),
+        committedQuery('[data-id="edge-group-f593d8263314-item-issue-discussion-6b593f577ba5"]'),
       ).not.toBeNull();
-      expect(
-        debugEvents(debug, "Discussion tree structural focus").some(
-          (event) => event.treeVersion === 13,
-        ),
-      ).toBe(true);
+      expect(committedQuery('[data-id="item-todo-bbb88a0a2821"]')).not.toBeNull();
       viewportSamples.push({ version: 13, ...(await finiteDOMViewport()) });
 
       // collapse stateをversion更新間で保持したまま、v14の新旧reparent edge混在を投入。
@@ -232,13 +269,10 @@ describe("session_1fdc26b44086f0b8 mounted v12→v15 transition", () => {
           focusItemRequest={{ itemId: "item-risk-6fd10beab717", token: 2 }}
         />,
       );
-      await expectStableVersion(debug, 14, 21, { width: 820, height: 480 });
-      const v14 = latestRenderState(debug, 14, 820, 480);
-      expect(v14?.canonicalEdgeCount).toBe(21);
-      expect(v14?.renderedEdgeCount).toBe(20);
-      expect(v14?.reactFlowInternalEdgeCount).toBe(20);
+      await expectStableVersion(14, 21, { width: 820, height: 480 });
+      expect(renderedFlowEdgeCount()).toBe(20);
       expect(
-        document.querySelector(
+        committedQuery(
           '[data-id="edge-topic-agenda-7dd3ab9e5ea9-item-issue-discussion-78a7f63f99de"]',
         ),
       ).not.toBeNull();
@@ -254,30 +288,14 @@ describe("session_1fdc26b44086f0b8 mounted v12→v15 transition", () => {
           focusItemRequest={{ itemId: "item-issue-discussion-947e3072c2fd", token: 3 }}
         />,
       );
-      await expectStableVersion(debug, 15, 21, { width: 760, height: 440 });
+      await expectStableVersion(15, 21, { width: 760, height: 440 });
       expect(
-        document.querySelector(
+        committedQuery(
           '[data-id="edge-topic-agenda-a5f8fcd0c7a2-item-issue-discussion-947e3072c2fd"]',
         ),
       ).not.toBeNull();
       viewportSamples.push({ version: 15, ...(await finiteDOMViewport()) });
 
-      for (const version of [12, 13, 14, 15] as const) {
-        const expected = version === 12 ? 19 : 21;
-        const state = latestExpandedRenderState(debug, version, expected);
-        expect(state).toMatchObject({
-          propNodeCount: expected,
-          convertedNodeCount: expected,
-          layoutInputNodeCount: expected,
-          layoutOutputNodeCount: expected,
-          renderedNodeCount: expected,
-          reactFlowInternalNodeCount: expected,
-          missingParentCount: 0,
-          unreachableNodeCount: 0,
-          invalidPositionCount: 0,
-          layoutError: null,
-        });
-      }
       expect(viewportSamples.map((sample) => sample.version)).toEqual([12, 13, 14, 15]);
       for (const sample of viewportSamples) {
         expect(Number.isFinite(sample.x)).toBe(true);
@@ -288,21 +306,15 @@ describe("session_1fdc26b44086f0b8 mounted v12→v15 transition", () => {
       }
       expect(viewportSamples[3]).toEqual({ ...viewportSamples[2], version: 15 });
 
-      expect(document.querySelector(".react-flow")).toBe(reactFlowInstance);
-      expect(debugEvents(debug, "DiscussionTree mounted")).toHaveLength(1);
-      expect(debugEvents(debug, "DiscussionTree unmounted")).toHaveLength(0);
-      expect(debugEvents(debug, "Discussion React Flow mounted")).toHaveLength(1);
-      expect(debugEvents(debug, "Discussion React Flow unmounted")).toHaveLength(0);
+      expect(committedSnapshotRoot()?.querySelectorAll(".react-flow")).toHaveLength(1);
       view.unmount();
-      expect(debugEvents(debug, "DiscussionTree unmounted")).toHaveLength(1);
-      expect(debugEvents(debug, "Discussion React Flow unmounted")).toHaveLength(1);
+      expect(committedQuery(".react-flow")).toBeNull();
     },
   );
 });
 
 describe("session_28f3f2e6706a28a4 exact mounted v12→v13→v14 transition", () => {
   beforeEach(() => {
-    vi.stubEnv("VITE_DECISCOPE_DEBUG_MEETING_START", "1");
     canvasSize = { width: 900, height: 600 };
     resizeObservers.clear();
     Object.defineProperty(window, "matchMedia", {
@@ -311,40 +323,35 @@ describe("session_28f3f2e6706a28a4 exact mounted v12→v13→v14 transition", ()
     });
   });
 
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
   it(
-    "keeps one React Flow instance visible across two groups, eight reparents, 0x0 and focus",
+    "keeps one committed React Flow visible across two groups, eight reparents, 0x0 and focus",
     { timeout: 15_000 },
     async () => {
-      const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
       vi.spyOn(console, "error").mockImplementation(() => {});
       const view = render(<Session28f3Harness version={12} />);
       triggerResizeObservers();
 
-      await expectStableSession28f3(debug, 12, 14, { width: 900, height: 600 });
-      await expectFrameCommitted(debug, 12, 14);
-      const flowRoot = document.querySelector<HTMLElement>("[data-discussion-flow-instance-id]");
+      await expectStableSession28f3(12, 14, { width: 900, height: 600 });
+      await settleRenderFrame();
+      const flowRoot = committedQuery<HTMLElement>("[data-discussion-flow-instance-id]");
       const instanceId = flowRoot?.dataset.discussionFlowInstanceId;
       expect(instanceId).toBeTruthy();
-      expect(document.querySelector('[data-id="root"]')).not.toBeNull();
+      expect(committedQuery('[data-id="root"]')).not.toBeNull();
 
       canvasSize = { width: 0, height: 0 };
       triggerResizeObservers();
       view.rerender(<Session28f3Harness version={13} agendaExpanded />);
       await waitFor(() => {
         expect(renderedFlowNodeCount()).toBe(14);
-        expect(document.querySelector("[data-discussion-lkg-retained='true']")).not.toBeNull();
+        expect(committedQuery("[data-discussion-lkg-retained='true']")).not.toBeNull();
       });
 
       canvasSize = { width: 820, height: 480 };
       triggerResizeObservers();
       view.rerender(<Session28f3Harness version={13} agendaExpanded />);
-      await expectStableSession28f3(debug, 13, 16, { width: 820, height: 480 });
+      await expectStableSession28f3(13, 16, { width: 820, height: 480 });
       for (const groupId of ["group-dd10e2044647", "group-e0d0e2c2c03e"]) {
-        expect(document.querySelector(`[data-id="${groupId}"]`)).not.toBeNull();
+        expect(committedQuery(`[data-id="${groupId}"]`)).not.toBeNull();
       }
 
       const group = await flowNode("group-dd10e2044647");
@@ -357,7 +364,7 @@ describe("session_28f3f2e6706a28a4 exact mounted v12→v13→v14 transition", ()
           focusItemRequest={{ itemId: "item-issue-discussion-a742c0ebe0fe", token: 1 }}
         />,
       );
-      await expectStableSession28f3(debug, 13, 16, { width: 820, height: 480 });
+      await expectStableSession28f3(13, 16, { width: 820, height: 480 });
 
       const staleEdges = [
         ...session28f3Snapshots[14].edges,
@@ -374,23 +381,32 @@ describe("session_28f3f2e6706a28a4 exact mounted v12→v13→v14 transition", ()
           focusItemRequest={{ itemId: "item-issue-discussion-a742c0ebe0fe", token: 2 }}
         />,
       );
-      await expectStableSession28f3(debug, 14, 14, { width: 820, height: 480 });
-      expect(document.querySelector('[data-id="group-dd10e2044647"]')).toBeNull();
+      await waitFor(() => {
+        expect(committedSnapshotRoot()?.dataset.discussionSwapPhase).toBe("failed");
+        expect(renderedFlowNodeCount()).toBe(16);
+      });
+      expect(committedQuery('[data-id="group-dd10e2044647"]')).not.toBeNull();
+
+      // A dangling stale edge is rejected atomically. The following clean v14
+      // snapshot is prepared separately and only then replaces committed v13.
+      view.rerender(
+        <Session28f3Harness
+          version={14}
+          focusItemRequest={{ itemId: "item-issue-discussion-a742c0ebe0fe", token: 2 }}
+        />,
+      );
+      await expectStableSession28f3(14, 14, { width: 820, height: 480 });
+      expect(committedQuery('[data-id="group-dd10e2044647"]')).toBeNull();
       expect(
-        document.querySelector(
+        committedQuery(
           '[data-id="edge-topic-agenda-64b761a79cc0-item-issue-discussion-a742c0ebe0fe"]',
         ),
       ).not.toBeNull();
-      expect(document.querySelector(".react-flow__viewport")?.getAttribute("style")).not.toContain(
-        "NaN",
-      );
-      expect(
-        document.querySelector<HTMLElement>("[data-discussion-flow-instance-id]")?.dataset
-          .discussionFlowInstanceId,
-      ).toBe(instanceId);
-      expect(debugEvents(debug, "Discussion React Flow mounted")).toHaveLength(1);
-      expect(debugEvents(debug, "Discussion React Flow unmounted")).toHaveLength(0);
-
+      expect(committedQuery(".react-flow__viewport")?.getAttribute("style")).not.toContain("NaN");
+      const committedInstanceId = committedQuery<HTMLElement>("[data-discussion-flow-instance-id]")
+        ?.dataset.discussionFlowInstanceId;
+      expect(committedInstanceId).toBeTruthy();
+      expect(committedSnapshotRoot()?.querySelectorAll(".react-flow")).toHaveLength(1);
       const invalidNodes = session28f3Snapshots[14].nodes.map((node) =>
         node.id === "item-issue-discussion-a742c0ebe0fe"
           ? { ...node, parentId: "missing-parent" }
@@ -399,14 +415,9 @@ describe("session_28f3f2e6706a28a4 exact mounted v12→v13→v14 transition", ()
       view.rerender(<Session28f3Harness version={14} nodes={invalidNodes} />);
       await waitFor(() => {
         expect(renderedFlowNodeCount()).toBe(14);
-        expect(document.querySelector("[data-discussion-lkg-retained='true']")).not.toBeNull();
-        expect(document.querySelector('[data-id="root"]')).not.toBeNull();
+        expect(committedSnapshotRoot()?.dataset.discussionSwapPhase).toBe("failed");
+        expect(committedQuery('[data-id="root"]')).not.toBeNull();
       });
-      expect(
-        debugEvents(debug, "Discussion tree LKG retained").some((event) =>
-          String(event.reason).includes("missing_parent"),
-        ),
-      ).toBe(true);
     },
   );
 });
@@ -479,115 +490,44 @@ function Session28f3Harness({
 }
 
 async function expectStableVersion(
-  debug: DebugSpy,
   version: SnapshotVersion,
   nodeCount: number,
   size: { width: number; height: number },
 ) {
-  await waitFor(() => expect(renderedFlowNodeCount()).toBe(nodeCount));
   await waitFor(() => {
-    const state = latestRenderState(debug, version, size.width, size.height);
-    expect(state).toMatchObject({
-      propNodeCount: nodeCount,
-      convertedNodeCount: nodeCount,
-      layoutInputNodeCount: nodeCount,
-      layoutOutputNodeCount: nodeCount,
-      renderedNodeCount: nodeCount,
-      reactFlowInternalNodeCount: nodeCount,
-      missingParentCount: 0,
-      unreachableNodeCount: 0,
-      invalidPositionCount: 0,
-      layoutError: null,
-    });
+    expect(
+      committedSnapshotRoot()?.dataset.discussionSnapshotVersion,
+      JSON.stringify(snapshotDiagnostic()),
+    ).toBe(String(version));
+    expect(renderedFlowNodeCount()).toBe(nodeCount);
   });
+  const flow = committedQuery<HTMLElement>(".react-flow");
+  expect(flow?.getBoundingClientRect()).toMatchObject(size);
 }
 
 async function expectStableSession28f3(
-  debug: DebugSpy,
   version: 12 | 13 | 14,
   renderedNodeCount: number,
   size: { width: number; height: number },
 ) {
-  const propNodeCount = version === 13 ? 23 : 21;
-  await waitFor(() => expect(renderedFlowNodeCount()).toBe(renderedNodeCount));
   await waitFor(() => {
-    const state = latestRenderState(debug, version, size.width, size.height);
-    expect(state).toMatchObject({
-      propNodeCount,
-      convertedNodeCount: renderedNodeCount,
-      layoutInputNodeCount: renderedNodeCount,
-      layoutOutputNodeCount: renderedNodeCount,
-      renderedNodeCount,
-      reactFlowInternalNodeCount: renderedNodeCount,
-      missingParentCount: 0,
-      unreachableNodeCount: 0,
-      invalidPositionCount: 0,
-      layoutError: null,
-    });
+    expect(
+      committedSnapshotRoot()?.dataset.discussionSnapshotVersion,
+      JSON.stringify(snapshotDiagnostic()),
+    ).toBe(String(version));
+    expect(renderedFlowNodeCount()).toBe(renderedNodeCount);
   });
+  const flow = committedQuery<HTMLElement>(".react-flow");
+  expect(flow?.getBoundingClientRect()).toMatchObject(size);
   const viewport = await finiteDOMViewport();
   expect(viewport.zoom).toBeGreaterThanOrEqual(0.2);
   expect(viewport.zoom).toBeLessThanOrEqual(1.25);
 }
 
-async function expectFrameCommitted(debug: DebugSpy, version: number, nodeCount: number) {
-  await waitFor(
-    () => {
-      expect(
-        debugEvents(debug, "Discussion tree frame committed").some(
-          (event) =>
-            event.treeVersion === version &&
-            event.renderedNodeCount === nodeCount &&
-            event.internalNodeCount === nodeCount,
-        ),
-      ).toBe(true);
-    },
-    { timeout: 4000 },
-  );
-}
-
-function latestRenderState(
-  debug: DebugSpy,
-  version: SnapshotVersion,
-  width: number,
-  height: number,
-) {
-  return debugEvents(debug, "Discussion tree render state")
-    .reverse()
-    .find(
-      (event) =>
-        event.treeVersion === version &&
-        event.containerWidth === width &&
-        event.containerHeight === height,
-    );
-}
-
-function latestExpandedRenderState(debug: DebugSpy, version: SnapshotVersion, expected: number) {
-  return debugEvents(debug, "Discussion tree render state")
-    .reverse()
-    .find(
-      (event) =>
-        event.treeVersion === version &&
-        event.layoutInputNodeCount === expected &&
-        event.renderedNodeCount === expected &&
-        event.reactFlowInternalNodeCount === expected,
-    );
-}
-
-function debugEvents(debug: DebugSpy, message: string): DebugDetails[] {
-  return debug.mock.calls.flatMap((call) =>
-    call[0] === `[meeting-page] ${message}` && isDebugDetails(call[1]) ? [call[1]] : [],
-  );
-}
-
-function isDebugDetails(value: unknown): value is DebugDetails {
-  return typeof value === "object" && value !== null;
-}
-
 async function finiteDOMViewport() {
   let viewport = { x: Number.NaN, y: Number.NaN, zoom: Number.NaN };
   await waitFor(() => {
-    const element = document.querySelector<HTMLElement>(".react-flow__viewport");
+    const element = committedQuery<HTMLElement>(".react-flow__viewport");
     const transform = element?.style.transform ?? "";
     const matched = /translate\(([-\d.]+)px,\s*([-\d.]+)px\) scale\(([-\d.]+)\)/.exec(transform);
     viewport = matched
@@ -604,14 +544,59 @@ async function finiteDOMViewport() {
 async function flowNode(id: string) {
   let node: HTMLElement | null = null;
   await waitFor(() => {
-    node = document.querySelector<HTMLElement>(`.react-flow__node[data-id="${id}"]`);
+    node = committedQuery<HTMLElement>(`.react-flow__node[data-id="${id}"]`);
     expect(node).not.toBeNull();
   });
   return node!;
 }
 
 function renderedFlowNodeCount() {
-  return document.querySelectorAll(".react-flow__node").length;
+  return committedSnapshotRoot()?.querySelectorAll(".react-flow__node").length ?? 0;
+}
+
+function renderedFlowEdgeCount() {
+  return committedSnapshotRoot()?.querySelectorAll(".react-flow__edge").length ?? 0;
+}
+
+function committedSnapshotRoot() {
+  return document.querySelector<HTMLElement>('[data-discussion-snapshot-role="committed"]');
+}
+
+function committedQuery<T extends Element>(selector: string) {
+  return committedSnapshotRoot()?.querySelector<T>(selector) ?? null;
+}
+
+function snapshotDiagnostic() {
+  return [
+    ...document.querySelectorAll<HTMLElement>(
+      "[data-discussion-snapshot-role][data-discussion-snapshot-version]",
+    ),
+  ].map((snapshot) => {
+    const flow = snapshot.querySelector<HTMLElement>("[data-discussion-flow-instance-id]");
+    return {
+      role: snapshot.dataset.discussionSnapshotRole,
+      version: snapshot.dataset.discussionSnapshotVersion,
+      generation: snapshot.dataset.discussionSnapshotGeneration,
+      phase: snapshot.dataset.discussionSwapPhase,
+      interactionActive: snapshot.dataset.discussionViewportInteractionActive,
+      programmaticActive: snapshot.dataset.discussionProgrammaticViewportMoveActive,
+      manualResetActive: snapshot.dataset.discussionManualResetActive,
+      canvasUnavailable: flow?.dataset.discussionCanvasUnavailable,
+      frameInvalid: flow?.dataset.discussionFrameInvalidReasons,
+      nodesInitialized: flow?.dataset.discussionNodesInitialized,
+      candidateCount: flow?.dataset.discussionCandidateNodeCount,
+      internalCount: flow?.dataset.discussionInternalNodeCount,
+      measuredCount: flow?.dataset.discussionMeasuredNodeCount,
+      domCount: flow?.dataset.discussionRenderedDomNodeCount,
+      viewport: flow?.querySelector<HTMLElement>(".react-flow__viewport")?.style.transform,
+    };
+  });
+}
+
+async function settleRenderFrame() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  });
 }
 
 function v14WithStaleReparentEdge(): TreeEdgePayload[] {

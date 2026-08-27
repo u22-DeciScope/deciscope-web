@@ -2,6 +2,8 @@ import LandingPage from "~/components/landing/pages/LandingPage";
 import { createPageTitle } from "~/root";
 import type { Route } from "./+types/landing";
 
+// 公開トップページだけで使う書体。アプリ本体(root.tsx)はInterのみを読み込んでおり、
+// 和文の見出しと計器風の等幅ラベルはこのページ固有なので、ここで追加読み込みする。
 export const links: Route.LinksFunction = () => [
   {
     rel: "stylesheet",

@@ -23,7 +23,7 @@ import {
 import { clearPendingMeetingNavigation } from "~/api/meetingSessions/pendingMeetingNavigation";
 import { workspaceMeetingSummaryPath, workspacePath } from "~/routing/workspacePaths";
 import { getMeetingDisplayTitle } from "~/utils/meetingDisplayTitle";
-import { meetingStartDebug } from "~/utils/meetingStartDebug";
+
 import { recordDiagnosticEvent } from "~/utils/clientDiagnostics/clientDiagnostics";
 import { mergeDisplaySegments } from "~/utils/meetingSegments";
 import {
@@ -86,28 +86,23 @@ export default function Meeting() {
       isLocalEnd,
       botConnectionLost: transcriptSession.botConnectionLost,
       transcriptHealth: transcriptSession.transcriptHealth,
+      mediaHealth: transcriptSession.mediaHealth,
     },
   );
   const meetingsPath = workspacePath(workspaceId, "/meetings");
   const summaryPath = workspaceMeetingSummaryPath(workspaceId, detailTargetId);
   const meetingTitle = runtime.meeting?.title?.trim()
-    ? getMeetingDisplayTitle(
-        {
-          id: runtime.meeting.id,
-          title: runtime.meeting.title,
-          titleSource: runtime.meeting.source,
-        },
-        { component: "meeting-page-runtime" },
-      )
+    ? getMeetingDisplayTitle({
+        id: runtime.meeting.id,
+        title: runtime.meeting.title,
+        titleSource: runtime.meeting.source,
+      })
     : sessionId
-      ? getMeetingDisplayTitle(
-          {
-            sessionId,
-            title: transcriptSession.sessionTitle,
-            titleSource: transcriptSession.sessionTitleSource,
-          },
-          { component: "meeting-page-header" },
-        )
+      ? getMeetingDisplayTitle({
+          sessionId,
+          title: transcriptSession.sessionTitle,
+          titleSource: transcriptSession.sessionTitleSource,
+        })
       : "会議";
 
   useEffect(() => {
@@ -133,11 +128,6 @@ export default function Meeting() {
     }
     clearPendingMeetingNavigation(workspaceId, sessionId);
     clearedPendingSessionRef.current = sessionId;
-    meetingStartDebug("meeting-page", "pending meeting navigation cleared", {
-      reason: "session_restored",
-      sessionId,
-      meetingStatus: transcriptSession.sessionStatus,
-    });
   }, [sessionId, transcriptSession.sessionStatus, workspaceId]);
 
   const partials = useMemo(
@@ -173,49 +163,11 @@ export default function Meeting() {
     selectedAnalysisType: transcriptSession.discussionTree.source,
     selectionReason: transcriptSession.discussionTree.selectionReason,
   };
-  useEffect(() => {
-    const debug = (message: string, extra: Record<string, unknown> = {}) =>
-      meetingStartDebug("meeting-page", message, {
-        ...lifecycleSnapshotRef.current,
-        ...extra,
-        timestamp: new Date().toISOString(),
-      });
-    debug("MeetingPage mounted", {
-      routeMeetingId: id,
-      runtimeMeetingId: runtimeMeetingId ?? null,
-      isSessionOnlyRoute,
-    });
-    const beforeUnload = () => debug("beforeunload");
-    const pageShow = (event: PageTransitionEvent) =>
-      debug("pageshow", { persisted: event.persisted });
-    const pageHide = (event: PageTransitionEvent) =>
-      debug("pagehide", { persisted: event.persisted });
-    const visibilityChange = () =>
-      debug("visibilitychange", { visibilityState: document.visibilityState });
-    window.addEventListener("beforeunload", beforeUnload);
-    window.addEventListener("pageshow", pageShow);
-    window.addEventListener("pagehide", pageHide);
-    document.addEventListener("visibilitychange", visibilityChange);
-    return () => {
-      debug("MeetingPage unmounted");
-      window.removeEventListener("beforeunload", beforeUnload);
-      window.removeEventListener("pageshow", pageShow);
-      window.removeEventListener("pagehide", pageHide);
-      document.removeEventListener("visibilitychange", visibilityChange);
-    };
-  }, []);
   const previousRouteRef = useRef({ pathname: "", sessionId: "" });
   useEffect(() => {
     const previous = previousRouteRef.current;
     const snapshot = lifecycleSnapshotRef.current;
-    meetingStartDebug("meeting-page", "route state observed", {
-      ...snapshot,
-      previousPathname: previous.pathname || null,
-      previousSessionId: previous.sessionId || null,
-      pathnameChanged: Boolean(previous.pathname && previous.pathname !== location.pathname),
-      sessionIdChanged: Boolean(previous.sessionId && previous.sessionId !== sessionId),
-      timestamp: new Date().toISOString(),
-    });
+
     recordDiagnosticEvent("route_changed", {
       sessionId,
       workspaceId,
@@ -341,7 +293,7 @@ export default function Meeting() {
   useWorkspaceChrome(chrome);
 
   return (
-    <section className="flex h-full min-w-0 flex-col gap-2 overflow-hidden">
+    <section className="flex h-full min-w-0 flex-col gap-2 overflow-visible md:overflow-hidden">
       <BotStatusToasts toasts={botStatusToasts} onDismiss={dismissBotStatusToast} />
 
       {pageNotice && (

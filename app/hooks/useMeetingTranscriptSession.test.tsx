@@ -14,6 +14,7 @@ const api = vi.hoisted(() => ({
   getAnalyses: vi.fn(),
   getSession: vi.fn(),
   getHistory: vi.fn(),
+  getMediaHealth: vi.fn(),
 }));
 
 vi.mock("~/api/aiAnalysis/aiAnalysisApi", async () => ({
@@ -35,6 +36,7 @@ vi.mock("~/api/transcripts/transcriptSegmentsApi", async () => ({
     "~/api/transcripts/transcriptSegmentsApi",
   )),
   fetchWorkspaceMeetingSessionTranscriptSegmentHistory: api.getHistory,
+  fetchWorkspaceMeetingSessionMediaHealth: api.getMediaHealth,
 }));
 
 vi.mock("~/utils/realtimeRecovery", async () => ({
@@ -125,6 +127,12 @@ describe("useMeetingTranscriptSession analysis recovery", () => {
       } satisfies MeetingSessionDto),
     );
     api.getHistory.mockReset().mockResolvedValue({ segments: [], unavailable: false });
+    api.getMediaHealth.mockReset().mockResolvedValue({
+      sessionId: "session-a",
+      state: "ok",
+      event: "snapshot",
+      occurredAtUtc: "2026-07-22T08:00:00Z",
+    });
     api.getAnalyses
       .mockReset()
       .mockResolvedValue(analyses(liveAnalysis(1, 1, ["root", "issue-1"])));
@@ -180,5 +188,29 @@ describe("useMeetingTranscriptSession analysis recovery", () => {
     );
     expect(remounted.result.current.discussionTree.treeVersion).toBe(2);
     expect(remounted.result.current.discussionTree.tree?.nodes).toHaveLength(3);
+  });
+
+  it("restores a missed media stall from the transient REST snapshot after reconnect", async () => {
+    const view = renderHook(() =>
+      useMeetingTranscriptSession("session-a", "session-a", "workspace-a"),
+    );
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    act(() => FakeWebSocket.instances[0].emit("open"));
+    api.getMediaHealth.mockResolvedValue({
+      sessionId: "session-a",
+      eventId: "stall-1:started",
+      state: "audio_receive_stalled",
+      event: "started",
+      occurredAtUtc: "2026-07-22T08:01:00Z",
+      durationMs: 5000,
+    });
+
+    act(() => FakeWebSocket.instances[0].emit("close", { code: 1006, wasClean: false }));
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2));
+    act(() => FakeWebSocket.instances[1].emit("open"));
+
+    await waitFor(() =>
+      expect(view.result.current.mediaHealth?.state).toBe("audio_receive_stalled"),
+    );
   });
 });

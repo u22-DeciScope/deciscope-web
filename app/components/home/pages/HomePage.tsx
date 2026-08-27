@@ -16,7 +16,6 @@ import {
   formatShortDate,
   formatSource,
   isActiveMeetingItem,
-  isActiveMeetingStatus,
   sortByCreatedAtDesc,
   type MeetingListItem,
 } from "~/components/home/meetingListItems";
@@ -24,7 +23,7 @@ import { MeetingTitleLine } from "~/components/home/parts/MeetingTitleLine";
 import { useWorkspaceChrome } from "~/components/shared/layout/WorkspaceChromeContext";
 import { useAuthenticatedLayout } from "~/context/AuthenticatedLayoutContext";
 import { workspacePath } from "~/routing/workspacePaths";
-import { meetingStartDebug } from "~/utils/meetingStartDebug";
+
 import { formatStatus } from "~/utils/meetingStatusLabels";
 
 export default function Home() {
@@ -47,11 +46,7 @@ export default function Home() {
           return;
         }
         setMeetingSessions(sessions);
-        meetingStartDebug("dashboard", "dashboard fetched sessions", {
-          sessionCount: sessions.length,
-          activeSessions: sessions.filter((session) => isActiveMeetingStatus(session.status, true))
-            .length,
-        });
+
         setError(null);
       })
       .catch((cause: unknown) => {
@@ -94,11 +89,7 @@ export default function Home() {
   );
   const allActiveMeetings = useMemo(() => {
     const active = meetingItems.filter(isActiveMeetingItem);
-    meetingStartDebug("dashboard", "activeSessions filtering result", {
-      total: meetingItems.length,
-      active: active.length,
-      inactive: meetingItems.length - active.length,
-    });
+
     return sortByCreatedAtDesc(active);
   }, [meetingItems]);
   const activeMeetings = useMemo(() => allActiveMeetings.slice(0, 3), [allActiveMeetings]);
@@ -120,8 +111,19 @@ export default function Home() {
             >
               {workspace.name.charAt(0)}
             </span>
-            <span className="truncate text-[16px] font-bold" style={{ color: "var(--text-main)" }}>
-              {workspace.name}
+            <span className="flex min-w-0 items-baseline gap-1">
+              <span
+                className="shrink-0 text-[12px] font-medium"
+                style={{ color: "var(--text-muted)" }}
+              >
+                現在のワークスペース：
+              </span>
+              <span
+                className="truncate text-[16px] font-bold"
+                style={{ color: "var(--text-main)" }}
+              >
+                {workspace.name}
+              </span>
             </span>
             <RoleBadge role={workspace.role} />
             {normalizeWorkspaceRole(workspace.role) === "viewer" && <ViewerOnlyBadge />}
@@ -193,10 +195,10 @@ export default function Home() {
 function MeetingCard({ meeting }: { meeting: MeetingListItem }) {
   return (
     <div
-      className="ds-surface flex items-center gap-4 rounded-(--ds-radius-panel) border px-5 py-5 sm:px-6 sm:py-6"
+      className="ds-surface flex flex-col items-stretch gap-3 rounded-(--ds-radius-panel) border px-4 py-4 sm:flex-row sm:items-center sm:gap-4 sm:px-6 sm:py-6"
       style={{ borderColor: "var(--ds-border)", boxShadow: "var(--ds-shadow)" }}
     >
-      <div className="min-w-20">
+      <div className="flex w-full items-end justify-between gap-2 sm:block sm:w-auto sm:min-w-20">
         <p className="text-[13px] font-bold" style={{ color: "var(--text-main)" }}>
           {formatStatus(meeting.status)}
         </p>
@@ -204,7 +206,7 @@ function MeetingCard({ meeting }: { meeting: MeetingListItem }) {
           {formatShortDate(meeting.created_at)}
         </p>
       </div>
-      <div className="h-10 w-px" style={{ background: "var(--ds-border)" }} />
+      <div className="hidden h-10 w-px sm:block" style={{ background: "var(--ds-border)" }} />
       <div className="min-w-0 flex-1">
         <span
           className="mb-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium"
@@ -217,8 +219,10 @@ function MeetingCard({ meeting }: { meeting: MeetingListItem }) {
           {meeting.detailId}
         </p>
       </div>
-      <Link to={meeting.to}>
-        <DsButton variant="secondary">{meeting.actionLabel}</DsButton>
+      <Link className="w-full sm:w-auto" to={meeting.to}>
+        <DsButton className="w-full sm:w-auto" variant="secondary">
+          {meeting.actionLabel}
+        </DsButton>
       </Link>
     </div>
   );
@@ -229,7 +233,7 @@ function RecentMeetingCard({ meeting, summary }: { meeting: MeetingListItem; sum
   return (
     <Link
       to={meeting.recentTo}
-      className="ds-surface flex items-center gap-4 rounded-(--ds-radius-panel) border px-5 py-5 transition hover:opacity-80 sm:px-6 sm:py-6"
+      className="ds-surface grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 rounded-(--ds-radius-panel) border px-4 py-4 transition hover:opacity-80 sm:flex sm:items-center sm:gap-4 sm:px-6 sm:py-6"
       style={{ borderColor: "var(--ds-border)", boxShadow: "var(--ds-shadow)" }}
     >
       <div
@@ -261,7 +265,7 @@ function RecentMeetingCard({ meeting, summary }: { meeting: MeetingListItem; sum
         </p>
       </div>
 
-      <div className="flex shrink-0 items-center gap-3">
+      <div className="col-span-2 flex shrink-0 items-center justify-end gap-3 sm:col-auto sm:justify-start">
         <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
           {formatStatus(meeting.status)}
         </span>

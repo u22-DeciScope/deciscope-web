@@ -51,3 +51,32 @@ describe("meeting_session.status_changed parsing", () => {
     expect(parsed.sessionStatus?.endReason).toBe("manual_end_requested");
   });
 });
+
+describe("meeting_session.media_health_changed parsing", () => {
+  it("keeps the structured stall and recovery diagnostics", () => {
+    const parsed = parseTranscriptWebSocketEvent(
+      JSON.stringify({
+        type: "meeting_session.media_health_changed",
+        sentAtUtc: "2026-08-01T00:51:03Z",
+        data: {
+          sessionId: "session-1",
+          eventId: "stall-1:recovered",
+          botCallId: "call-1",
+          state: "ok",
+          event: "recovered",
+          occurredAtUtc: "2026-08-01T00:51:03Z",
+          startedAtUtc: "2026-08-01T00:50:20Z",
+          lastAudioFrameAtUtc: "2026-08-01T00:51:03Z",
+          durationMs: 42917,
+        },
+      }),
+    );
+
+    expect(parsed.mediaHealth).toMatchObject({
+      sessionId: "session-1",
+      state: "ok",
+      event: "recovered",
+      durationMs: 42917,
+    });
+  });
+});

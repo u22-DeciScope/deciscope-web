@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, Outlet, useLocation, useParams } from "react-router";
+import { HiBars3 } from "react-icons/hi2";
 
 import { AuthenticatedLayoutProvider } from "~/context/AuthenticatedLayoutContext";
 import { useAuthenticatedSession } from "~/hooks/useAuthenticatedSession";
@@ -9,31 +10,21 @@ import { WorkspaceStatus } from "~/components/shared/layout/WorkspaceStatus";
 import { APP_SIDEBAR_SIZES, AppSidebar } from "~/components/shared/navigation/AppSidebar";
 import { setCurrentWorkspace } from "~/api/auth/authApi";
 import { saveLastWorkspaceId } from "~/routing/lastWorkspace";
-import { meetingStartDebug } from "~/utils/meetingStartDebug";
+import { BrandLogo } from "~/components/BrandLogo";
+import { workspacePath } from "~/routing/workspacePaths";
 
 const { collapsedPaneWidth, defaultNavigationWidth, collapseThreshold } = APP_SIDEBAR_SIZES;
 
 export function AuthenticatedWorkspaceLayout() {
   const [navigationWidth, setNavigationWidth] = useState<number>(collapsedPaneWidth);
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const { hash, pathname, search } = useLocation();
   const { workspaceId } = useParams();
   const session = useAuthenticatedSession();
   const workspace = session.session?.workspaces.find((item) => item.id === workspaceId);
   const currentPath = `${pathname}${search}${hash}`;
-  const routeSessionId = meetingSessionIdFromLocation(pathname, search);
   const loginRedirectState = useMemo(() => ({ from: currentPath }), [currentPath]);
-  useEffect(() => {
-    meetingStartDebug("auth-guard", "state", {
-      source: "auth-guard",
-      authStatus: session.status,
-      currentPath,
-      workspaceId: workspaceId ?? null,
-      authLoading: session.status === "loading",
-      workspaceLoading: session.status === "loading",
-      sessionId: routeSessionId,
-      meetingStatus: null,
-    });
-  }, [currentPath, routeSessionId, session.status, workspaceId]);
 
   useEffect(() => {
     if (workspaceId && workspace && session.session?.current_workspace_id !== workspaceId) {
@@ -48,21 +39,35 @@ export function AuthenticatedWorkspaceLayout() {
     }
   }, [workspace, workspaceId]);
 
+  useEffect(() => {
+    setMobileNavigationOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!mobileNavigationOpen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setMobileNavigationOpen(false);
+        mobileMenuButtonRef.current?.focus();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [mobileNavigationOpen]);
+
   if (!workspaceId) {
     return <WorkspaceStatus message="ワークスペースを特定できませんでした。" />;
   }
 
   if (session.status === "loading") {
-    meetingStartDebug("auth-guard", "redirect skipped because auth is loading", {
-      source: "auth-guard",
-      reason: "auth_loading",
-      currentPath,
-      targetPath: null,
-      authLoading: true,
-      workspaceLoading: true,
-      sessionId: routeSessionId,
-      meetingStatus: null,
-    });
     return <WorkspaceStatus message="認証状態を確認しています..." />;
   }
 
@@ -73,16 +78,6 @@ export function AuthenticatedWorkspaceLayout() {
   }
 
   if (session.status === "unauthenticated") {
-    meetingStartDebug("auth-guard", "redirecting to login", {
-      source: "auth-guard",
-      reason: "unauthenticated",
-      currentPath,
-      targetPath: "/login",
-      authLoading: false,
-      workspaceLoading: false,
-      sessionId: routeSessionId,
-      meetingStatus: null,
-    });
     return <Navigate to="/login" replace state={loginRedirectState} />;
   }
 
@@ -91,16 +86,7 @@ export function AuthenticatedWorkspaceLayout() {
   }
   if (!workspace) {
     const memberWorkspaces = session.session?.workspaces ?? [];
-    meetingStartDebug("auth-guard", "workspace access denied", {
-      source: "auth-guard",
-      reason: "workspace_not_found",
-      currentPath,
-      targetPath: null,
-      authLoading: false,
-      workspaceLoading: false,
-      sessionId: routeSessionId,
-      meetingStatus: null,
-    });
+
     // 所属していないワークスペースへのURL直打ちはアクセス不可を明示する。
     // 所属0件のユーザーには作成導線を出す。
     return <WorkspaceAccessDenied hasWorkspaces={memberWorkspaces.length > 0} />;
@@ -114,6 +100,13 @@ export function AuthenticatedWorkspaceLayout() {
     onWidthReset: () => setNavigationWidth(defaultNavigationWidth),
     width: navigationWidth,
   };
+  const mobileNavigationPane = {
+    collapsed: false,
+    onWidthChange: () => undefined,
+    onWidthReset: () => undefined,
+    width: APP_SIDEBAR_SIZES.maxNavigationWidth,
+  };
+  const closeMobileNavigation = () => setMobileNavigationOpen(false);
 
   return (
     <AuthenticatedLayoutProvider
@@ -124,13 +117,55 @@ export function AuthenticatedWorkspaceLayout() {
       workspaces={session.session?.workspaces ?? []}
       workspaceId={workspaceId}
     >
-      <div className="min-h-120 bg-(--ds-bg) md:flex md:h-[max(100dvh,480px)] md:gap-2 md:overflow-hidden md:p-2.25">
-        <section className="md:shrink-0">
+      <div className="min-h-dvh bg-(--ds-bg) md:flex md:h-[max(100dvh,480px)] md:gap-2 md:overflow-hidden md:p-2.25">
+        <header className="ds-mobile-app-bar ds-surface sticky top-0 z-30 flex h-14 items-center gap-3 border-b px-3 md:hidden">
+          <button
+            ref={mobileMenuButtonRef}
+            type="button"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-(--ds-radius-control) transition hover:bg-(--ds-surface-muted) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--brand)"
+            aria-controls="mobile-workspace-navigation"
+            aria-expanded={mobileNavigationOpen}
+            aria-label="メニューを開く"
+            onClick={() => setMobileNavigationOpen(true)}
+          >
+            <HiBars3 className="h-6 w-6" />
+          </button>
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <BrandLogo size="sm" linkTo={workspacePath(workspaceId, "/meetings")} />
+          </div>
+        </header>
+
+        {mobileNavigationOpen ? (
+          <div className="fixed inset-0 z-40 md:hidden">
+            <button
+              type="button"
+              className="absolute inset-0 h-full w-full bg-black/45 backdrop-blur-[2px]"
+              aria-label="メニューを閉じる"
+              onClick={closeMobileNavigation}
+            />
+            <section
+              id="mobile-workspace-navigation"
+              role="dialog"
+              aria-modal="true"
+              aria-label="メインメニュー"
+              className="ds-mobile-navigation absolute inset-y-0 left-0 w-[min(20rem,calc(100vw-3rem))] p-2"
+            >
+              <AppSidebar
+                mobile
+                navigation={mobileNavigationPane}
+                onClose={closeMobileNavigation}
+                onNavigate={closeMobileNavigation}
+              />
+            </section>
+          </div>
+        ) : null}
+
+        <section className="hidden md:block md:shrink-0">
           <AppSidebar navigation={navigationPane} />
         </section>
 
         <section className="min-w-0 flex-1 md:overflow-hidden">
-          <div className="p-2 md:h-full md:overflow-hidden md:p-0">
+          <div className="p-2 sm:p-3 md:h-full md:overflow-hidden md:p-0">
             <WorkspaceChromeProvider>
               <WorkspacePageLayout>
                 <Outlet />
@@ -165,23 +200,4 @@ function WorkspaceAccessDenied({ hasWorkspaces }: { hasWorkspaces: boolean }) {
       </div>
     </div>
   );
-}
-
-function meetingSessionIdFromLocation(pathname: string, search: string) {
-  const querySessionId = new URLSearchParams(search).get("sessionId")?.trim();
-  if (querySessionId) {
-    return querySessionId;
-  }
-
-  const match = pathname.match(/\/meetings\/([^/?#]+)/);
-  if (!match?.[1]) {
-    return null;
-  }
-
-  try {
-    const decoded = decodeURIComponent(match[1]);
-    return decoded.startsWith("session_") ? decoded : null;
-  } catch {
-    return match[1].startsWith("session_") ? match[1] : null;
-  }
 }
